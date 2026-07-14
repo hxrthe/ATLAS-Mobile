@@ -66,5 +66,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+        <string>ATLAS needs camera access to scan assessment sheets.</string>
+        <key>NSPhotoLibraryUsageDescription</key>
+        <string>ATLAS needs gallery access to upload pre-scanned assessments.</string>
 </dict>
 </plist>

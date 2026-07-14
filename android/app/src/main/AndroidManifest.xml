@@ -1,15 +1,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- The permission to use the camera -->
-    <uses-permission android:name="android.permission.CAMERA"/>
-
-    <!-- Tells the Play Store the app can still run even if the device lacks a camera -->
+    <!-- REQUIRED PERMISSIONS -->
+    <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
     <application
-        android:label="atlas_mobile"
-        android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+    android:label="atlas_mobile"
+    android:name="${applicationName}"
+    android:icon="@mipmap/ic_launcher"
+    android:usesCleartextTraffic="true"> <!-- ADD THIS LINE -->
         <!-- The rest of your manifest continues here... -->
         <activity
             android:name=".MainActivity"

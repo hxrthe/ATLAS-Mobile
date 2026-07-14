@@ -45,7 +45,7 @@ class _LoginScreenState extends State<LoginScreen> {
           // 2. Listen for Success and route to the Dashboard
           if (state is AuthSuccess) {
             Widget targetScreen = state.role == 'faculty'
-                ? const FacultyDashboardScreen()
+                ? FacultyDashboardScreen()
                 : const StudentDashboardScreen();
 
             Navigator.pushReplacement(
@@ -58,7 +58,7 @@ class _LoginScreenState extends State<LoginScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(state.error),
-                backgroundColor: Colors.red.shade800,
+                backgroundColor: Theme.of(context).colorScheme.primary,
                 behavior: SnackBarBehavior.floating,
               ),
             );
@@ -77,36 +77,34 @@ class _LoginScreenState extends State<LoginScreen> {
                     fit: BoxFit.contain,
                   ),
                   const SizedBox(height: 8),
-                  
+
+                  // For the Subtitle:
                   Text(
                     'Batangas State University — Lipa Campus',
-                    textAlign: TextAlign.center,
                     style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant, // Readable gray in both modes
                       fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: grayText,
                     ),
                   ),
-                  const SizedBox(height: 50),
 
+// For the Input Labels:
                   Text(
-                    'SR-CODE / INSTITUTIONAL EMAIL',
+                    'SR-CODE / USERNAME',
                     style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface, // Crisp and high contrast
+                      fontWeight: FontWeight.bold,
                       fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: grayText,
-                      letterSpacing: 0.5,
                     ),
                   ),
                   const SizedBox(height: 8),
                   TextField(
                     controller: _usernameController,
                     decoration: InputDecoration(
-                      hintText: '24-00214@g.batstate-u.edu.ph',
-                      hintStyle: TextStyle(color: Colors.grey.shade400),
-                      prefixIcon: Icon(Icons.email_outlined, color: grayText),
+                      hintText: '24-00214',
+                      hintStyle: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.6)),
+                      prefixIcon: Icon(Icons.email_outlined, color: grayText), // Make sure grayText is defined!
                       filled: true,
-                      fillColor: Colors.white,
+                      fillColor: Theme.of(context).colorScheme.surfaceContainer,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12.0),
                         borderSide: BorderSide(color: borderColor, width: 1.5),
@@ -138,7 +136,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     obscureText: !_isPasswordVisible,
                     decoration: InputDecoration(
                       hintText: '••••••••••••',
-                      hintStyle: TextStyle(color: Colors.grey.shade400, letterSpacing: 2.0),
+                      hintStyle: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, letterSpacing: 2.0),
                       prefixIcon: Icon(Icons.lock_outline, color: grayText),
                       suffixIcon: IconButton(
                         icon: Icon(
@@ -152,7 +150,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         },
                       ),
                       filled: true,
-                      fillColor: Colors.white,
+                      fillColor: Theme.of(context).colorScheme.surfaceContainer,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12.0),
                         borderSide: BorderSide(color: borderColor, width: 1.5),
@@ -231,11 +229,11 @@ class _LoginScreenState extends State<LoginScreen> {
                       ));
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: primaryRed,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      backgroundColor: Theme.of(context).colorScheme.primary, // ATLAS Red
+                      foregroundColor: Colors.white, // Forces the word "LOGIN" to stay pure white
+                      padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12.0),
+                        borderRadius: BorderRadius.circular(12),
                       ),
                       side: BorderSide(color: goldBorder, width: 2.0),
                       elevation: 0, 
@@ -244,11 +242,11 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     // Swap text for a loading spinner based on state
                     child: state is AuthLoading 
-                        ? const SizedBox(
+                        ? SizedBox(
                             height: 20, 
                             width: 20, 
                             child: CircularProgressIndicator(
-                              color: Colors.white, 
+                              color: Theme.of(context).colorScheme.surfaceContainer,
                               strokeWidth: 2,
                             ),
                           )

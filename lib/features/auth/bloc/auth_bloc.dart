@@ -15,14 +15,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(AuthLoading());
 
       try {
-        // 2. Ask the repository to verify the credentials and return the role
-        final role = await authRepository.login(
+        // 2. Ask the repository to verify the credentials and return the data map
+        final loginData = await authRepository.login(
           email: event.email,
           password: event.password,
         );
 
-        // 3. Tell the UI it's a success and pass the role string along
-        emit(AuthSuccess(role: role));
+        // 3. Tell the UI it's a success and extract ONLY the role string from the map
+        emit(AuthSuccess(role: loginData['role']!));
 
       } catch (e) {
         // 4. If the repository throws an error, send the error message to the UI

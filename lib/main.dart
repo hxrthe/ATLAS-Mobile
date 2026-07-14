@@ -1,12 +1,26 @@
 import 'package:flutter/material.dart';
+import 'core/theme/app_theme.dart'; // <--- Your centralized theme engine
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // STRICT RELATIVE IMPORTS
 import 'features/auth/auth_repository.dart';
 import 'features/auth/bloc/auth_bloc.dart';
 import 'features/auth/login_screen.dart';
 
-void main() {
+// 1. Create a global broadcaster to instantly swap themes
+final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.system);
+
+void main() async {
+  // 2. Ensure Flutter is ready to talk to device memory before booting
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // 3. Check memory to see if the user saved a theme preference previously
+  final prefs = await SharedPreferences.getInstance();
+  final savedTheme = prefs.getString('theme_mode');
+  if (savedTheme == 'light') themeNotifier.value = ThemeMode.light;
+  if (savedTheme == 'dark') themeNotifier.value = ThemeMode.dark;
+
   runApp(const AtlasMobileApp());
 }
 
@@ -15,23 +29,32 @@ class AtlasMobileApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // We keep the Repository global so the whole app can access the database connection
     return RepositoryProvider(
       create: (context) => AuthRepository(),
-      child: MaterialApp(
-        title: 'ATLAS Mobile',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF8B1515)),
-          useMaterial3: true,
-        ),
-        // INJECT THE BLOC DIRECTLY INTO THE ROUTE
-        home: BlocProvider(
-          create: (context) => AuthBloc(
-            authRepository: context.read<AuthRepository>(),
-          ),
-          child: const LoginScreen(),
-        ),
+
+      // 4. Wrap MaterialApp so it listens to the broadcaster
+      child: ValueListenableBuilder<ThemeMode>(
+        valueListenable: themeNotifier,
+        builder: (_, ThemeMode currentMode, __) {
+
+          return MaterialApp(
+            title: 'ATLAS Mobile',
+            debugShowCheckedModeBanner: false,
+            themeMode: currentMode, // <--- Reacts instantly to the toggle!
+
+            // 5. INJECT YOUR NEW THEME ENGINE HERE
+            theme: AppTheme.lightTheme,
+            darkTheme: AppTheme.darkTheme,
+
+            home: BlocProvider(
+              create: (context) => AuthBloc(
+                authRepository: context.read<AuthRepository>(),
+              ),
+              child: LoginScreen(), // Remove 'const' if your LoginScreen throws an error here
+            ),
+          );
+
+        },
       ),
     );
   }

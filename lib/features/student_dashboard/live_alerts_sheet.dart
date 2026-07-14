@@ -33,15 +33,15 @@ class LiveAlertsSheet extends StatelessWidget {
                         color: primaryRed,
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Icon(Icons.notifications, color: Colors.white),
+                      child: Icon(Icons.notifications, color: Theme.of(context).colorScheme.surfaceContainer),
                     ),
                     const SizedBox(width: 16),
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
+                      children: [
                         Text(
                           'LIVE ALERTS CHANNEL',
-                          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 0.5),
+                          style: TextStyle(color: Theme.of(context).colorScheme.surfaceContainer, fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 0.5),
                         ),
                         Text(
                           'System Notifications',
@@ -54,8 +54,8 @@ class LiveAlertsSheet extends StatelessWidget {
                 OutlinedButton(
                   onPressed: () {},
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white70,
-                    side: const BorderSide(color: Colors.white24),
+                    foregroundColor: Theme.of(context).colorScheme.surfaceContainer,
+                    side: BorderSide(color: Theme.of(context).colorScheme.surfaceContainer),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                   ),
                   child: const Text('Clear all', style: TextStyle(fontSize: 12)),
@@ -64,7 +64,7 @@ class LiveAlertsSheet extends StatelessWidget {
             ),
           ),
 
-          const Divider(color: Colors.white12, height: 1),
+          Divider(color: Theme.of(context).colorScheme.surfaceContainer, height: 1),
 
           // 2. Scrollable Alerts List
           Expanded(
@@ -100,17 +100,17 @@ class LiveAlertsSheet extends StatelessWidget {
                         ],
                       ),
                       const SizedBox(height: 8),
-                      const Text(
+                      Text(
                         'CICS-302 Web Systems Quiz 4',
-                        style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                        style: TextStyle(color: Theme.of(context).colorScheme.surfaceContainer, fontSize: 16, fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
                       RichText(
-                        text: const TextSpan(
-                          style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+                        text: TextSpan(
+                          style: TextStyle(color: Theme.of(context).colorScheme.surfaceContainer, fontSize: 13, height: 1.4),
                           children: [
                             TextSpan(text: 'Your evaluation sheet has been processed. Achievement unlocked: '),
-                            TextSpan(text: 'High-level Database Optimization mastery.', style: TextStyle(fontWeight: FontWeight.bold, fontStyle: FontStyle.italic, color: Colors.white)),
+                            TextSpan(text: 'High-level Database Optimization mastery.', style: TextStyle(fontWeight: FontWeight.bold, fontStyle: FontStyle.italic, color: Theme.of(context).colorScheme.surfaceContainer)),
                           ],
                         ),
                       ),
@@ -122,7 +122,7 @@ class LiveAlertsSheet extends StatelessWidget {
                           Container(
                             padding: const EdgeInsets.all(4),
                             decoration: const BoxDecoration(color: primaryRed, shape: BoxShape.circle),
-                            child: const Icon(Icons.emoji_events, color: Colors.white, size: 12),
+                            child: Icon(Icons.emoji_events, color: Theme.of(context).colorScheme.surfaceContainer, size: 12),
                           ),
                           const SizedBox(width: 8),
                           const Text('Earned +50 XP', style: TextStyle(color: textGrey, fontSize: 12)),
@@ -139,19 +139,21 @@ class LiveAlertsSheet extends StatelessWidget {
 
                 // Historical Card 1
                 _buildHistoricalCard(
-                  category: 'TOS MODIFICATION SYNC',
+                  context: context, // <--- Add this line!
+                  category: 'System',
                   time: '2 hours ago',
-                  title: 'Software Engineering Blueprint Updated',
-                  body: 'Instructor Noe Gonzales modified learning parameters. TOS weights automatically redistributed across assessment items.',
+                  title: 'Maintenance',
+                  body: 'Server down.',
                 ),
                 const SizedBox(height: 12),
 
                 // Historical Card 2
                 _buildHistoricalCard(
-                  category: 'ACCREDITATION EVIDENCE EXPORT',
-                  time: 'Yesterday',
-                  title: 'Outcome Map Export Completed',
-                  body: 'Batch compilation of student outcome files ready. Standard export archive delivered to system admin logs.',
+                  context: context, // <--- Add this line!
+                  category: 'System',
+                  time: '2 hours ago',
+                  title: 'Maintenance',
+                  body: 'Server down.',
                 ),
               ],
             ),
@@ -161,7 +163,7 @@ class LiveAlertsSheet extends StatelessWidget {
     );
   }
 
-  Widget _buildHistoricalCard({required String category, required String time, required String title, required String body}) {
+  Widget _buildHistoricalCard({required BuildContext context, required String category, required String time, required String title, required String body}) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -179,9 +181,9 @@ class LiveAlertsSheet extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          Text(title, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+          Text(title, style: TextStyle(color: Theme.of(context).colorScheme.surfaceContainer, fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          Text(body, style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4)),
+          Text(body, style: TextStyle(color: Theme.of(context).colorScheme.surfaceContainer, fontSize: 13, height: 1.4)),
         ],
       ),
     );

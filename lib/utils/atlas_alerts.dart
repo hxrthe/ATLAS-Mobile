@@ -11,9 +11,9 @@ class AtlasAlerts {
       SnackBar(
         content: Row(
           children: [
-            const Icon(Icons.check_circle, color: Colors.white),
+            Icon(Icons.check_circle, color: Theme.of(context).colorScheme.surfaceContainer),
             const SizedBox(width: 12),
-            Expanded(child: Text(message, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+            Expanded(child: Text(message, style: TextStyle(color: Theme.of(context).colorScheme.surfaceContainer, fontWeight: FontWeight.bold))),
           ],
         ),
         backgroundColor: successGreen,
@@ -31,9 +31,9 @@ class AtlasAlerts {
       SnackBar(
         content: Row(
           children: [
-            const Icon(Icons.error_outline, color: Colors.white),
+            Icon(Icons.error_outline, color: Theme.of(context).colorScheme.surfaceContainer),
             const SizedBox(width: 12),
-            Expanded(child: Text(message, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+            Expanded(child: Text(message, style: TextStyle(color: Theme.of(context).colorScheme.surfaceContainer, fontWeight: FontWeight.bold))),
           ],
         ),
         backgroundColor: primaryRed,
@@ -59,7 +59,7 @@ class AtlasAlerts {
       context: context,
       builder: (BuildContext dialogContext) {
         return AlertDialog(
-          backgroundColor: Colors.white,
+          backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
           title: Text(
               title,
               style: TextStyle(fontWeight: FontWeight.bold, color: isDestructive ? primaryRed : Colors.black87)
@@ -69,7 +69,7 @@ class AtlasAlerts {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+              child: Text('Cancel', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.bold)),
             ),
             ElevatedButton(
               onPressed: () {
@@ -78,7 +78,7 @@ class AtlasAlerts {
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: isDestructive ? primaryRed : const Color(0xFF1E232C),
-                foregroundColor: Colors.white,
+                foregroundColor: Theme.of(context).colorScheme.surfaceContainer,
               ),
               child: Text(confirmText),
             ),
