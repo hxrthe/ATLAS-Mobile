@@ -1,10 +1,11 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:atlas_mobile/core/network/api_constants.dart';
+import '../../core/network/api_constants.dart';
 
 class AuthRepository {
   // Use 10.0.2.2 for Android Emulators.
+  final String baseUrl = 'https://swagger-dense-barcode.ngrok-free.dev';
 
   /// Sends the credentials to Django and retrieves the JWT securely.
   Future<Map<String, String>> login({
@@ -14,11 +15,10 @@ class AuthRepository {
     try {
       // 1. Make the POST request to the Django Token Endpoint
       final response = await http.post(
-        // Use the new global constant here:
-        Uri.parse('${ApiConstants.baseUrl}/token/'), 
+        Uri.parse('${ApiConstants.baseUrl}/token/'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'username': email,
+          'username': email, // Django expects 'username'
           'password': password,
         }),
       );
@@ -29,7 +29,7 @@ class AuthRepository {
 
         // 1. Extract the tokens AND the new custom data
         final String token = data['access'];
-        final String role = data['role'] ?? 'faculty';
+        final String role = data['role'] ?? 'student';
         final String name = data['name'] ?? 'Unknown User';
 
         // 2. Save them all to SharedPreferences so the app remembers them

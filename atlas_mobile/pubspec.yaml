@@ -45,7 +45,7 @@ dependencies:
 
   http: ^1.2.0
 
-  mobile_scanner: ^7.2.0 # Or the latest version
+  mobile_scanner: ^5.0.0 # Or the latest version
 
 
   # The following adds the Cupertino Icons font to your application.

@@ -165,6 +165,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ),
+                  
                   // --- NEW PADDED ROW START ---
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 12.0),

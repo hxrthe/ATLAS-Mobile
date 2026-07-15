@@ -1,10 +1,10 @@
-import 'package:atlas_mobile/core/network/api_constants.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart';
 
 class ScannerRepository {
   // Use 10.0.2.2 for Android Emulator to connect to local Django
+  final String baseUrl = 'http://10.0.2.2:8000/api';
 
   Future<bool> uploadAssessmentScan(String imagePath) async {
     try {
@@ -14,7 +14,7 @@ class ScannerRepository {
       // Create a Multipart request targeting your future Django scanning endpoint
       var request = http.MultipartRequest(
         'POST',
-        Uri.parse('${ApiConstants.baseUrl}/scanner/upload/'),
+        Uri.parse('$baseUrl/scanner/upload/'),
       );
 
       // Attach the faculty member's authorization token

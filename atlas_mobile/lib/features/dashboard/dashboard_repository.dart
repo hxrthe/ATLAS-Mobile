@@ -2,9 +2,10 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../models/dashboard_models.dart';
-import 'package:atlas_mobile/core/network/api_constants.dart';
+import '../../core/network/api_constants.dart';
 
 class DashboardRepository {
+  final String baseUrl = 'https://swagger-dense-barcode.ngrok-free.dev';
 
   Future<Map<String, List<dynamic>>> fetchFacultyData() async {
     final prefs = await SharedPreferences.getInstance();
@@ -50,7 +51,7 @@ class DashboardRepository {
     if (token == null) throw Exception('No access token found. Please log in again.');
 
     final response = await http.get(
-      Uri.parse('${ApiConstants.baseUrl}/student/dashboard/'),
+      Uri.parse('$baseUrl/student/dashboard/'),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
