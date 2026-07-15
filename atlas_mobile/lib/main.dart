@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'core/theme/app_theme.dart'; // <--- Your centralized theme engine
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 // STRICT RELATIVE IMPORTS
 import 'features/auth/auth_repository.dart';
@@ -20,6 +21,12 @@ void main() async {
   final savedTheme = prefs.getString('theme_mode');
   if (savedTheme == 'light') themeNotifier.value = ThemeMode.light;
   if (savedTheme == 'dark') themeNotifier.value = ThemeMode.dark;
+
+
+  await Supabase.initialize(
+    url: 'https://ycsafjkouarqpzanxelz.supabase.co',
+    anonKey: 'Ysb_publishable_4TOcTvAhnhIrbMXr5Rt2bA_BzrF0NMb',
+  );
 
   runApp(const AtlasMobileApp());
 }

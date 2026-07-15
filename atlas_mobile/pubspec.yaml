@@ -45,6 +45,8 @@ dependencies:
 
   http: ^1.2.0
 
+  supabase_flutter: ^2.5.0
+
   mobile_scanner: ^5.0.0 # Or the latest version
 
 
