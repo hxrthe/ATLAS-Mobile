@@ -5,7 +5,7 @@ import '../../models/dashboard_models.dart';
 import '../../core/network/api_constants.dart';
 
 class DashboardRepository {
-  final String baseUrl = 'https://swagger-dense-barcode.ngrok-free.dev';
+  final String baseUrl = 'https://anemia-reflector-jingling.ngrok-free.dev';
 
   Future<Map<String, List<dynamic>>> fetchFacultyData() async {
     final prefs = await SharedPreferences.getInstance();

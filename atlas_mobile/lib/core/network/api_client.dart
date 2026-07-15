@@ -4,7 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiClient {
   late Dio dio;
   // Replace with your actual local or cloud Django server IP
-  static const String baseUrl = 'https://swagger-dense-barcode.ngrok-free.dev';
+  static const String baseUrl = 'https://anemia-reflector-jingling.ngrok-free.dev';
 
   ApiClient() {
     dio = Dio(BaseOptions(

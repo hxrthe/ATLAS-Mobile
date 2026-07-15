@@ -5,7 +5,7 @@ import '../../core/network/api_constants.dart';
 
 class AuthRepository {
   // Use 10.0.2.2 for Android Emulators.
-  final String baseUrl = 'https://swagger-dense-barcode.ngrok-free.dev';
+  final String baseUrl = 'https://anemia-reflector-jingling.ngrok-free.dev';
 
   /// Sends the credentials to Django and retrieves the JWT securely.
   Future<Map<String, String>> login({
