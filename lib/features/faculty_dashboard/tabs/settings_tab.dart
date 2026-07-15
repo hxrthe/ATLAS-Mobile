@@ -1,12 +1,37 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart'; // <-- This gives you context.read()
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../auth/login_screen.dart';
 import '../../auth/bloc/auth_bloc.dart';
 import '../../auth/auth_repository.dart';
 
-class SettingsTab extends StatelessWidget {
+class SettingsTab extends StatefulWidget {
   const SettingsTab({super.key});
+
+  @override
+  State<SettingsTab> createState() => _SettingsTabState();
+}
+
+class _SettingsTabState extends State<SettingsTab> {
+  String _userName = 'Instructor';
+  String _userRole = 'Faculty';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUser();
+  }
+
+  Future<void> _loadUser() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _userName = prefs.getString('user_name') ?? 'Instructor';
+        _userRole = prefs.getString('user_role') == 'faculty' ? 'Faculty Instructor' : 'User';
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -19,13 +44,13 @@ class SettingsTab extends StatelessWidget {
             style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF8391A1), letterSpacing: 0.5),
           ),
           const SizedBox(height: 16),
-          const ListTile(
-            leading: CircleAvatar(
+          ListTile(
+            leading: const CircleAvatar(
               radius: 24,
               backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=11'),
             ),
-            title: Text('Dr. Hearty Delacion', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            subtitle: Text('Faculty Instructor'),
+            title: Text(_userName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            subtitle: Text(_userRole),
           ),
           const Divider(height: 32),
           ListTile(

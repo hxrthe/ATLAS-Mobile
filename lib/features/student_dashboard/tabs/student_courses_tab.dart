@@ -1,152 +1,228 @@
 import 'package:flutter/material.dart';
+import '../../grading/grading_repository.dart';
+import '../enroll_course_dialog.dart';
 
-class StudentCoursesTab extends StatelessWidget {
-  const StudentCoursesTab({super.key});
+class StudentCoursesTab extends StatefulWidget {
+  final List<Map<String, dynamic>> courses;
+  final bool loading;
+  final VoidCallback? onCoursesChanged;
+
+  const StudentCoursesTab({
+    super.key,
+    required this.courses,
+    required this.loading,
+    this.onCoursesChanged,
+  });
+
+  @override
+  State<StudentCoursesTab> createState() => _StudentCoursesTabState();
+}
+
+class _StudentCoursesTabState extends State<StudentCoursesTab> {
+  final GradingRepository _repo = GradingRepository();
 
   @override
   Widget build(BuildContext context) {
-    final Color primaryRed = const Color(0xFF8B1515);
-    final Color textGrey = const Color(0xFF8391A1);
+    const Color textGrey = Color(0xFF8391A1);
+    const Color primaryRed = Color(0xFF8B1515);
+
+    if (widget.loading) {
+      return const SafeArea(child: Center(child: CircularProgressIndicator()));
+    }
 
     return SafeArea(
-      child: ListView(
-        padding: const EdgeInsets.all(24.0),
+      child: Stack(
         children: [
-          Text(
-            'ENROLLED COURSES',
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: textGrey, letterSpacing: 0.5),
-          ),
-          const SizedBox(height: 16),
-
-          _buildCourseCard(
-            code: 'CICS-302',
-            title: 'Web Systems & Technologies',
-            instructor: 'Dr. Hearty Delacion',
-            color: primaryRed,
-          ),
-          const SizedBox(height: 12),
-          _buildCourseCard(
-            code: 'CICS-301',
-            title: 'Software Engineering',
-            instructor: 'Noe Gonzales',
-            color: Colors.blue.shade700,
-          ),
-          const SizedBox(height: 12),
-          _buildCourseCard(
-            code: 'CICS-202',
-            title: 'Database Systems',
-            instructor: 'Dr. Hearty Delacion',
-            color: const Color(0xFFD4811B),
-          ),
-          const SizedBox(height: 32),
-
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          ListView(
+            padding: const EdgeInsets.all(24.0),
             children: [
-              Text(
-                'UPCOMING EXAMS',
+              const Text(
+                'ENROLLED COURSES',
                 style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: textGrey, letterSpacing: 0.5),
               ),
-              const Icon(Icons.calendar_month, color: Color(0xFF8391A1), size: 18),
+              const SizedBox(height: 16),
+
+              if (widget.courses.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text('No enrolled courses yet.\nTap + to join a course with a code from your instructor.',
+                      textAlign: TextAlign.center, style: TextStyle(color: textGrey)),
+                ),
+
+              for (int i = 0; i < widget.courses.length; i++) ...[
+                if (i > 0) const SizedBox(height: 12),
+                _buildCourseCard(
+                  courseId: widget.courses[i]['course_id'] ?? '',
+                  code: widget.courses[i]['course_code'] ?? '',
+                  title: widget.courses[i]['course_title'] ?? '',
+                  section: widget.courses[i]['section'] ?? '',
+                  color: _courseColor(i),
+                ),
+              ],
+              const SizedBox(height: 80), // space for FAB
             ],
           ),
-          const SizedBox(height: 16),
-
-          _buildDeadlineCard(
-            title: 'Midterm Examination',
-            course: 'CICS-302',
-            date: 'Tomorrow, 9:00 AM',
-            isUrgent: true,
-          ),
-          const SizedBox(height: 12),
-          _buildDeadlineCard(
-            title: 'Summative Quiz 3',
-            course: 'CICS-202',
-            date: 'Friday, 2:30 PM',
-            isUrgent: false,
+          Positioned(
+            bottom: 16,
+            right: 16,
+            child: FloatingActionButton.extended(
+              onPressed: () => _showEnrollDialog(context),
+              backgroundColor: primaryRed,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add),
+              label: const Text('Join Course', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildCourseCard({required String code, required String title, required String instructor, required Color color}) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
+  Color _courseColor(int index) {
+    const colors = [Color(0xFF8B1515), Color(0xFF1565C0), Color(0xFFD4811B), Color(0xFF2E7D32), Color(0xFF6A1B9A)];
+    return colors[index % colors.length];
+  }
+
+  Widget _buildCourseCard({
+    required String courseId,
+    required String code,
+    required String title,
+    required String section,
+    required Color color,
+  }) {
+    return Dismissible(
+      key: Key(courseId),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        decoration: BoxDecoration(
+          color: Colors.red.shade400,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: const Icon(Icons.delete_outline, color: Colors.white),
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          decoration: BoxDecoration(border: Border(left: BorderSide(color: color, width: 4))),
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(code, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: color)),
-                  const Icon(Icons.more_horiz, color: Colors.grey),
-                ],
+      confirmDismiss: (direction) async {
+        return await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: Colors.white,
+            title: const Text('Unenroll', style: TextStyle(fontWeight: FontWeight.bold)),
+            content: Text('Remove $code — $title from your courses?'),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel', style: TextStyle(color: Color(0xFF8391A1), fontWeight: FontWeight.bold)),
               ),
-              const SizedBox(height: 4),
-              Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  const Icon(Icons.person_outline, size: 14, color: Colors.grey),
-                  const SizedBox(width: 4),
-                  Text(instructor, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                ],
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: () {},
-                icon: const Icon(Icons.picture_as_pdf, size: 16),
-                label: const Text('View Syllabus'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: color,
-                  side: BorderSide(color: color.withOpacity(0.3)),
-                  minimumSize: const Size(double.infinity, 36),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF8B1515),
+                  foregroundColor: Colors.white,
                 ),
+                child: const Text('Unenroll'),
               ),
             ],
+          ),
+        );
+      },
+      onDismissed: (_) async {
+        try {
+          await _repo.unenrollFromCourse(courseId);
+          widget.onCoursesChanged?.call();
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(e.toString().replaceAll('Exception: ', '')),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        }
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            decoration: BoxDecoration(border: Border(left: BorderSide(color: color, width: 4))),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(code, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: color)),
+                    ),
+                    if (section.isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: color.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(section,
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color)),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    const Icon(Icons.swipe_left, size: 12, color: Colors.grey),
+                    const SizedBox(width: 4),
+                    const Text('Swipe left to unenroll', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildDeadlineCard({required String title, required String course, required String date, required bool isUrgent}) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isUrgent ? const Color(0xFF8B1515).withOpacity(0.05) : Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: isUrgent ? const Color(0xFF8B1515).withOpacity(0.3) : Colors.grey.shade200),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-              Text(course, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-            ],
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(date, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isUrgent ? const Color(0xFF8B1515) : Colors.black87)),
-              if (isUrgent) const Text('Due Soon', style: TextStyle(fontSize: 10, color: Color(0xFF8B1515), fontWeight: FontWeight.bold)),
-            ],
-          ),
-        ],
+  Future<void> _showEnrollDialog(BuildContext context) async {
+    showDialog(
+      context: context,
+      builder: (ctx) => EnrollCourseDialog(
+        onEnroll: (String courseCode) async {
+          try {
+            await _repo.enrollInCourse(courseCode);
+            if (!ctx.mounted) return;
+            Navigator.pop(ctx);
+            widget.onCoursesChanged?.call();
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Successfully enrolled in $courseCode!'),
+                  backgroundColor: Colors.green.shade700,
+                ),
+              );
+            }
+          } catch (e) {
+            if (!ctx.mounted) return;
+            Navigator.pop(ctx);
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(e.toString().replaceAll('Exception: ', '')),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          }
+        },
       ),
     );
   }

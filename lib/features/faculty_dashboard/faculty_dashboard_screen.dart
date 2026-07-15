@@ -1,4 +1,9 @@
+import 'dart:async';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../scanner/scanner_screen.dart';
+import '../scanner/scanner_widgets.dart';
+import '../grading/grading_repository.dart';
+import '../grading/models.dart';
 import 'tabs/courses_tab.dart';
 import 'tabs/reports_tab.dart';
 import 'tabs/settings_tab.dart';
@@ -12,22 +17,171 @@ class FacultyDashboardScreen extends StatefulWidget {
 }
 
 class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
-  int _selectedIndex = 0; // Tracks the active bottom navigation tab
+  int _selectedIndex = 0;
+  String _userName = 'Instructor';
 
-  // Brand Colors mapped from your design
+  // Real data
+  final GradingRepository _repo = GradingRepository();
+  List<Map<String, dynamic>> _courses = [];
+  Map<String, dynamic>? _activeCourse;
+  List<BubbleTemplate> _activeTemplates = [];
+  List<BubbleTemplate> _allTemplates = [];
+  List<Map<String, dynamic>> _systemEvents = [];
+  bool _loading = true;
+  String? _error;
+
   final Color primaryRed = const Color(0xFF8B1515);
   final Color darkRed = const Color(0xFF5A0C0C);
-  final Color successGreen = const Color(0xFF198754);
   final Color textGrey = const Color(0xFF8391A1);
   final Color backgroundGrey = const Color(0xFFF4F6F9);
 
   @override
+  void initState() {
+    super.initState();
+    _initLoad();
+  }
+
+  Future<void> _initLoad() async {
+    final prefs = await SharedPreferences.getInstance();
+    final name = prefs.getString('user_name') ?? 'Instructor';
+    setState(() => _userName = name);
+
+    await _loadAll();
+    // Refresh events periodically
+    Timer.periodic(const Duration(seconds: 30), (_) => _loadEvents());
+  }
+
+  Future<void> _loadAll() async {
+    setState(() => _loading = true);
+    try {
+      final courses = await _repo.fetchFacultyCourses();
+      final allTemplates = <BubbleTemplate>[];
+      for (final c in courses) {
+        try {
+          final t = await _repo.fetchTemplates(c['course_id']!);
+          allTemplates.addAll(t);
+        } catch (_) {}
+      }
+
+      // Active course = first course that has templates with answer keys
+      Map<String, dynamic>? activeCourse;
+      List<BubbleTemplate> activeTemplates = [];
+      for (final c in courses) {
+        final ct = allTemplates.where((t) => t.courseId == c['course_id']).toList();
+        if (ct.any((t) => t.hasAnswerKey || t.assessmentId != null)) {
+          activeCourse = c;
+          activeTemplates = ct;
+          break;
+        }
+      }
+      activeCourse ??= courses.isNotEmpty ? courses.first : null;
+
+      final events = await _repo.fetchRecentScans(limit: 20);
+
+      if (mounted) {
+        setState(() {
+          _courses = courses;
+          _activeCourse = activeCourse;
+          _activeTemplates = activeTemplates;
+          _allTemplates = allTemplates;
+          _systemEvents = events;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = e.toString().replaceAll('Exception: ', '');
+        });
+      }
+    }
+  }
+
+  Future<void> _loadEvents() async {
+    try {
+      final events = await _repo.fetchRecentScans(limit: 20);
+      if (mounted) setState(() => _systemEvents = events);
+    } catch (_) {}
+  }
+
+  void _switchActive(String courseId) {
+    final course = _courses.firstWhere((c) => c['course_id'] == courseId);
+    final templates =
+        _allTemplates.where((t) => t.courseId == courseId).toList();
+    setState(() {
+      _activeCourse = course;
+      _activeTemplates = templates;
+    });
+  }
+
+  void _openSectionSheet(BuildContext context) {
+    if (_activeCourse == null) return;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => SectionSelectionSheet(
+        courseId: _activeCourse!['course_id']!,
+        courseName:
+            '${_activeCourse!['course_code']} - ${_activeCourse!['course_title']}',
+        templates:
+            _activeTemplates.isNotEmpty ? _activeTemplates : _allTemplates.where((t) => t.courseId == _activeCourse!['course_id']).toList(),
+      ),
+    ).then((result) {
+      if (result != null && mounted) {
+        _navigateToScanner(
+          context,
+          _activeCourse!['course_id']!,
+          '${_activeCourse!['course_code']} - ${_activeCourse!['course_title']}',
+          preselectedTemplate: result['template'] as BubbleTemplate?,
+        );
+      }
+    });
+  }
+
+  void _navigateToScanner(BuildContext context, String courseId,
+      String courseName,
+      {BubbleTemplate? preselectedTemplate}) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ScannerScreen(
+          preSelectedCourseId: courseId,
+          preSelectedCourseName: courseName,
+        ),
+      ),
+    );
+  }
+
+  String _timeAgo(String iso) {
+    try {
+      final dt = DateTime.parse(iso);
+      final diff = DateTime.now().difference(dt);
+      if (diff.inMinutes < 1) return 'just now';
+      if (diff.inMinutes < 60) return '${diff.inMinutes} mins ago';
+      if (diff.inHours < 24) return '${diff.inHours}h ago';
+      return '${diff.inDays}d ago';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // 1. Define the list of screens to show based on the selected index
     final List<Widget> tabs = [
-      _buildHomeTab(context), // We will move your current UI into this method below
-      const CoursesTab(),
-      const ReportsTab(),
+      _buildHomeTab(context),
+      CoursesTab(
+        key: ValueKey('courses_$_loading'),
+        onSectionPicked:
+            (String courseId, String courseName, BubbleTemplate? template) {
+          _navigateToScanner(context, courseId, courseName,
+              preselectedTemplate: template);
+        },
+      ),
+      ReportsTab(
+        key: ValueKey('reports_$_loading'),
+      ),
       const SettingsTab(),
     ];
 
@@ -40,376 +194,472 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
         unselectedItemColor: textGrey,
         showUnselectedLabels: true,
         type: BottomNavigationBarType.fixed,
-        selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-        unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.normal, fontSize: 12),
+        selectedLabelStyle:
+            const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+        unselectedLabelStyle:
+            const TextStyle(fontWeight: FontWeight.normal, fontSize: 12),
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.menu_book), label: 'Courses'),
-          BottomNavigationBarItem(icon: Icon(Icons.show_chart), label: 'Reports'),
-          BottomNavigationBarItem(icon: Icon(Icons.manage_accounts), label: 'Settings'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.menu_book), label: 'Courses'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.show_chart), label: 'Reports'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.manage_accounts), label: 'Settings'),
         ],
       ),
-      // 2. Render the currently selected tab
       body: tabs[_selectedIndex],
     );
   }
 
-  // 3. Wrap your existing dashboard UI inside this helper method
   Widget _buildHomeTab(BuildContext context) {
-    return SafeArea(
-      child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              
-              // 1. App Header (Profile & Welcome)
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'WELCOME INSTRUCTOR',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: textGrey,
-                          letterSpacing: 1.0,
-                        ),
-                      ),
-                      Text(
-                        'Dr. Hearty Delacion',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.w900,
-                          color: primaryRed,
-                        ),
-                      ),
-                    ],
-                  ),
-                  // Profile Avatar with Online Status Indicator
-                  Stack(
-                    alignment: Alignment.bottomRight,
-                    children: [
-                      const CircleAvatar(
-                        radius: 28,
-                        backgroundColor: Colors.grey,
-                        backgroundImage: NetworkImage(
-                          'https://i.pravatar.cc/150?img=11', // Placeholder avatar
-                        ),
-                      ),
-                      Container(
-                        height: 14,
-                        width: 14,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF00E676),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: backgroundGrey, width: 2),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 32),
-
-              // 2. Active Session Card (Gradient Banner)
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [primaryRed, darkRed],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(24),
-                  boxShadow: [
-                    BoxShadow(
-                      color: primaryRed.withOpacity(0.3),
-                      blurRadius: 15,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
+    return RefreshIndicator(
+      onRefresh: _loadAll,
+      child: SafeArea(
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+                ? Center(child: Text(_error!, style: TextStyle(color: primaryRed)))
+                : SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(24.0),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Active Session Badge
+                    // Header
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'WELCOME INSTRUCTOR',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: textGrey,
+                                letterSpacing: 1.0,
+                              ),
+                            ),
+                            Text(
+                              _userName,
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.w900,
+                                color: primaryRed,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Stack(
+                          alignment: Alignment.bottomRight,
+                          children: [
+                            const CircleAvatar(
+                              radius: 28,
+                              backgroundColor: Colors.grey,
+                              backgroundImage:
+                                  NetworkImage('https://i.pravatar.cc/150?img=11'),
+                            ),
+                            Container(
+                              height: 14,
+                              width: 14,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF00E676),
+                                shape: BoxShape.circle,
+                                border:
+                                    Border.all(color: backgroundGrey, width: 2),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 32),
+
+                    // Active Session Card
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFD4811B).withOpacity(0.9), // Gold/Orange
-                        borderRadius: BorderRadius.circular(6),
+                        gradient: LinearGradient(
+                          colors: [primaryRed, darkRed],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(24),
+                        boxShadow: [
+                          BoxShadow(
+                            color: primaryRed.withOpacity(0.3),
+                            blurRadius: 15,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
                       ),
-                      child: const Text(
-                        'ACTIVE SESSION',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFD4811B).withOpacity(0.9),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              _activeCourse != null
+                                  ? (_activeTemplates.any((t) =>
+                                              t.hasAnswerKey ||
+                                              t.assessmentId != null)
+                                          ? 'ACTIVE SESSION'
+                                          : 'NO ANSWER KEY')
+                                  : 'NO COURSES',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            _activeCourse != null
+                                ? (_activeCourse!['course_code'] ?? '')
+                                : 'No Courses',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 32,
+                              fontWeight: FontWeight.w900,
+                              height: 1.1,
+                            ),
+                          ),
+                          Text(
+                            _activeCourse != null
+                                ? (_activeCourse!['course_title'] ?? '')
+                                : 'No active teaching load',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          if (_activeTemplates.any(
+                              (t) => t.hasAnswerKey || t.assessmentId != null))
+                            Row(
+                              children: [
+                                const Icon(Icons.check_circle,
+                                    color: Color(0xFF00E676), size: 16),
+                                const SizedBox(width: 6),
+                                Text(
+                                  '${_activeTemplates.where((t) => t.hasAnswerKey).length} answer key(s) ready',
+                                  style: const TextStyle(
+                                    color: Color(0xFF00E676),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          const SizedBox(height: 24),
+                          ElevatedButton.icon(
+                            onPressed:
+                                _activeCourse != null ? () => _openSectionSheet(context) : null,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              foregroundColor: primaryRed,
+                              minimumSize: const Size(double.infinity, 50),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            icon: const Icon(Icons.camera_alt),
+                            label: const Text(
+                              'Scan Exam Sheets',
+                              style: TextStyle(
+                                  fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+
+                    // Pending Assessments
+                    if (_activeTemplates.isNotEmpty) ...[
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'PENDING ASSESSMENTS TO SCAN',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: textGrey,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: primaryRed,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              '${_activeTemplates.length} TEMPLATES',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      ..._activeTemplates.map((t) {
+                        final isActive = _activeTemplates.any(
+                            (at) => at.hasAnswerKey || at.assessmentId != null);
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _buildTemplateCard(t,
+                              isActive: isActive, isFirst: t.hasAnswerKey || t.assessmentId != null),
+                        );
+                      }),
+                      const SizedBox(height: 16),
+                    ],
+
+                    // Other courses
+                    if (_courses.length > 1) ...[
+                      Text(
+                        'OTHER COURSES',
                         style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: textGrey,
                           letterSpacing: 0.5,
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    
-                    const Text(
-                      'CICS-302',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 32,
-                        fontWeight: FontWeight.w900,
-                        height: 1.1,
-                      ),
-                    ),
-                    const Text(
-                      'Web Systems & Technologies',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    
+                      const SizedBox(height: 12),
+                      ..._courses.where((c) => c['course_id'] != _activeCourse?['course_id']).map((c) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: GestureDetector(
+                            onTap: () => _switchActive(c['course_id']!),
+                            child: Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: const Color(0xFFE8ECF4)),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: primaryRed.withOpacity(0.08),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Icon(Icons.swap_horiz,
+                                        color: primaryRed, size: 18),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          c['course_code'] ?? '',
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 14,
+                                              color: Color(0xFF1E232C)),
+                                        ),
+                                        Text(
+                                          c['course_title'] ?? '',
+                                          style: TextStyle(
+                                              fontSize: 12, color: textGrey),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Text('Switch',
+                                      style: TextStyle(
+                                          fontSize: 12,
+                                          color: primaryRed,
+                                          fontWeight: FontWeight.w600)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      }),
+                    ],
+
+                    const SizedBox(height: 32),
+
+                    // System Events
                     Row(
                       children: [
-                        const Icon(Icons.check_circle, color: Color(0xFF00E676), size: 16),
-                        const SizedBox(width: 6),
+                        Container(
+                          height: 8,
+                          width: 8,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF00E676),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
                         Text(
-                          'TOS Matrix: Complete & Proportional',
+                          'SYSTEM EVENTS',
                           style: TextStyle(
-                            color: const Color(0xFF00E676),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: textGrey,
+                            letterSpacing: 0.5,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 24),
-                    
-                    // Scan Exam Sheets Button
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const ScannerScreen(),
-                          ),
-                        );
-                      },
-
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: primaryRed,
-                        minimumSize: const Size(double.infinity, 50),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                    const SizedBox(height: 12),
+                    if (_systemEvents.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        child: Text(
+                          'No scans yet. Start scanning to see events.',
+                          style: TextStyle(fontSize: 13, color: textGrey),
                         ),
                       ),
-                      icon: const Icon(Icons.camera_alt),
-                      label: const Text(
-                        'Scan Exam Sheets',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
-                    ),
+                    ..._systemEvents.map((ev) {
+                      final flagged = ev['is_flagged'] == true;
+                      final score = ev['score_percent'] != null
+                          ? '${(ev['score_percent'] as double).toStringAsFixed(0)}%'
+                          : 'N/A';
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 14),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              flagged ? Icons.flag : Icons.check_circle,
+                              color: flagged
+                                  ? Colors.orange.shade600
+                                  : const Color(0xFF00E676),
+                              size: 18,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Scanned ${ev['template_name'] ?? "sheet"} — ${ev['course_code'] ?? ""} | ${ev['student_id'] ?? "Unknown"} ($score)',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    _timeAgo(ev['created_at'] ?? ''),
+                                    style: TextStyle(
+                                        fontSize: 11, color: textGrey),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
                   ],
                 ),
               ),
-              const SizedBox(height: 32),
-
-              // 3. Pending Assessments Section Header
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'PENDING ASSESSMENTS TO SCAN',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                      color: textGrey,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: primaryRed,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Text(
-                      '2 EXAMS',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // Pending Assessment List Items
-              _buildAssessmentCard(
-                title: 'Midterm Exam (TOS Proportional)',
-                subtitle: 'Software Engineering (CICS-301)',
-                icon: Icons.description,
-                borderColor: primaryRed,
-              ),
-              const SizedBox(height: 12),
-              _buildAssessmentCard(
-                title: 'Summative Quiz 3',
-                subtitle: 'Database Systems (CICS-202)',
-                icon: Icons.format_list_bulleted,
-                borderColor: const Color(0xFFD4811B), // Lighter indicator
-              ),
-              const SizedBox(height: 32),
-
-              // 4. System Events Section
-              Row(
-                children: [
-                  Container(
-                    height: 8,
-                    width: 8,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF00E676),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'SYSTEM EVENTS',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                      color: textGrey,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              
-              _buildSystemEventItem(
-                event: 'Processed 42 Exam Sheets — CICS-302',
-                time: '10 mins ago',
-              ),
-              const SizedBox(height: 16),
-              _buildSystemEventItem(
-                event: 'TOS Matrix recalculation saved — CICS-202',
-                time: '2 hours ago',
-              ),
-            ],
-          ),
-        ),
+      ),
     );
   }
 
-
-  // Helper widget to build the custom Assessment Cards
-  Widget _buildAssessmentCard({
-    required String title,
-    required String subtitle,
-    required IconData icon,
-    required Color borderColor,
+  Widget _buildTemplateCard(
+    BubbleTemplate t, {
+    required bool isActive,
+    required bool isFirst,
   }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: ClipRRect( // Ensures the left border respects the rounded corners
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          decoration: BoxDecoration(
-            border: Border(
-              left: BorderSide(color: borderColor, width: 4),
+    return GestureDetector(
+      onTap: () => _switchActive(t.courseId),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.02),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
-          ),
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
+          ],
+          border: isFirst
+              ? Border(left: BorderSide(color: primaryRed, width: 4))
+              : null,
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: primaryRed.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                isFirst ? Icons.description : Icons.format_list_bulleted,
+                color: isFirst ? primaryRed : const Color(0xFFD4811B),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    t.name,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${t.totalItems} items · ${t.numChoices} choices · ${t.hasAnswerKey ? "Key set" : "No key"}',
+                    style: TextStyle(fontSize: 12, color: textGrey),
+                  ),
+                ],
+              ),
+            ),
+            if (isFirst)
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: primaryRed.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
+                  color: const Color(0xFF00E676).withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(6),
                 ),
-                child: Icon(icon, color: primaryRed),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: textGrey,
-                      ),
-                    ),
-                  ],
+                child: const Text(
+                  'READY',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF198754),
+                  ),
                 ),
               ),
-              Icon(Icons.chevron_right, color: Colors.grey.shade400),
-            ],
-          ),
+            const SizedBox(width: 8),
+            Icon(Icons.chevron_right, color: Colors.grey.shade400),
+          ],
         ),
       ),
-    );
-  }
-
-  // Helper widget to build the System Event lines
-  Widget _buildSystemEventItem({required String event, required String time}) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Icon(Icons.check_circle, color: Color(0xFF00E676), size: 20),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                event,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                time,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: textGrey,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }

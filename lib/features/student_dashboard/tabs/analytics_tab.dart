@@ -1,7 +1,111 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../grading/grading_repository.dart';
+import '../../grading/models.dart';
 
-class StudentProfileScreen extends StatelessWidget {
+class StudentProfileScreen extends StatefulWidget {
   const StudentProfileScreen({super.key});
+
+  @override
+  State<StudentProfileScreen> createState() => _StudentProfileScreenState();
+}
+
+class _StudentProfileScreenState extends State<StudentProfileScreen> {
+  final GradingRepository _repo = GradingRepository();
+
+  String _userName = 'Student';
+  double _overallMastery = 0;
+  int _totalScans = 0;
+  int _passedScans = 0;
+  double _averagePercent = 0;
+  Map<String, Map<String, dynamic>> _competencies = {};
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _userName = prefs.getString('user_name') ?? 'Student';
+
+      final courses = await _repo.fetchFacultyCourses();
+      final allScans = <BubbleScan>[];
+      final templateMap = <String, BubbleTemplate>{};
+
+      for (final c in courses) {
+        try {
+          final templates = await _repo.fetchTemplates(c['course_id']!);
+          for (final t in templates) {
+            templateMap[t.templateId] = t;
+            try {
+              final scans = await _repo.fetchScans(t.templateId);
+              allScans.addAll(scans);
+            } catch (_) {}
+          }
+        } catch (_) {}
+      }
+
+      final validScans = allScans.where((s) => s.studentIdentifier.isNotEmpty && s.scorePercent != null).toList();
+
+      double totalPercent = 0;
+      int passed = 0;
+      for (final s in validScans) {
+        totalPercent += s.scorePercent!;
+        final t = templateMap[s.templateId];
+        if (t != null && s.scorePercent! >= (t.passingScore ?? 50)) {
+          passed++;
+        }
+      }
+
+      final avgPercent = validScans.isNotEmpty ? totalPercent / validScans.length : 0.0;
+
+      // Build competency map from scan data grouped by template
+      final competencies = <String, Map<String, dynamic>>{};
+      for (final s in validScans) {
+        final t = templateMap[s.templateId];
+        if (t == null) continue;
+        final key = t.name;
+        if (!competencies.containsKey(key)) {
+          competencies[key] = {
+            'name': key,
+            'total': t.totalItems,
+            'scans': <BubbleScan>[],
+            'template': t,
+          };
+        }
+        (competencies[key]!['scans'] as List<BubbleScan>).add(s);
+      }
+
+      if (mounted) {
+        setState(() {
+          _totalScans = validScans.length;
+          _passedScans = passed;
+          _averagePercent = avgPercent;
+          double mastery = 0.0;
+          if (validScans.isNotEmpty) {
+            mastery = passed * 100.0 / validScans.length;
+          }
+          _overallMastery = mastery;
+          _competencies = competencies;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = e.toString().replaceAll('Exception: ', '');
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -10,58 +114,39 @@ class StudentProfileScreen extends StatelessWidget {
     final Color textGrey = const Color(0xFF8391A1);
     final Color backgroundGrey = const Color(0xFFF8F9FA);
 
-    return Scaffold(
-      backgroundColor: backgroundGrey,
-      appBar: AppBar(
+    if (_loading) {
+      return Scaffold(
         backgroundColor: backgroundGrey,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text(
-          'STUDENT MATRIX ANALYTICS',
-          style: TextStyle(
-            color: Colors.black38,
-            fontSize: 12,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 1.0,
-          ),
-        ),
-        centerTitle: true,
-        actions: [
-          Stack(
-            alignment: Alignment.topRight,
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_error != null) {
+      return Scaffold(
+        backgroundColor: backgroundGrey,
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              IconButton(
-                icon: const Icon(Icons.notifications_active, color: Color(0xFF8B1515)),
-                onPressed: () {
-                  // TODO: Open the Live Alerts Channel (Image 2)
-                },
-              ),
-              Positioned(
-                right: 12,
-                top: 12,
-                child: Container(
-                  height: 8,
-                  width: 8,
-                  decoration: const BoxDecoration(
-                    color: Colors.red,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              ),
+              Text(_error!, style: const TextStyle(color: Color(0xFF8B1515))),
+              const SizedBox(height: 12),
+              ElevatedButton(onPressed: _load, child: const Text('Retry')),
             ],
           ),
-          const SizedBox(width: 8),
-        ],
-      ),
+        ),
+      );
+    }
+
+    final letterGrade = _letterGradeFromPercent(_averagePercent);
+
+    return Scaffold(
+      backgroundColor: backgroundGrey,
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 1. Profile Header
+            // Profile Header
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -72,13 +157,9 @@ class StudentProfileScreen extends StatelessWidget {
                       'ACADEMIC PROFILE',
                       style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textGrey, letterSpacing: 0.5),
                     ),
-                    const Text(
-                      'Jasmin Esperida',
-                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Color(0xFF1E232C)),
-                    ),
                     Text(
-                      '24-21400 • BSIT BA 3301',
-                      style: TextStyle(fontSize: 13, color: textGrey),
+                      _userName,
+                      style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Color(0xFF1E232C)),
                     ),
                   ],
                 ),
@@ -105,7 +186,7 @@ class StudentProfileScreen extends StatelessWidget {
             ),
             const SizedBox(height: 24),
 
-            // 2. Global Outcome Attainment Card
+            // Global Outcome Attainment Card
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
@@ -128,20 +209,18 @@ class StudentProfileScreen extends StatelessWidget {
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: const [
-                      Text(
+                    children: [
+                      const Text(
                         'Global Outcome Attainment',
                         style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
                       ),
                       Text(
-                        '78% Mastery',
-                        style: TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 14),
+                        '${_overallMastery.toStringAsFixed(0)}% Mastery',
+                        style: const TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 14),
                       ),
                     ],
                   ),
                   const SizedBox(height: 16),
-
-                  // Progress Bar
                   Stack(
                     children: [
                       Container(
@@ -153,7 +232,9 @@ class StudentProfileScreen extends StatelessWidget {
                       ),
                       Container(
                         height: 8,
-                        width: MediaQuery.of(context).size.width * 0.55, // 78% representation
+                        width: _totalScans > 0
+                            ? (MediaQuery.of(context).size.width - 48) * (_overallMastery / 100)
+                            : 0,
                         decoration: BoxDecoration(
                           color: const Color(0xFF00E676),
                           borderRadius: BorderRadius.circular(4),
@@ -162,28 +243,25 @@ class StudentProfileScreen extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 12),
-
                   Text(
-                    'Calculated across 14 tracked outcomes (SDG 4 & SDG 9 aligned)',
+                    'Calculated across $_totalScans graded scans',
                     style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 11, fontStyle: FontStyle.italic),
                   ),
                   const SizedBox(height: 24),
-
-                  // Grade Metrics
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
                       Column(
-                        children: const [
-                          Text('A+', style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
-                          Text('CURRENT GRADE', style: TextStyle(color: Colors.white70, fontSize: 10, letterSpacing: 0.5)),
+                        children: [
+                          Text(letterGrade, style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+                          const Text('AVERAGE GRADE', style: TextStyle(color: Colors.white70, fontSize: 10, letterSpacing: 0.5)),
                         ],
                       ),
                       Container(height: 40, width: 1, color: Colors.white.withOpacity(0.2)),
                       Column(
-                        children: const [
-                          Text('1.25', style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
-                          Text('GWA EQUIVALENT', style: TextStyle(color: Colors.white70, fontSize: 10, letterSpacing: 0.5)),
+                        children: [
+                          Text('${_averagePercent.toStringAsFixed(0)}%', style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+                          const Text('SCORE AVERAGE', style: TextStyle(color: Colors.white70, fontSize: 10, letterSpacing: 0.5)),
                         ],
                       ),
                     ],
@@ -193,89 +271,71 @@ class StudentProfileScreen extends StatelessWidget {
             ),
             const SizedBox(height: 32),
 
-            // 3. Recent Competency Gains Section
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'RECENT COMPETENCY GAINS',
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: textGrey, letterSpacing: 0.5),
-                ),
-                GestureDetector(
-                  onTap: () {
-                    // TODO: Open Spider-Map Analytics (Image 3)
-                  },
-                  child: Row(
-                    children: [
-                      Text(
-                        'View Spider-Map',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: primaryRed),
-                      ),
-                      Icon(Icons.chevron_right, size: 16, color: primaryRed),
-                    ],
+            // Assessment Results Section
+            if (_competencies.isNotEmpty) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'ASSESSMENT RESULTS',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: textGrey, letterSpacing: 0.5),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
+                  Text('$_passedScans / $_totalScans passed', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: primaryRed)),
+                ],
+              ),
+              const SizedBox(height: 16),
+              ..._competencies.entries.map((entry) {
+                final data = entry.value;
+                final scans = data['scans'] as List<BubbleScan>;
+                final template = data['template'] as BubbleTemplate;
+                final avg = scans.isEmpty
+                    ? 0.0
+                    : scans.map((s) => s.scorePercent ?? 0).reduce((a, b) => a + b) / scans.length;
+                final passedCount = scans.where((s) => s.scorePercent! >= (template.passingScore ?? 50)).length;
 
-            // Competency List
-            _buildCompetencyCard(
-              badge: 'AN',
-              badgeColor: const Color(0xFF00E676).withOpacity(0.15),
-              badgeTextColor: const Color(0xFF00C853),
-              status: 'Analysis Level Unlocked',
-              statusColor: const Color(0xFF00C853),
-              title: 'CICS-302 Outcome 3:',
-              subtitle: 'Normalization & Index Tuning',
-            ),
-            const SizedBox(height: 12),
-            _buildCompetencyCard(
-              badge: 'AP',
-              badgeColor: Colors.blue.shade50,
-              badgeTextColor: Colors.blue.shade700,
-              status: 'Application Level Confirmed',
-              statusColor: Colors.blue.shade700,
-              title: 'CICS-301 Outcome 1:',
-              subtitle: 'Repository Management',
-            ),
-            const SizedBox(height: 12),
-            _buildCompetencyCard(
-              badge: 'FD',
-              badgeColor: primaryRed.withOpacity(0.08),
-              badgeTextColor: primaryRed,
-              status: 'Foundation Level Mastered',
-              statusColor: primaryRed,
-              title: 'CICS-202 Outcome 4:',
-              subtitle: 'Relational Query Structures',
-            ),
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _buildResultCard(
+                    name: data['name'] as String,
+                    avgPercent: avg,
+                    passed: passedCount,
+                    total: scans.length,
+                    passingScore: template.passingScore ?? 50,
+                  ),
+                );
+              }),
+            ],
+
+            if (_competencies.isEmpty) ...[
+              Text(
+                'NO GRADED ASSESSMENTS',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: textGrey, letterSpacing: 0.5),
+              ),
+              const SizedBox(height: 12),
+              const Text('Submit answer sheets to see your analytics here.', style: TextStyle(fontSize: 13, color: Color(0xFF8391A1))),
+            ],
           ],
         ),
       ),
     );
   }
 
-  Widget _buildCompetencyCard({
-    required String badge,
-    required Color badgeColor,
-    required Color badgeTextColor,
-    required String status,
-    required Color statusColor,
-    required String title,
-    required String subtitle,
+  Widget _buildResultCard({
+    required String name,
+    required double avgPercent,
+    required int passed,
+    required int total,
+    required double passingScore,
   }) {
+    final bool allPassed = passed == total && total > 0;
+    final Color accent = allPassed ? const Color(0xFF00C853) : const Color(0xFFD4811B);
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
       ),
       child: Row(
         children: [
@@ -283,13 +343,13 @@ class StudentProfileScreen extends StatelessWidget {
             height: 48,
             width: 48,
             decoration: BoxDecoration(
-              color: badgeColor,
+              color: accent.withOpacity(0.15),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Center(
               child: Text(
-                badge,
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: badgeTextColor),
+                '${avgPercent.toStringAsFixed(0)}%',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: accent),
               ),
             ),
           ),
@@ -299,23 +359,38 @@ class StudentProfileScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  status,
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: statusColor),
+                  name,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  title,
-                  style: const TextStyle(fontSize: 13, color: Colors.black87),
-                ),
-                Text(
-                  subtitle,
-                  style: const TextStyle(fontSize: 13, color: Colors.black87),
+                  '$passed/$total passed (${passingScore.toStringAsFixed(0)}% threshold)',
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF8391A1)),
                 ),
               ],
             ),
           ),
+          Icon(
+            allPassed ? Icons.check_circle : Icons.trending_up,
+            color: accent,
+            size: 24,
+          ),
         ],
       ),
     );
+  }
+
+  String _letterGradeFromPercent(double percent) {
+    if (percent >= 97) return 'A+';
+    if (percent >= 93) return 'A';
+    if (percent >= 90) return 'A-';
+    if (percent >= 87) return 'B+';
+    if (percent >= 83) return 'B';
+    if (percent >= 80) return 'B-';
+    if (percent >= 77) return 'C+';
+    if (percent >= 73) return 'C';
+    if (percent >= 70) return 'C-';
+    if (percent > 0) return 'D';
+    return 'N/A';
   }
 }

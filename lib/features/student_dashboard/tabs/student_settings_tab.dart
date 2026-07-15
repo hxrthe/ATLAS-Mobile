@@ -1,13 +1,35 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-// Strict relative imports for the logout routing
 import '../../auth/login_screen.dart';
 import '../../auth/bloc/auth_bloc.dart';
 import '../../auth/auth_repository.dart';
 
-class StudentSettingsTab extends StatelessWidget {
+class StudentSettingsTab extends StatefulWidget {
   const StudentSettingsTab({super.key});
+
+  @override
+  State<StudentSettingsTab> createState() => _StudentSettingsTabState();
+}
+
+class _StudentSettingsTabState extends State<StudentSettingsTab> {
+  String _userName = 'Student';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUser();
+  }
+
+  Future<void> _loadUser() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _userName = prefs.getString('user_name') ?? 'Student';
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -20,13 +42,13 @@ class StudentSettingsTab extends StatelessWidget {
             style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF8391A1), letterSpacing: 0.5),
           ),
           const SizedBox(height: 16),
-          const ListTile(
-            leading: CircleAvatar(
+          ListTile(
+            leading: const CircleAvatar(
               radius: 24,
-              backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=33'), // Matches your student avatar
+              backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=33'),
             ),
-            title: Text('Art Delacion', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            subtitle: Text('BSIT BA 3301'),
+            title: Text(_userName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            subtitle: const Text('Student'),
           ),
           const Divider(height: 32),
           ListTile(
@@ -44,7 +66,6 @@ class StudentSettingsTab extends StatelessWidget {
           const SizedBox(height: 32),
           ElevatedButton.icon(
             onPressed: () {
-              // Show the Confirmation Dialog
               showDialog(
                 context: context,
                 builder: (BuildContext dialogContext) {
@@ -58,14 +79,12 @@ class StudentSettingsTab extends StatelessWidget {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                     actions: [
                       TextButton(
-                        onPressed: () => Navigator.pop(dialogContext), // Cancel
+                        onPressed: () => Navigator.pop(dialogContext),
                         child: const Text('Cancel', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
                       ),
                       ElevatedButton(
                         onPressed: () async {
-                          Navigator.pop(dialogContext); // Close the dialog first
-
-                          // Execute the logout sequence
+                          Navigator.pop(dialogContext);
                           await context.read<AuthRepository>().logout();
                           if (context.mounted) {
                             Navigator.pushAndRemoveUntil(
