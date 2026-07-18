@@ -1,23 +1,21 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../features/auth/login_screen.dart';
 
 /// Resolves the API base URL depending on the platform:
-/// - Web (Chrome):     http://localhost:8000/api/ (localhost works in browser)
-/// - Native (Android): http://10.0.2.2:8000/api/  (emulator alias for host)
-/// - Native (iOS):     http://localhost:8000/api/  (simulator shares host network)
+/// - Uses ngrok tunnel for all platforms so the app works from anywhere.
+/// - Fallback: localhost / 10.0.2.2 for local dev without ngrok.
 String _resolveBaseUrl() {
-  if (kIsWeb) {
-    return 'http://localhost:8000/api/';
-  }
-  // Default for native platforms — Android emulator maps 10.0.2.2 → host localhost.
-  // If testing on a physical device, replace with your machine's LAN IP.
-  return 'http://10.0.2.2:8000/api/';
+  // When using ngrok, use the same public URL for all platforms.
+  return 'https://platinoid-sandra-endocentric.ngrok-free.dev/api/';
 }
 
 class ApiClient {
   late Dio dio;
   static final String baseUrl = _resolveBaseUrl();
+  static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
   ApiClient() {
     dio = Dio(BaseOptions(
@@ -27,6 +25,7 @@ class ApiClient {
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
       },
     ));
 
@@ -61,12 +60,31 @@ class ApiClient {
               } catch (retryError) {
                 return handler.next(e);
               }
+            } else {
+              // Refresh failed or no refresh token - logout user
+              await _forceLogout();
             }
           }
           return handler.next(e);
         },
       ),
     );
+  }
+
+  Future<void> _forceLogout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('access_token');
+    await prefs.remove('refresh_token');
+
+    // Use navigatorKey to redirect to LoginScreen
+    if (navigatorKey.currentState != null) {
+      navigatorKey.currentState!.pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (context) => const LoginScreen(autoLogout: true),
+        ),
+        (route) => false,
+      );
+    }
   }
 
   Future<bool> _tryRefreshToken() async {
@@ -79,7 +97,10 @@ class ApiClient {
         baseUrl: baseUrl,
         connectTimeout: const Duration(seconds: 5),
         receiveTimeout: const Duration(seconds: 5),
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
       )).post('/auth/token/refresh/', data: {'refresh': refreshToken});
 
       final access = response.data['access'] as String?;

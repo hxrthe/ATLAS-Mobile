@@ -141,9 +141,12 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
 
     return Scaffold(
       backgroundColor: backgroundGrey,
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
-        child: Column(
+      body: RefreshIndicator(
+        onRefresh: _load,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
+          child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Profile Header
@@ -198,7 +201,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: primaryRed.withOpacity(0.3),
+                    color: primaryRed.withValues(alpha: 0.3),
                     blurRadius: 15,
                     offset: const Offset(0, 8),
                   ),
@@ -226,7 +229,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
                       Container(
                         height: 8,
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.3),
+                          color: Colors.black.withValues(alpha: 0.3),
                           borderRadius: BorderRadius.circular(4),
                         ),
                       ),
@@ -245,7 +248,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
                   const SizedBox(height: 12),
                   Text(
                     'Calculated across $_totalScans graded scans',
-                    style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 11, fontStyle: FontStyle.italic),
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 11, fontStyle: FontStyle.italic),
                   ),
                   const SizedBox(height: 24),
                   Row(
@@ -257,7 +260,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
                           const Text('AVERAGE GRADE', style: TextStyle(color: Colors.white70, fontSize: 10, letterSpacing: 0.5)),
                         ],
                       ),
-                      Container(height: 40, width: 1, color: Colors.white.withOpacity(0.2)),
+                      Container(height: 40, width: 1, color: Colors.white.withValues(alpha: 0.2)),
                       Column(
                         children: [
                           Text('${_averagePercent.toStringAsFixed(0)}%', style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
@@ -317,6 +320,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
           ],
         ),
       ),
+    ),
     );
   }
 
@@ -335,7 +339,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4))],
       ),
       child: Row(
         children: [
@@ -343,7 +347,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
             height: 48,
             width: 48,
             decoration: BoxDecoration(
-              color: accent.withOpacity(0.15),
+              color: accent.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Center(

@@ -24,6 +24,21 @@ class GradingRepository {
         .toList();
   }
 
+  /// Fetch a template by its linked assessment ID.
+  Future<BubbleTemplate> fetchTemplateByAssessment(String assessmentId) async {
+    final response = await _apiClient.dio.get(
+      '/grading/bubble/templates/',
+      queryParameters: {'assessment_id': assessmentId},
+    );
+
+    final data = response.data;
+    if (data['success'] != true || (data['templates'] as List).isEmpty) {
+      throw Exception(data['detail'] ?? 'Template for assessment not found.');
+    }
+
+    return BubbleTemplate.fromJson(data['templates'][0]);
+  }
+
   /// Fetch a single template detail (includes answer_key and layout_metadata).
   Future<BubbleTemplate> fetchTemplateDetail(String templateId) async {
     final response = await _apiClient.dio.get(
@@ -123,7 +138,7 @@ class GradingRepository {
       '/grading/bubble/scans/$scanId/',
       // ignore: use_null_aware_elements
       data: <String, dynamic>{
-        if (studentId != null) 'student_identifier': studentId,
+        'student_identifier': ?studentId,
         'responses': responses,
       },
     );

@@ -204,7 +204,7 @@ class OmrImaging {
     final cols = (idc['num_cols'] as num?)?.toInt() ?? 8;
     final colPitch = (idc['col_pitch_mm'] as num).toDouble();
     final rowPitch = (idc['row_pitch_mm'] as num).toDouble();
-    final rMm = (idc['bubble_r_mm'] as num?)?.toDouble() ?? 1.75;
+    final rMm = (idc['bubble_r_mm'] as num?)?.toDouble() ?? 1.5; // Slightly smaller for dense grids
 
     final rPx = (rMm * dpi / 25.4).round();
     final labels = ['0','1','2','3','4','5','6','7','8','9','-'];
@@ -214,20 +214,27 @@ class OmrImaging {
       final cx = ((x0mm + c * colPitch) * dpi / 25.4).round();
 
       double bestFill = 0;
-      int bestRow = 0;
+      int bestRow = -1;
+      
       for (int r = 0; r < labels.length; r++) {
-        final cy = ((yTopMm + 2.5 + r * rowPitch) * dpi / 25.4).round();
+        final cy = ((yTopMm + r * rowPitch) * dpi / 25.4).round();
         final fill = sampleCircle(warped, cx, cy, rPx);
         if (fill > bestFill) {
           bestFill = fill;
           bestRow = r;
         }
       }
-      buf.write(bestFill > 0.28 ? labels[bestRow] : '?');
+      
+      // Using a slightly more conservative threshold for ID bubbles
+      if (bestRow != -1 && bestFill > 0.35) {
+        buf.write(labels[bestRow]);
+      } else {
+        buf.write('?');
+      }
     }
 
-    final raw = buf.toString().trim();
-    return raw.isEmpty ? null : raw;
+    final raw = buf.toString();
+    return raw.contains('?') ? null : raw;
   }
 
   // ── Circle sampling ────────────────────────────────────────────────────

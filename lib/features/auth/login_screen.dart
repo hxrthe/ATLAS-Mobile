@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import '../student_dashboard/student_dashboard_screen.dart';
 
 // STRICT RELATIVE IMPORTS
@@ -7,9 +9,12 @@ import '../faculty_dashboard/faculty_dashboard_screen.dart';
 import 'bloc/auth_bloc.dart';
 import 'bloc/auth_event.dart';
 import 'bloc/auth_state.dart';
+import 'forgot_password_screen.dart';
+import 'signup_screen.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  final bool autoLogout;
+  const LoginScreen({super.key, this.autoLogout = false});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -18,15 +23,90 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
   
   bool _isPasswordVisible = false;
   bool _keepActive = true; 
+  bool _logoutMessageShown = false; // Add flag to track if message was shown
 
   final Color primaryRed = const Color(0xFF8B1515); 
   final Color darkText = const Color(0xFF1E232C);
   final Color grayText = const Color(0xFF8391A1);
   final Color borderColor = const Color(0xFFE8ECF4);
   final Color goldBorder = const Color(0xFFE5C07B); 
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCredentials();
+    _initGoogleSignIn();
+    
+    if (widget.autoLogout && !_logoutMessageShown) {
+      _logoutMessageShown = true; // Mark as shown
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'You have been logged out due to inactivity. Please login again to continue.',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            backgroundColor: primaryRed,
+            duration: const Duration(seconds: 5),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      });
+    }
+  }
+
+  Future<void> _initGoogleSignIn() async {
+    await GoogleSignIn.instance.initialize(
+      serverClientId: '140618226788-r55pqlat0o2vvlsc1on3j22e668a1hpq.apps.googleusercontent.com',
+    );
+  }
+
+  Future<void> _loadCredentials() async {
+    final email = await _secureStorage.read(key: 'saved_email');
+    final password = await _secureStorage.read(key: 'saved_password');
+    if (email != null && password != null) {
+      setState(() {
+        _usernameController.text = email;
+        _passwordController.text = password;
+        _keepActive = true;
+      });
+    }
+  }
+
+  Future<void> _refresh() async {
+    await _loadCredentials();
+  }
+
+  Future<void> _saveCredentials() async {
+    if (_keepActive) {
+      await _secureStorage.write(key: 'saved_email', value: _usernameController.text);
+      await _secureStorage.write(key: 'saved_password', value: _passwordController.text);
+    } else {
+      await _secureStorage.delete(key: 'saved_email');
+      await _secureStorage.delete(key: 'saved_password');
+    }
+  }
+
+  Future<void> _handleGoogleSignIn() async {
+    try {
+      final account = await GoogleSignIn.instance.authenticate();
+      if (!mounted) return;
+      final GoogleSignInAuthentication auth = account.authentication;
+      if (auth.idToken != null && mounted) {
+        context.read<AuthBloc>().add(GoogleLoginRequested(idToken: auth.idToken!));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Google Sign-In failed: $error')),
+        );
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -39,11 +119,10 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      // 1. Wrap the body in a BlocConsumer to listen to the AuthBloc
       body: BlocConsumer<AuthBloc, AuthState>(
         listener: (context, state) {
-          // 2. Listen for Success and route to the Dashboard
           if (state is AuthSuccess) {
+            _saveCredentials();
             Widget targetScreen = state.role == 'faculty'
                 ? const FacultyDashboardScreen()
                 : const StudentDashboardScreen();
@@ -53,7 +132,17 @@ class _LoginScreenState extends State<LoginScreen> {
               MaterialPageRoute(builder: (context) => targetScreen),
             );
           }
-          // 3. Listen for Failure and show an error popup
+          else if (state is GoogleUserNotFound) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => SignupScreen(
+                  prefillEmail: state.email,
+                  prefillName: state.name,
+                ),
+              ),
+            );
+          }
           else if (state is AuthFailure) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -65,10 +154,13 @@ class _LoginScreenState extends State<LoginScreen> {
           }
         },
         builder: (context, state) {
-          return SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 60.0),
-              child: Column(
+          return RefreshIndicator(
+            onRefresh: _refresh,
+            child: SafeArea(
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 60.0),
+                child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Image.asset(
@@ -202,7 +294,16 @@ class _LoginScreenState extends State<LoginScreen> {
                         ],
                       ),
                       TextButton(
-                        onPressed: () {},
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ForgotPasswordScreen(
+                                initialEmail: _usernameController.text.trim(),
+                              ),
+                            ),
+                          );
+                        },
                         style: TextButton.styleFrom(
                           padding: EdgeInsets.zero,
                           minimumSize: const Size(50, 30),
@@ -220,11 +321,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 32),
 
-                  // 4. Update Button to handle Loading State
                   ElevatedButton(
-                    // Disable button if already loading
                     onPressed: state is AuthLoading ? null : () {
-                      // Dispatch the LoginRequested event to the BLoC
                       context.read<AuthBloc>().add(LoginRequested(
                         email: _usernameController.text,
                         password: _passwordController.text,
@@ -239,10 +337,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       side: BorderSide(color: goldBorder, width: 2.0),
                       elevation: 0, 
-                      // Prevent grey background when disabled
-                      disabledBackgroundColor: primaryRed.withOpacity(0.7),
+                      disabledBackgroundColor: primaryRed.withValues(alpha: 0.5),
                     ),
-                    // Swap text for a loading spinner based on state
                     child: state is AuthLoading 
                         ? const SizedBox(
                             height: 20, 
@@ -261,9 +357,73 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ),
                   ),
+                  const SizedBox(height: 24),
+                  
+                  Row(
+                    children: [
+                      Expanded(child: Divider(color: borderColor)),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Text('OR', style: TextStyle(color: grayText, fontWeight: FontWeight.bold)),
+                      ),
+                      Expanded(child: Divider(color: borderColor)),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+
+                  OutlinedButton(
+                    onPressed: _handleGoogleSignIn,
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      side: BorderSide(color: borderColor, width: 1.5),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Image.asset(
+                          'assets/images/google_g_logo.png',
+                          width: 20,
+                          height: 20,
+                        ),
+                        const SizedBox(width: 12),
+                        const Text(
+                          'Continue with Google',
+                          style: TextStyle(
+                            color: Colors.black,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => SignupScreen(
+                            prefillEmail: _usernameController.text.trim(),
+                            prefillName: '',
+                          ),
+                        ),
+                      );
+                    },
+                    child: Text(
+                      "Don't have an account? Sign up",
+                      style: TextStyle(
+                        color: primaryRed,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
+          ),
           );
         },
       ),

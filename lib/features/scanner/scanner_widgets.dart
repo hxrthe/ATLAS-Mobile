@@ -177,7 +177,7 @@ class _SectionSelectionSheetState extends State<SectionSelectionSheet> {
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 itemCount: widget.templates.length,
-                separatorBuilder: (_, _a) => const SizedBox(width: 8),
+                separatorBuilder: (_, a) => const SizedBox(width: 8),
                 itemBuilder: (context, i) {
                   final t = widget.templates[i];
                   final active = _selected?.templateId == t.templateId;
@@ -230,7 +230,7 @@ class _SectionSelectionSheetState extends State<SectionSelectionSheet> {
                 shrinkWrap: true,
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 itemCount: _parts.length,
-                separatorBuilder: (_, _a) => const SizedBox(height: 8),
+                separatorBuilder: (_, a) => const SizedBox(height: 8),
                 itemBuilder: (context, i) {
                   final part = _parts.elementAt(i).value;
                   final active = _selectedPartIndex == i;
@@ -239,7 +239,7 @@ class _SectionSelectionSheetState extends State<SectionSelectionSheet> {
                     child: Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: active ? primaryRed.withOpacity(0.08) : Colors.white,
+                        color: active ? primaryRed.withValues(alpha: 0.08) : Colors.white,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
                           color: active ? primaryRed : const Color(0xFFE8ECF4),
@@ -458,7 +458,7 @@ class TemplateSelectionView extends StatelessWidget {
                   onRefresh: () async => onRefresh(),
                   child: ListView.separated(
                     itemCount: templates.length,
-                    separatorBuilder: (_, _a) => const SizedBox(height: 12),
+                    separatorBuilder: (_, a) => const SizedBox(height: 12),
                     itemBuilder: (context, index) {
                       final t = templates[index];
                       final isSelected =
@@ -483,7 +483,7 @@ class TemplateSelectionView extends StatelessWidget {
                                   Container(
                                     padding: const EdgeInsets.all(12),
                                     decoration: BoxDecoration(
-                                      color: primaryRed.withOpacity(0.1),
+                                      color: primaryRed.withValues(alpha: 0.1),
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                     child: Icon(Icons.assignment,
@@ -677,19 +677,95 @@ class CaptureView extends StatelessWidget {
     return Stack(
       children: [
         Positioned.fill(child: CameraPreview(controller!)),
+        
+        // A4 Viewfinder Overlay
+        LayoutBuilder(
+          builder: (context, constraints) {
+            // A4 Aspect Ratio is 1:1.414 (210/297)
+            const a4AspectRatio = 210 / 297;
+            
+            // Calculate viewfinder size to fit screen with margins
+            double vw = constraints.maxWidth * 0.85;
+            double vh = vw / a4AspectRatio;
+            
+            // If height is too tall for screen, scale down
+            if (vh > constraints.maxHeight * 0.7) {
+              vh = constraints.maxHeight * 0.7;
+              vw = vh * a4AspectRatio;
+            }
+
+            return Stack(
+              children: [
+                // Dimmed background with cutout
+                ColorFiltered(
+                  colorFilter: ColorFilter.mode(
+                    Colors.black.withValues(alpha: 0.5),
+                    BlendMode.srcOut,
+                  ),
+                  child: Stack(
+                    children: [
+                      Container(
+                        decoration: const BoxDecoration(
+                          color: Colors.black,
+                          backgroundBlendMode: BlendMode.dstOut,
+                        ),
+                      ),
+                      Center(
+                        child: Container(
+                          width: vw,
+                          height: vh,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                
+                // Viewfinder Brackets (Fiducials)
+                Center(
+                  child: SizedBox(
+                    width: vw,
+                    height: vh,
+                    child: Stack(
+                      children: [
+                        // Four Corner Brackets
+                        _bracket(Alignment.topLeft),
+                        _bracket(Alignment.topRight),
+                        _bracket(Alignment.bottomLeft),
+                        _bracket(Alignment.bottomRight),
+                        
+                        // Instructional Text
+                        Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.black45,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Text(
+                              'Align Corner Squares\nin Brackets',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+
         Positioned(
           top: 0, left: 0, right: 0,
           child: _topBar(),
         ),
-        Center(
-          child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 40, vertical: 100),
-            decoration: BoxDecoration(
-              border: Border.all(color: goldBorder, width: 3),
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-        ),
+        
         Positioned(
           bottom: 48, left: 0, right: 0,
           child: Center(
@@ -714,6 +790,20 @@ class CaptureView extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _bracket(Alignment alignment) {
+    return Align(
+      alignment: alignment,
+      child: Container(
+        width: 50,
+        height: 50,
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.white, width: 2),
+          borderRadius: BorderRadius.circular(8),
+        ),
+      ),
     );
   }
 
@@ -927,7 +1017,7 @@ class ResultView extends StatelessWidget {
               color: Colors.white,
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
+                BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 4)),
               ],
             ),
             child: Column(
@@ -959,7 +1049,7 @@ class ResultView extends StatelessWidget {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(14),
                 boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0, 3)),
+                  BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 3)),
                 ],
               ),
               child: Column(
@@ -992,7 +1082,7 @@ class ResultView extends StatelessWidget {
               color: Colors.white,
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
+                BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 4)),
               ],
             ),
             child: Column(

@@ -36,7 +36,9 @@ class _SettingsTabState extends State<SettingsTab> {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: ListView(
+      child: RefreshIndicator(
+        onRefresh: _loadUser,
+        child: ListView(
         padding: const EdgeInsets.all(24.0),
         children: [
           const Text(
@@ -130,6 +132,7 @@ class _SettingsTabState extends State<SettingsTab> {
           ),
         ],
       ),
+    ),
     );
   }
 }

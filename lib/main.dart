@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 // STRICT RELATIVE IMPORTS
+import 'core/network/api_client.dart';
 import 'features/auth/auth_repository.dart';
 import 'features/auth/bloc/auth_bloc.dart';
 import 'features/auth/login_screen.dart';
@@ -18,19 +19,19 @@ class AtlasMobileApp extends StatelessWidget {
     // We keep the Repository global so the whole app can access the database connection
     return RepositoryProvider(
       create: (context) => AuthRepository(),
-      child: MaterialApp(
-        title: 'ATLAS Mobile',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF8B1515)),
-          useMaterial3: true,
+      child: BlocProvider(
+        create: (context) => AuthBloc(
+          authRepository: context.read<AuthRepository>(),
         ),
-        // INJECT THE BLOC DIRECTLY INTO THE ROUTE
-        home: BlocProvider(
-          create: (context) => AuthBloc(
-            authRepository: context.read<AuthRepository>(),
+        child: MaterialApp(
+          title: 'ATLAS Mobile',
+          debugShowCheckedModeBanner: false,
+          navigatorKey: ApiClient.navigatorKey,
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF8B1515)),
+            useMaterial3: true,
           ),
-          child: const LoginScreen(),
+          home: const LoginScreen(),
         ),
       ),
     );

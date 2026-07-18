@@ -7,25 +7,86 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final AuthRepository authRepository;
 
   AuthBloc({required this.authRepository}) : super(AuthInitial()) {
-
-    // When the UI sends a LoginRequested event, execute this logic:
     on<LoginRequested>((event, emit) async {
-
-      // 1. Immediately tell the UI to show a loading wheel
       emit(AuthLoading());
-
       try {
-        // 2. Ask the repository to verify the credentials and return the role
         final role = await authRepository.login(
           email: event.email,
           password: event.password,
         );
-
-        // 3. Tell the UI it's a success and pass the role string along
         emit(AuthSuccess(role: role));
-
       } catch (e) {
-        // 4. If the repository throws an error, send the error message to the UI
+        emit(AuthFailure(error: e.toString()));
+      }
+    });
+
+    on<GoogleLoginRequested>((event, emit) async {
+      emit(AuthLoading());
+      try {
+        final result = await authRepository.loginWithGoogle(event.idToken);
+        if (result['user_exists'] == false) {
+          emit(GoogleUserNotFound(
+            email: result['email'] as String,
+            name: result['name'] as String,
+          ));
+        } else {
+          emit(AuthSuccess(role: result['role'] as String));
+        }
+      } catch (e) {
+        emit(AuthFailure(error: e.toString()));
+      }
+    });
+
+    on<ForgotPasswordRequested>((event, emit) async {
+      emit(AuthLoading());
+      try {
+        await authRepository.requestPasswordReset(event.email);
+        emit(ForgotPasswordEmailSent(email: event.email));
+      } catch (e) {
+        emit(AuthFailure(error: e.toString()));
+      }
+    });
+
+    on<VerifyOtpRequested>((event, emit) async {
+      emit(AuthLoading());
+      try {
+        final resetToken = await authRepository.verifyPasswordResetOtp(
+          event.email,
+          event.otp,
+        );
+        emit(OtpVerified(resetToken: resetToken));
+      } catch (e) {
+        emit(AuthFailure(error: e.toString()));
+      }
+    });
+
+    on<ResetPasswordRequested>((event, emit) async {
+      emit(AuthLoading());
+      try {
+        await authRepository.confirmPasswordReset(
+          event.resetToken,
+          event.newPassword,
+        );
+        emit(PasswordResetSuccess());
+      } catch (e) {
+        emit(AuthFailure(error: e.toString()));
+      }
+    });
+
+    on<SignupRequested>((event, emit) async {
+      emit(AuthLoading());
+      try {
+        final role = await authRepository.signup(
+          email: event.email,
+          password: event.password,
+          name: event.name,
+          studentId: event.studentId,
+          course: event.course,
+          section: event.section,
+          yearLevel: event.yearLevel,
+        );
+        emit(AuthSuccess(role: role));
+      } catch (e) {
         emit(AuthFailure(error: e.toString()));
       }
     });

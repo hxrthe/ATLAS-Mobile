@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/material.dart';
+import '../auth/login_screen.dart';
 import '../scanner/scanner_screen.dart';
 import '../scanner/scanner_widgets.dart';
 import '../grading/grading_repository.dart';
@@ -7,7 +9,6 @@ import '../grading/models.dart';
 import 'tabs/courses_tab.dart';
 import 'tabs/reports_tab.dart';
 import 'tabs/settings_tab.dart';
-import 'package:flutter/material.dart';
 
 class FacultyDashboardScreen extends StatefulWidget {
   const FacultyDashboardScreen({super.key});
@@ -19,6 +20,7 @@ class FacultyDashboardScreen extends StatefulWidget {
 class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
   int _selectedIndex = 0;
   String _userName = 'Instructor';
+  Timer? _inactivityTimer;
 
   // Real data
   final GradingRepository _repo = GradingRepository();
@@ -39,6 +41,30 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
   void initState() {
     super.initState();
     _initLoad();
+    _resetInactivityTimer();
+  }
+
+  @override
+  void dispose() {
+    _inactivityTimer?.cancel();
+    super.dispose();
+  }
+
+  void _resetInactivityTimer() {
+    _inactivityTimer?.cancel();
+    _inactivityTimer = Timer(const Duration(minutes: 15), _handleInactivity);
+  }
+
+  void _handleInactivity() {
+    if (!mounted) return;
+    
+    // Perform logout
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (context) => const LoginScreen(autoLogout: true),
+      ),
+      (route) => false,
+    );
   }
 
   Future<void> _initLoad() async {
@@ -115,7 +141,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
     });
   }
 
-  void _openSectionSheet(BuildContext context) {
+    void _openSectionSheet(BuildContext context) {
     if (_activeCourse == null) return;
     showModalBottomSheet(
       context: context,
@@ -129,7 +155,10 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
             _activeTemplates.isNotEmpty ? _activeTemplates : _allTemplates.where((t) => t.courseId == _activeCourse!['course_id']).toList(),
       ),
     ).then((result) {
-      if (result != null && mounted) {
+      // 🟢 FIX: Check context.mounted instead of just mounted
+      if (!context.mounted) return;
+
+      if (result != null) {
         _navigateToScanner(
           context,
           _activeCourse!['course_id']!,
@@ -185,30 +214,113 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
       const SettingsTab(),
     ];
 
-    return Scaffold(
-      backgroundColor: backgroundGrey,
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: (index) => setState(() => _selectedIndex = index),
-        selectedItemColor: primaryRed,
-        unselectedItemColor: textGrey,
-        showUnselectedLabels: true,
-        type: BottomNavigationBarType.fixed,
-        selectedLabelStyle:
-            const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-        unselectedLabelStyle:
-            const TextStyle(fontWeight: FontWeight.normal, fontSize: 12),
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.menu_book), label: 'Courses'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.show_chart), label: 'Reports'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.manage_accounts), label: 'Settings'),
+    return Listener(
+      onPointerDown: (_) => _resetInactivityTimer(),
+      child: Scaffold(
+        backgroundColor: backgroundGrey,
+        extendBody: true,
+        bottomNavigationBar: BottomAppBar(
+        height: 75,
+        shape: const AutomaticNotchedShape(
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          CircleBorder(),
+        ),
+        notchMargin: 10.0,
+        color: Colors.white,
+        elevation: 20,
+        shadowColor: Colors.black.withValues(alpha: 0.5),
+        clipBehavior: Clip.antiAlias,
+        padding: EdgeInsets.zero,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildNavItem(0, Icons.home, 'Home'),
+                  _buildNavItem(1, Icons.menu_book, 'Courses'),
+                ],
+              ),
+            ),
+            // Central part for FAB and label
+            SizedBox(
+              width: 100,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6.0),
+                    child: Text(
+                      'Scanner',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: textGrey,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildNavItem(2, Icons.show_chart, 'Reports'),
+                  _buildNavItem(3, Icons.manage_accounts, 'Settings'),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      floatingActionButton: SizedBox(
+        height: 72,
+        width: 72,
+        child: FloatingActionButton(
+          onPressed: () {
+            _resetInactivityTimer();
+            _navigateToScanner(context, "", "Scanner");
+          },
+          backgroundColor: primaryRed,
+          shape: const CircleBorder(),
+          elevation: 10,
+          child: const Icon(Icons.qr_code_scanner, color: Colors.white, size: 36),
+        ),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+      body: tabs[_selectedIndex],
+    ),
+    );
+  }
+
+  Widget _buildNavItem(int index, IconData icon, String label) {
+    final isSelected = _selectedIndex == index;
+    return InkWell(
+      onTap: () => setState(() => _selectedIndex = index),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            icon,
+            color: isSelected ? primaryRed : textGrey,
+            size: 28,
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: TextStyle(
+              color: isSelected ? primaryRed : textGrey,
+              fontSize: 12,
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+            ),
+          ),
         ],
       ),
-      body: tabs[_selectedIndex],
     );
   }
 
@@ -289,7 +401,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
                         borderRadius: BorderRadius.circular(24),
                         boxShadow: [
                           BoxShadow(
-                            color: primaryRed.withOpacity(0.3),
+                            color: primaryRed.withValues(alpha: 0.3),
                             blurRadius: 15,
                             offset: const Offset(0, 8),
                           ),
@@ -302,7 +414,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 10, vertical: 4),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFD4811B).withOpacity(0.9),
+                              color: const Color(0xFFD4811B).withValues(alpha: 0.9),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
@@ -459,7 +571,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
                                   Container(
                                     padding: const EdgeInsets.all(10),
                                     decoration: BoxDecoration(
-                                      color: primaryRed.withOpacity(0.08),
+                                      color: primaryRed.withValues(alpha: 0.08),
                                       borderRadius: BorderRadius.circular(10),
                                     ),
                                     child: Icon(Icons.swap_horiz,
@@ -596,7 +708,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.02),
+              color: Colors.black.withValues(alpha: 0.02),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -610,7 +722,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: primaryRed.withOpacity(0.1),
+                color: primaryRed.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
@@ -643,7 +755,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF00E676).withOpacity(0.15),
+                  color: const Color(0xFF00E676).withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: const Text(

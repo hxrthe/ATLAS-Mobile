@@ -101,7 +101,9 @@ class _ReportsTabState extends State<ReportsTab> {
   List<BubbleScan> get _filteredScans {
     return _scans.where((s) {
       if (_filterTemplateId != null &&
-          s.templateId != _filterTemplateId) return false;
+          s.templateId != _filterTemplateId) {
+        return false;
+      }
       return true;
     }).toList();
   }
@@ -234,14 +236,14 @@ class _ReportsTabState extends State<ReportsTab> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                _filterChip('Course', _filterCourseId,
-                    _courses.map((c) => DropdownMenuEntry(value: c['course_id'] as String, label: c['course_code'] ?? '')).toList(),
+                _nullableFilterChip('Course', _filterCourseId,
+                    _courses.map((c) => DropdownMenuEntry<String>(value: c['course_id'] ?? '', label: c['course_code'] ?? '')).toList(),
                     (v) => _filterCourse(v)),
-                _filterChip('Assessment', _filterAssessmentId,
-                    _assessments.map((a) => DropdownMenuEntry(value: a['assessment_id'] as String, label: a['title'] ?? '')).toList(),
+                _nullableFilterChip('Assessment', _filterAssessmentId,
+                    _assessments.map((a) => DropdownMenuEntry<String>(value: a['assessment_id'] ?? '', label: a['title'] ?? '')).toList(),
                     (v) => _filterAssessment(v)),
-                _filterChip('Template', _filterTemplateId,
-                    _templates.where((t) => _filterCourseId == null || t.courseId == _filterCourseId).map((t) => DropdownMenuEntry(value: t.templateId, label: t.name)).toList(),
+                _nullableFilterChip('Template', _filterTemplateId,
+                    _templates.where((t) => _filterCourseId == null || t.courseId == _filterCourseId).map((t) => DropdownMenuEntry<String>(value: t.templateId, label: t.name)).toList(),
                     (v) => _filterTemplate(v)),
               ],
             ),
@@ -255,7 +257,7 @@ class _ReportsTabState extends State<ReportsTab> {
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                      color: Colors.black.withOpacity(0.02), blurRadius: 10)
+                      color: Colors.black.withValues(alpha: 0.02), blurRadius: 10)
                 ],
               ),
               child: Column(
@@ -320,7 +322,7 @@ class _ReportsTabState extends State<ReportsTab> {
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                        color: Colors.black.withOpacity(0.02),
+                        color: Colors.black.withValues(alpha: 0.02),
                         blurRadius: 10)
                   ],
                 ),
@@ -333,7 +335,7 @@ class _ReportsTabState extends State<ReportsTab> {
                     const SizedBox(height: 4),
                     const Text('Tap a bar to see per-student details',
                         style:
-                            const TextStyle(fontSize: 12, color: textGrey)),
+                            TextStyle(fontSize: 12, color: textGrey)),
                     const SizedBox(height: 16),
                     ..._bloomAverages.entries.map((e) {
                       final colors = [
@@ -445,7 +447,7 @@ class _ReportsTabState extends State<ReportsTab> {
                 child: ListView.separated(
                   shrinkWrap: true,
                   itemCount: details.length,
-                  separatorBuilder: (_, _a) => const Divider(),
+                  separatorBuilder: (_, a) => const Divider(),
                   itemBuilder: (_, i) {
                     final d = details[i];
                     final mastery = d['mastery'] as double;
@@ -453,7 +455,7 @@ class _ReportsTabState extends State<ReportsTab> {
                       contentPadding: EdgeInsets.zero,
                       leading: CircleAvatar(
                         backgroundColor:
-                            mastery >= 75 ? Colors.green.shade100 : primaryRed.withOpacity(0.12),
+                            mastery >= 75 ? Colors.green.shade100 : primaryRed.withValues(alpha: 0.12),
                         child: Text(
                           d['student_id'].toString().substring(0, min(2, d['student_id'].toString().length)).toUpperCase(),
                           style: TextStyle(
@@ -511,18 +513,18 @@ class _ReportsTabState extends State<ReportsTab> {
     );
   }
 
-  Widget _filterChip<T>(
+  Widget _nullableFilterChip(
     String label,
-    T? value,
-    List<DropdownMenuEntry<T>> entries,
-    void Function(T?) onSelected,
+    String? value,
+    List<DropdownMenuEntry<String>> entries,
+    void Function(String?) onSelected,
   ) {
-    return DropdownMenu<T>(
+    return DropdownMenu<String?>(
       label: Text(label),
       initialSelection: value,
       dropdownMenuEntries: [
-        DropdownMenuEntry<T>(value: null as T, label: 'All $label'),
-        ...entries,
+        const DropdownMenuEntry<String?>(value: null, label: 'All'),
+        ...entries.map((e) => DropdownMenuEntry<String?>(value: e.value, label: e.label)),
       ],
       onSelected: onSelected,
       textStyle: const TextStyle(fontSize: 13),

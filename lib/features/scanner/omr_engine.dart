@@ -50,7 +50,9 @@ class OmrEngine {
 
     final responses = <String, String>{};
     for (final r in readings) {
-      responses[r.itemNumber.toString()] = r.detectedAnswer;
+      if (r.detectedAnswer != '?') {
+        responses[r.itemNumber.toString()] = r.detectedAnswer;
+      }
     }
 
     // Step 5 – Grade
@@ -63,7 +65,7 @@ class OmrEngine {
         .map((r) => r.itemNumber)
         .toList();
     final reasons = <String>[];
-    if (studentId == null) reasons.add('Student ID not detected');
+    if (studentId == null || studentId.contains('?')) reasons.add('Student ID incomplete');
     if (flagged.isNotEmpty) {
       reasons.add('${flagged.length} ambiguous item(s)');
     }

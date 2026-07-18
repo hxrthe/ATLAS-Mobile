@@ -1,8 +1,10 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../grading/grading_repository.dart';
 import '../grading/models.dart';
 import 'omr_engine.dart';
+import 'omr_imaging.dart';
 import 'omr_models.dart';
 import 'scanner_widgets.dart';
 import 'template_cache.dart';
@@ -34,7 +36,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
   bool _isLoadingTemplates = false;
   String? _templatesError;
 
-  ScannerStep _step = ScannerStep.selectTemplate;
+  ScannerStep _step = ScannerStep.capture;
   bool _isUploading = false;
   bool _isProcessingLocally = false;
   String? _processingStage;
@@ -55,7 +57,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
   @override
   void initState() {
     super.initState();
-    _loadTemplates();
+    _setupCamera();
   }
 
   Future<void> _loadTemplates() async {
@@ -206,7 +208,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   Future<void> _onCapture() async {
     if (_controller == null || !_controller!.value.isInitialized) return;
-    if (_selectedTemplate == null) return;
 
     try {
       setState(() {
@@ -218,16 +219,54 @@ class _ScannerScreenState extends State<ScannerScreen> {
       final image = await _controller!.takePicture();
       _capturedImagePath = image.path;
 
-      setState(() => _processingStage = 'Scanning QR code…');
-      final result = await OmrEngine.processScan(image.path, _selectedTemplate!);
+      setState(() => _processingStage = 'Identifying sheet (QR)…');
+      final qrData = await OmrImaging.decodeQR(image.path);
+      
+      if (qrData == null || qrData.isEmpty) {
+        throw Exception('No QR code detected. Please ensure the sheet identifier is visible.');
+      }
+
+      // Expected format: "assessmentId|studentId" or "templateId|studentId"
+      final parts = qrData.split('|');
+      String id = parts[0];
+      String? studentIdFromQr = parts.length > 1 ? parts[1] : null;
+
+      setState(() => _processingStage = 'Fetching template metadata…');
+      BubbleTemplate? template;
+      
+      // Try fetching as template ID first, then as assessment ID
+      try {
+        template = await _repository.fetchTemplateDetail(id);
+      } catch (_) {
+        try {
+          template = await _repository.fetchTemplateByAssessment(id);
+        } catch (_) {
+          template = null;
+        }
+      }
+
+      if (template == null) {
+        throw Exception('Could not match sheet ID "$id" to a valid assessment template.');
+      }
+
+      _selectedTemplate = template;
+
+      setState(() => _processingStage = 'Processing OMR results…');
+      final result = await OmrEngine.processScan(image.path, template);
+
+      // Successful capture feedback
+      HapticFeedback.vibrate();
 
       if (!mounted) return;
+
+      // Use student ID from QR if OMR failed to find it or if QR is preferred
+      final finalStudentId = studentIdFromQr ?? result.studentIdentifier ?? 'Unknown';
 
       // Build a BubbleScan-like result for the UI
       final scan = BubbleScan(
         scanId: '',
-        templateId: _selectedTemplate!.templateId,
-        studentIdentifier: result.studentIdentifier ?? 'Unknown',
+        templateId: template.templateId,
+        studentIdentifier: finalStudentId,
         responses: result.responses,
         scoreRaw: result.scoreRaw,
         scorePercent: result.scorePercent,
@@ -244,6 +283,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
         _resultError = null;
         _step = ScannerStep.result;
       });
+
+      // Automatically upload upon successful processing
+      _uploadToServer();
+
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -333,14 +376,11 @@ class _ScannerScreenState extends State<ScannerScreen> {
         return CaptureView(
           controller: _controller,
           isReady: _isCameraReady,
-          templateName: _selectedTemplate?.name ?? '',
+          templateName: 'Align QR Code & Sheet',
           onBack: () {
             _controller?.dispose();
             _controller = null;
-            setState(() {
-              _isCameraReady = false;
-              _step = ScannerStep.selectTemplate;
-            });
+            Navigator.pop(context);
           },
           onCapture: _onCapture,
           primaryRed: primaryRed,

@@ -156,7 +156,7 @@ class _CoursesTabState extends State<CoursesTab> {
           border: Border.all(color: const Color(0xFF8B1515), width: 2),
           boxShadow: [
             BoxShadow(
-                color: Colors.black.withOpacity(0.02),
+                color: Colors.black.withValues(alpha: 0.02),
                 blurRadius: 10,
                 offset: const Offset(0, 4))
           ],
@@ -166,7 +166,7 @@ class _CoursesTabState extends State<CoursesTab> {
           child: Row(
             children: [
               CircleAvatar(
-                backgroundColor: const Color(0xFF8B1515).withOpacity(0.1),
+                backgroundColor: const Color(0xFF8B1515).withValues(alpha: 0.1),
                 child: const Icon(Icons.book, color: Color(0xFF8B1515)),
               ),
               const SizedBox(width: 16),

@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../auth/login_screen.dart';
 import '../grading/grading_repository.dart';
 import 'tabs/analytics_tab.dart';
 import 'tabs/student_settings_tab.dart';
@@ -17,6 +19,7 @@ class StudentDashboardScreen extends StatefulWidget {
 class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   int _selectedIndex = 0;
   String _userName = 'Student';
+  Timer? _inactivityTimer;
 
   final GradingRepository _repo = GradingRepository();
   List<Map<String, dynamic>> _courses = [];
@@ -33,6 +36,30 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   void initState() {
     super.initState();
     _initLoad();
+    _resetInactivityTimer();
+  }
+
+  @override
+  void dispose() {
+    _inactivityTimer?.cancel();
+    super.dispose();
+  }
+
+  void _resetInactivityTimer() {
+    _inactivityTimer?.cancel();
+    _inactivityTimer = Timer(const Duration(minutes: 15), _handleInactivity);
+  }
+
+  void _handleInactivity() {
+    if (!mounted) return;
+    
+    // Perform logout
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (context) => const LoginScreen(autoLogout: true),
+      ),
+      (route) => false,
+    );
   }
 
   Future<void> _initLoad() async {
@@ -135,8 +162,10 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       const StudentSettingsTab(),
     ];
 
-    return Scaffold(
-      backgroundColor: backgroundGrey,
+    return Listener(
+      onPointerDown: (_) => _resetInactivityTimer(),
+      child: Scaffold(
+        backgroundColor: backgroundGrey,
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showEnrollDialog(context),
         backgroundColor: primaryRed,
@@ -159,6 +188,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
         ],
       ),
       body: tabs[_selectedIndex],
+      ),
     );
   }
 
@@ -241,8 +271,8 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                         decoration: BoxDecoration(
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(24),
-                          border: Border.all(color: primaryRed.withOpacity(0.2), width: 1.5),
-                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
+                          border: Border.all(color: primaryRed.withValues(alpha: 0.2), width: 1.5),
+                          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4))],
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -319,7 +349,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.01), blurRadius: 10, offset: const Offset(0, 4))],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.01), blurRadius: 10, offset: const Offset(0, 4))],
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -369,25 +399,23 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
             Navigator.pop(ctx);
             // Reload courses
             await _loadAll();
-            if (mounted) {
+            if (!context.mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text('Successfully enrolled in $courseCode!'),
                   backgroundColor: Colors.green.shade700,
                 ),
               );
-            }
           } catch (e) {
             if (!ctx.mounted) return;
             Navigator.pop(ctx);
-            if (mounted) {
+            if (!context.mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(e.toString().replaceAll('Exception: ', '')),
                   backgroundColor: primaryRed,
                 ),
               );
-            }
           }
         },
       ),

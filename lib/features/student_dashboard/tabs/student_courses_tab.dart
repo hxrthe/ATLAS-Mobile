@@ -33,7 +33,11 @@ class _StudentCoursesTabState extends State<StudentCoursesTab> {
     return SafeArea(
       child: Stack(
         children: [
-          ListView(
+          RefreshIndicator(
+            onRefresh: () async {
+              widget.onCoursesChanged?.call();
+            },
+            child: ListView(
             padding: const EdgeInsets.all(24.0),
             children: [
               const Text(
@@ -61,6 +65,7 @@ class _StudentCoursesTabState extends State<StudentCoursesTab> {
               ],
               const SizedBox(height: 80), // space for FAB
             ],
+            ),
           ),
           Positioned(
             bottom: 16,
@@ -146,7 +151,7 @@ class _StudentCoursesTabState extends State<StudentCoursesTab> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4))],
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
@@ -166,7 +171,7 @@ class _StudentCoursesTabState extends State<StudentCoursesTab> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
-                          color: color.withOpacity(0.1),
+                          color: color.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(section,
