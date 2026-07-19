@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import '../student_dashboard/student_dashboard_screen.dart';
 
 // STRICT RELATIVE IMPORTS
@@ -27,7 +26,7 @@ class _LoginScreenState extends State<LoginScreen> {
   
   bool _isPasswordVisible = false;
   bool _keepActive = true; 
-  bool _logoutMessageShown = false; // Add flag to track if message was shown
+  static bool _logoutMessageShownOnce = false; // Add static flag to track globally
 
   final Color primaryRed = const Color(0xFF8B1515); 
   final Color darkText = const Color(0xFF1E232C);
@@ -39,31 +38,27 @@ class _LoginScreenState extends State<LoginScreen> {
   void initState() {
     super.initState();
     _loadCredentials();
-    _initGoogleSignIn();
     
-    if (widget.autoLogout && !_logoutMessageShown) {
-      _logoutMessageShown = true; // Mark as shown
+    if (widget.autoLogout && !_logoutMessageShownOnce) {
+      _logoutMessageShownOnce = true; // Mark as shown
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text(
-              'You have been logged out due to inactivity. Please login again to continue.',
-              style: TextStyle(fontWeight: FontWeight.bold),
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text(
+                'You have been logged out due to inactivity. Please login again to continue.',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              backgroundColor: primaryRed,
+              duration: const Duration(seconds: 5),
+              behavior: SnackBarBehavior.floating,
             ),
-            backgroundColor: primaryRed,
-            duration: const Duration(seconds: 5),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+          );
+        }
       });
     }
   }
 
-  Future<void> _initGoogleSignIn() async {
-    await GoogleSignIn.instance.initialize(
-      serverClientId: '140618226788-r55pqlat0o2vvlsc1on3j22e668a1hpq.apps.googleusercontent.com',
-    );
-  }
 
   Future<void> _loadCredentials() async {
     final email = await _secureStorage.read(key: 'saved_email');
@@ -91,21 +86,8 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _handleGoogleSignIn() async {
-    try {
-      final account = await GoogleSignIn.instance.authenticate();
-      if (!mounted) return;
-      final GoogleSignInAuthentication auth = account.authentication;
-      if (auth.idToken != null && mounted) {
-        context.read<AuthBloc>().add(GoogleLoginRequested(idToken: auth.idToken!));
-      }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Google Sign-In failed: $error')),
-        );
-      }
-    }
+  void _handleGoogleSignIn() {
+    context.read<AuthBloc>().add(const GoogleLoginRequested());
   }
 
   @override

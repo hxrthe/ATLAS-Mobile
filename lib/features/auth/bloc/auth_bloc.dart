@@ -23,7 +23,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<GoogleLoginRequested>((event, emit) async {
       emit(AuthLoading());
       try {
-        final result = await authRepository.loginWithGoogle(event.idToken);
+        final result = await authRepository.loginWithGoogle();
         if (result['user_exists'] == false) {
           emit(GoogleUserNotFound(
             email: result['email'] as String,

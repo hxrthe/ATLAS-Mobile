@@ -75,8 +75,8 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       // Refresh student details from server first
       await _repo.refreshStudentDetails();
 
-      // Load courses from dashboard summary (now returns enrolled courses for students)
-      final courses = await _repo.fetchFacultyCourses();
+      // Load courses from cached student_details (refreshed above from auth/me/)
+      final courses = await _repo.fetchStudentCourses();
       final recentGrades = <Map<String, dynamic>>[];
 
       for (final c in courses) {

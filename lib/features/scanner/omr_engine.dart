@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 import 'package:image/image.dart' as img;
 import '../grading/models.dart';
 import 'omr_imaging.dart';
@@ -6,17 +7,24 @@ import 'omr_models.dart';
 
 /// On‑device OMR scanning engine.
 ///
-/// Pipeline: load → QR → fiducials → warp → ID bubbles → answer bubbles → grade.
+/// Pipeline: load → fiducials (blob → edge fallback) → warp →
+///           enhanced preprocessing (blur → normalize → truncate →
+///           local contrast → gamma → normalize) → ID bubbles →
+///           answer bubbles (global + local threshold with hysteresis) → grade.
 class OmrEngine {
-  static const double fillThreshold = 128;
-  static const double minFill = 0.28;
-  static const double marginFill = 0.08;
-  static const double goodFill = 0.42;
+  // Thresholding parameters — tuned against OMRChecker + AndroidOMRHelper
+  static const double minGap = 0.10;             // minimum gap for largest-gap detection
+  static const double minJump = 0.25;            // confident surplus (OMRChecker's CONFIDENT_SURPLUS)
+  static const double confidentSurplus = 0.05;   // extra margin for confident detection
+  static const double marginFill = 0.08;         // best vs second-best gap for ambiguity
+  static const double goodFill = 0.42;           // above this = confirmed (not just acceptable)
+  static const double hysteresisMargin = 0.06;   // must exceed global threshold by this much
 
   static Future<OmrResult> processScan(
     String imagePath,
-    BubbleTemplate template,
-  ) async {
+    BubbleTemplate template, {
+    String? studentId,
+  }) async {
     final sw = Stopwatch()..start();
 
     final bytes = await File(imagePath).readAsBytes();
@@ -25,11 +33,8 @@ class OmrEngine {
 
     final layout = template.layoutMetadata;
 
-    // Step 1 – QR for student ID
-    String? studentId = await OmrImaging.decodeQR(imagePath);
-
-    // Step 2 – Fiducial detect + warp
-    final fiducials = OmrImaging.detectFiducials(image, layout);
+    // Step 1 – Fiducial detect + warp (robust: blob → edge fallback)
+    final fiducials = OmrImaging.detectFiducialsRobust(image, layout);
     img.Image warped;
     double dpi;
     if (fiducials.length >= 4) {
@@ -42,10 +47,13 @@ class OmrEngine {
       dpi = warped.width / (((layout['page_width_pt'] as num?) ?? 595.28).toDouble() / 72.0);
     }
 
-    // Step 3 – ID bubbles (fallback)
+    // Step 1b – Enhanced preprocessing (6-stage pipeline from AndroidOMRHelper)
+    warped = OmrImaging.preProcessForOcr(warped);
+
+    // Step 2 – ID bubbles (primary student identification)
     studentId ??= OmrImaging.readIDBubbles(warped, layout, dpi);
 
-    // Step 4 – Answer bubbles
+    // Step 3 – Answer bubbles
     final readings = _readAnswers(warped, template, layout, dpi);
 
     final responses = <String, String>{};
@@ -55,8 +63,8 @@ class OmrEngine {
       }
     }
 
-    // Step 5 – Grade
-    final gr = _grade(responses, template.answerKey);
+    // Step 4 – Grade
+    final gr = grade(responses, template.answerKey);
 
     sw.stop();
 
@@ -65,7 +73,8 @@ class OmrEngine {
         .map((r) => r.itemNumber)
         .toList();
     final reasons = <String>[];
-    if (studentId == null || studentId.contains('?')) reasons.add('Student ID incomplete');
+    final idPartial = studentId != null && studentId.contains('?');
+    if (studentId == null || idPartial) reasons.add('Student ID incomplete');
     if (flagged.isNotEmpty) {
       reasons.add('${flagged.length} ambiguous item(s)');
     }
@@ -77,11 +86,40 @@ class OmrEngine {
       correctCount: gr.$1,
       maxScore: gr.$2,
       scorePercent: gr.$3,
-      isFlagged: flagged.isNotEmpty || studentId == null,
+      isFlagged: flagged.isNotEmpty || studentId == null || idPartial,
       flagReason: reasons.isEmpty ? null : reasons.join('; '),
       flaggedItems: flagged,
       processingTime: sw.elapsed,
     );
+  }
+
+  // ── Thresholding helpers ────────────────────────────────────────────────
+
+  /// Find threshold at the largest gap between sorted fill values.
+  /// Falls back to [fallback] if no gap exceeds [minGap].
+  /// Returns (threshold, maxGap).
+  static (double, double) _largestGapThreshold(List<double> fills, double fallback) {
+    if (fills.length < 2) return (fallback, 0);
+    final sorted = List<double>.from(fills)..sort();
+    double maxGap = 0;
+    double thr = fallback;
+
+    for (int i = 1; i < sorted.length; i++) {
+      final gap = sorted[i] - sorted[i - 1];
+      if (gap > maxGap) {
+        maxGap = gap;
+        thr = sorted[i - 1] + gap / 2;
+      }
+    }
+
+    return maxGap >= minGap ? (thr, maxGap) : (fallback, maxGap);
+  }
+
+  static double _stdDev(List<double> values) {
+    if (values.length < 2) return 0;
+    final mean = values.reduce((a, b) => a + b) / values.length;
+    final variance = values.map((f) => (f - mean) * (f - mean)).reduce((a, b) => a + b) / values.length;
+    return variance > 0 ? sqrt(variance) : 0;
   }
 
   // ── Answer bubble reading ──────────────────────────────────────────────
@@ -97,30 +135,28 @@ class OmrEngine {
     final bubbleR = (bubbleRmm * dpi / 25.4).round();
 
     final items = layout['items'] as Map<String, dynamic>? ?? {};
-    final results = <BubbleReading>[];
     final choices = List.generate(template.numChoices, (i) => String.fromCharCode(65 + i));
+
+    // ── Phase 1: Sample all bubbles, compute per-item statistics ──────────
+    final allStripFills = <List<double>>[];
+    final rawResults = <_RawItem>[];
 
     for (int i = 1; i <= template.totalItems; i++) {
       final item = items[i.toString()] as Map<String, dynamic>?;
       if (item == null) {
-        results.add(BubbleReading(
-          itemNumber: i,
-          detectedAnswer: '?',
-          fillRatio: 0,
-          isAmbiguous: true,
-          isConfirmed: false,
-          confidenceNote: 'No layout data',
-        ));
+        rawResults.add(_RawItem(itemNumber: i, fills: [], bestChoice: '?', bestFill: 0, secondFill: 0));
+        allStripFills.add([]);
         continue;
       }
 
       double bestFill = 0;
       String bestChoice = '?';
       double secondFill = 0;
+      final perItemFills = <double>[];
 
       for (final ch in choices) {
         final coord = item[ch] as Map<String, dynamic>?;
-        if (coord == null) continue;
+        if (coord == null) { perItemFills.add(0); continue; }
 
         final cxMm = (coord['cx_mm'] as num?)?.toDouble() ?? 0;
         final cyMm = (coord['cy_spec_mm'] as num?)?.toDouble() ?? 0;
@@ -128,6 +164,7 @@ class OmrEngine {
         final cy = (cyMm * dpi / 25.4).round();
 
         final fill = OmrImaging.sampleCircle(warped, cx, cy, bubbleR);
+        perItemFills.add(fill);
         if (fill > bestFill) {
           secondFill = bestFill;
           bestFill = fill;
@@ -137,19 +174,108 @@ class OmrEngine {
         }
       }
 
-      final isAmbiguous = bestFill < minFill || (bestFill - secondFill).abs() < marginFill;
-      final isConfirmed = !isAmbiguous && bestFill >= goodFill;
+      rawResults.add(_RawItem(itemNumber: i, fills: perItemFills, bestChoice: bestChoice, bestFill: bestFill, secondFill: secondFill));
+      allStripFills.add(perItemFills);
+    }
+
+    // ── Phase 2: Global threshold from ALL fill values ────────────────────
+    final allFills = <double>[];
+    for (final strip in allStripFills) {
+      allFills.addAll(strip);
+    }
+    final (globalThr, _) = _largestGapThreshold(allFills, 0.40);
+
+    // ── Phase 3: Global stddev threshold (outlier detection) ────────────
+    final allStdDevs = <double>[];
+    for (final strip in allStripFills) {
+      if (strip.length >= 2) allStdDevs.add(_stdDev(strip));
+    }
+    final (globalStdThr, _) = _largestGapThreshold(allStdDevs, 0.05);
+
+    // ── Phase 4: Per-item local thresholding with hysteresis ────────────
+    final results = <BubbleReading>[];
+
+    for (final raw in rawResults) {
+      if (raw.fills.isEmpty) {
+        results.add(BubbleReading(
+          itemNumber: raw.itemNumber,
+          detectedAnswer: '?',
+          fillRatio: 0,
+          isAmbiguous: true,
+          isConfirmed: false,
+          confidenceNote: 'No layout data',
+        ));
+        continue;
+      }
+
+      final localStdDev = _stdDev(raw.fills);
+      final noOutliers = localStdDev < globalStdThr;
+
+      // Find largest gap in this item's fills
+      final (localThr, maxGap) = _largestGapThreshold(raw.fills, globalThr);
+
+      // Determine which threshold to use — hysteresis from OMRChecker
+      double effectiveThr;
+      bool lowConfidence = false;
+      String thresholdSource = '';
+
+      if (maxGap < minGap) {
+        // No meaningful gap — use global threshold
+        effectiveThr = globalThr;
+        lowConfidence = true;
+        thresholdSource = 'global';
+      } else if (maxGap < minJump && !noOutliers) {
+        // Gap exists but not confident — hysteresis: must exceed BOTH thresholds
+        effectiveThr = max(localThr, globalThr - hysteresisMargin);
+        lowConfidence = true;
+        thresholdSource = 'hysteresis';
+      } else if (noOutliers) {
+        // All fills nearly identical → force global (prevents phantom pick)
+        effectiveThr = globalThr;
+        lowConfidence = true;
+        thresholdSource = 'global';
+      } else {
+        // Confident local gap — use local, but ensure it's not below global
+        effectiveThr = max(localThr, globalThr - hysteresisMargin);
+        thresholdSource = 'local';
+      }
+
+      // A bubble is "marked" when fill exceeds threshold (higher = darker)
+      // Hysteresis: must exceed BOTH effective threshold AND global threshold
+      final aboveEffective = raw.bestFill >= effectiveThr;
+      final aboveGlobal = raw.bestFill >= (globalThr - hysteresisMargin);
+      final passesHysteresis = aboveEffective && aboveGlobal;
+
+      final isAmbiguous = !passesHysteresis ||
+          (raw.bestFill - raw.secondFill).abs() < marginFill ||
+          lowConfidence;
+      final isConfirmed = !isAmbiguous && raw.bestFill >= goodFill;
+
+      String note;
+      if (isAmbiguous) {
+        if (noOutliers) {
+          note = 'No outliers (all fills ~${raw.bestFill.toStringAsFixed(2)})';
+        } else if (!aboveEffective) {
+          note = 'Low fill ($raw.bestFill vs thr $effectiveThr)';
+        } else if (!aboveGlobal) {
+          note = 'Below global thr (${(globalThr - hysteresisMargin).toStringAsFixed(2)})';
+        } else if (lowConfidence) {
+          note = 'Low confidence ($thresholdSource, gap ${maxGap.toStringAsFixed(2)})';
+        } else {
+          note = 'Too close ($raw.bestFill vs $raw.secondFill)';
+        }
+      } else {
+        note = isConfirmed ? 'Confirmed ($raw.bestFill, $thresholdSource)' : 'Acceptable ($raw.bestFill, $thresholdSource)';
+      }
 
       results.add(BubbleReading(
-        itemNumber: i,
-        detectedAnswer: isAmbiguous ? '?' : bestChoice,
-        fillRatio: bestFill,
-        secondFillRatio: secondFill,
+        itemNumber: raw.itemNumber,
+        detectedAnswer: isAmbiguous ? '?' : raw.bestChoice,
+        fillRatio: raw.bestFill,
+        secondFillRatio: raw.secondFill,
         isAmbiguous: isAmbiguous,
         isConfirmed: isConfirmed,
-        confidenceNote: isAmbiguous
-            ? (bestFill < minFill ? 'Low fill ($bestFill)' : 'Too close ($bestFill vs $secondFill)')
-            : (isConfirmed ? 'Confirmed ($bestFill)' : 'Acceptable ($bestFill)'),
+        confidenceNote: note,
       ));
     }
 
@@ -158,11 +284,11 @@ class OmrEngine {
 
   // ── Grading ─────────────────────────────────────────────────────────────
 
-  static (int, int, double) _grade(
+  static (int, int, double) grade(
     Map<String, String> responses,
     Map<String, String> answerKey,
   ) {
-    if (answerKey.isEmpty) return (0, responses.length, 0);
+    if (answerKey.isEmpty) return (0, 0, 0.0);
     int correct = 0;
     int maxScore = answerKey.length;
     for (final entry in answerKey.entries) {
@@ -171,4 +297,20 @@ class OmrEngine {
     final pct = maxScore > 0 ? (correct / maxScore) * 100.0 : 0.0;
     return (correct, maxScore, pct);
   }
+}
+
+/// Temporary struct for per-item sampling results.
+class _RawItem {
+  final int itemNumber;
+  final List<double> fills;
+  final String bestChoice;
+  final double bestFill;
+  final double secondFill;
+  _RawItem({
+    required this.itemNumber,
+    required this.fills,
+    required this.bestChoice,
+    required this.bestFill,
+    required this.secondFill,
+  });
 }

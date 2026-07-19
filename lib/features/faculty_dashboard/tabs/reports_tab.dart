@@ -100,12 +100,24 @@ class _ReportsTabState extends State<ReportsTab> {
 
   List<BubbleScan> get _filteredScans {
     return _scans.where((s) {
-      if (_filterTemplateId != null &&
-          s.templateId != _filterTemplateId) {
+      final template = _templateById[s.templateId];
+      if (_filterTemplateId != null && s.templateId != _filterTemplateId) {
+        return false;
+      }
+      if (_filterCourseId != null &&
+          (template == null || template.courseId != _filterCourseId)) {
+        return false;
+      }
+      if (_filterAssessmentId != null &&
+          (template == null || template.assessmentId != _filterAssessmentId)) {
         return false;
       }
       return true;
     }).toList();
+  }
+
+  Map<String, BubbleTemplate> get _templateById {
+    return {for (final t in _templates) t.templateId: t};
   }
 
   void _recalculate() {
@@ -177,6 +189,7 @@ class _ReportsTabState extends State<ReportsTab> {
 
   void _filterAssessment(String? assessmentId) {
     setState(() => _filterAssessmentId = assessmentId);
+    _recalculate();
   }
 
   void _filterTemplate(String? templateId) {

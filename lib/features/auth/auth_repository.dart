@@ -1,10 +1,13 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/network/api_client.dart';
 
 class AuthRepository {
   final ApiClient _apiClient = ApiClient();
+  final SupabaseClient _supabase = Supabase.instance.client;
 
   /// Logs in against POST /api/auth/token/ and returns the user role.
   Future<String> login({
@@ -13,7 +16,7 @@ class AuthRepository {
   }) async {
     try {
       final response = await _apiClient.dio.post(
-        '/auth/token/',
+        'auth/token/',
         data: {
           'email': email.trim().toLowerCase(),
           'password': password,
@@ -21,6 +24,10 @@ class AuthRepository {
       );
 
       final data = response.data;
+      if (data is! Map<String, dynamic>) {
+        throw Exception('Unexpected server response. Please try again.');
+      }
+
       final accessToken = data['access'] as String?;
       final refreshToken = data['refresh'] as String?;
       final user = data['user'] as Map<String, dynamic>?;
@@ -106,7 +113,7 @@ class AuthRepository {
   Future<void> requestPasswordReset(String email) async {
     try {
       final response = await _apiClient.dio.post(
-        '/auth/password-reset/request/',
+        'auth/password-reset/request/',
         data: {'email': email.trim().toLowerCase()},
       );
       // Some backends return a message on success — check it's not an error
@@ -123,7 +130,7 @@ class AuthRepository {
   Future<String> verifyPasswordResetOtp(String email, String otp) async {
     try {
       final response = await _apiClient.dio.post(
-        '/auth/password-reset/verify/',
+        'auth/password-reset/verify/',
         data: {
           'email': email.trim().toLowerCase(),
           'otp': otp.trim(),
@@ -141,7 +148,7 @@ class AuthRepository {
   Future<void> confirmPasswordReset(String resetToken, String newPassword) async {
     try {
       await _apiClient.dio.post(
-        '/auth/password-reset/confirm/',
+        'auth/password-reset/confirm/',
         data: {
           'reset_token': resetToken,
           'new_password': newPassword,
@@ -152,54 +159,99 @@ class AuthRepository {
     }
   }
 
-  Future<Map<String, dynamic>> loginWithGoogle(String idToken) async {
+  Future<Map<String, dynamic>> loginWithGoogle() async {
     try {
-      final response = await _apiClient.dio.post(
-        '/auth/google/',
+      // Your Web Client ID serves as the server client ID for Android
+      const String webClientId = '140618226788-lt31psljafm1en4n3aajo054thn5kfin.apps.googleusercontent.com';
+
+      // Use the singleton instance and initialize it
+      final googleSignIn = GoogleSignIn.instance;
+      await googleSignIn.initialize(
+        serverClientId: webClientId,
+      );
+
+      final GoogleSignInAccount googleUser = await googleSignIn.authenticate();
+      
+      final GoogleSignInAuthentication googleAuth = googleUser.authentication;
+      final String? idToken = googleAuth.idToken;
+      
+      // Access token is now obtained via the authorization client in 7.2.0
+      // FIX: Scopes cannot be null or empty
+      final authz = await googleUser.authorizationClient.authorizationForScopes(['email', 'profile']);
+      final String? accessToken = authz?.accessToken;
+
+      if (idToken == null) {
+        throw Exception('Native Google Sign-In failed: Missing ID Token.');
+      }
+
+      final AuthResponse response = await _supabase.auth.signInWithIdToken(
+        provider: OAuthProvider.google,
+        idToken: idToken,
+        accessToken: accessToken,
+      );
+
+      final session = response.session;
+      final supabaseUser = response.user;
+
+      if (session == null || supabaseUser == null) {
+        throw Exception('Supabase Sign-In failed.');
+      }
+
+      // --- NEW STEP: Sync with custom backend to get the correct role and backend tokens ---
+      // This prevents the instant logout and ensures "faculty" role is respected.
+      final backendResp = await _apiClient.dio.post(
+        'auth/google/',
         data: {'id_token': idToken},
       );
 
-      final data = response.data;
+      final data = backendResp.data;
+      if (data is! Map<String, dynamic>) {
+        throw Exception('Unexpected server response. Please try again.');
+      }
 
-      // Backend indicates no user with this email exists → redirect to signup
+      // Backend indicates no user with this email exists in your DB
       if (data['user_exists'] == false) {
         return {
           'user_exists': false,
-          'email': data['email']?.toString() ?? '',
-          'name': data['name']?.toString() ?? '',
+          'email': data['email']?.toString() ?? supabaseUser.email ?? '',
+          'name': data['name']?.toString() ?? supabaseUser.userMetadata?['full_name'] ?? '',
         };
       }
 
-      final accessToken = data['access'] as String?;
-      final refreshToken = data['refresh'] as String?;
+      final backendAccessToken = data['access'] as String?;
+      final backendRefreshToken = data['refresh'] as String?;
       final user = data['user'] as Map<String, dynamic>?;
 
-      if (accessToken == null) {
-        throw Exception('Google Login failed — no access token returned.');
+      if (backendAccessToken == null) {
+        throw Exception('Backend synchronization failed — no access token returned.');
       }
 
+      // Persist BACKEND session to SharedPreferences (NOT Supabase session)
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('access_token', accessToken);
-      if (refreshToken != null) {
-        await prefs.setString('refresh_token', refreshToken);
+      await prefs.setString('access_token', backendAccessToken);
+      if (backendRefreshToken != null) {
+        await prefs.setString('refresh_token', backendRefreshToken);
       }
 
-      if (user != null) {
-        await prefs.setString('user_name', user['name']?.toString() ?? '');
-        await prefs.setString('user_email', user['email']?.toString() ?? '');
-        await prefs.setString('user_role', user['role']?.toString() ?? 'faculty');
-        await prefs.setString('user_id', user['user_id']?.toString() ?? '');
-        if (user['student_details'] != null) {
-          await prefs.setString('student_details', jsonEncode(user['student_details']));
-        }
+      // Map backend User data to app expectations
+      final String name = user?['name']?.toString() ?? supabaseUser.userMetadata?['full_name'] ?? 'User';
+      final String role = user?['role']?.toString() ?? 'student';
+
+      await prefs.setString('user_name', name);
+      await prefs.setString('user_email', user?['email']?.toString() ?? supabaseUser.email ?? '');
+      await prefs.setString('user_role', role);
+      await prefs.setString('user_id', user?['user_id']?.toString() ?? supabaseUser.id);
+
+      if (user?['student_details'] != null) {
+        await prefs.setString('student_details', jsonEncode(user?['student_details']));
       }
 
       return {
         'user_exists': true,
-        'role': user?['role']?.toString() ?? 'faculty',
+        'role': role,
       };
-    } on DioException catch (e) {
-      throw Exception(e.response?.data?['detail'] ?? 'Google Login failed.');
+    } catch (e) {
+      throw Exception(e.toString().replaceAll('Exception: ', ''));
     }
   }
 
@@ -214,7 +266,7 @@ class AuthRepository {
   }) async {
     try {
       final response = await _apiClient.dio.post(
-        '/auth/register/',
+        'auth/register/',
         data: {
           'email': email.trim().toLowerCase(),
           'password': password,
@@ -227,6 +279,10 @@ class AuthRepository {
       );
 
       final data = response.data;
+      if (data is! Map<String, dynamic>) {
+        throw Exception('Unexpected server response. Please try again.');
+      }
+
       final accessToken = data['access'] as String?;
       final refreshToken = data['refresh'] as String?;
       final user = data['user'] as Map<String, dynamic>?;

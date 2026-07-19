@@ -18,12 +18,7 @@ class LoginRequested extends AuthEvent {
 }
 
 class GoogleLoginRequested extends AuthEvent {
-  final String idToken;
-
-  const GoogleLoginRequested({required this.idToken});
-
-  @override
-  List<Object> get props => [idToken];
+  const GoogleLoginRequested();
 }
 
 class ForgotPasswordRequested extends AuthEvent {
