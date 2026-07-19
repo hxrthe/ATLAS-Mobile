@@ -10,13 +10,14 @@ class AuthRepository {
   final SupabaseClient _supabase = Supabase.instance.client;
 
   /// Logs in against POST /api/auth/token/ and returns the user role.
+  /// Logs in against POST /api/auth/token/ and returns the user role.
   Future<String> login({
     required String email,
     required String password,
   }) async {
     try {
       final response = await _apiClient.dio.post(
-        'auth/token/',
+        '/auth/token/',
         data: {
           'email': email.trim().toLowerCase(),
           'password': password,
@@ -24,10 +25,6 @@ class AuthRepository {
       );
 
       final data = response.data;
-      if (data is! Map<String, dynamic>) {
-        throw Exception('Unexpected server response. Please try again.');
-      }
-
       final accessToken = data['access'] as String?;
       final refreshToken = data['refresh'] as String?;
       final user = data['user'] as Map<String, dynamic>?;
@@ -57,6 +54,9 @@ class AuthRepository {
       final role = user?['role']?.toString() ?? 'faculty';
       return role;
     } on DioException catch (e) {
+      // PRINT TRICK: This will force the Django error to show up in your VS Code console!
+      print('DJANGO LOGIN ERROR: ${e.response?.data}');
+      
       if (e.response?.statusCode == 401) {
         throw Exception('Invalid credentials. Check your email and password.');
       }
@@ -66,8 +66,9 @@ class AuthRepository {
         throw Exception(
             'Cannot reach the server. Make sure the backend is running.');
       }
-      throw Exception(
-          e.response?.data?['detail'] ?? 'Network error. Try again.');
+      
+      // SAFETY FIX: Use the built-in parser so HTML strings don't crash the app
+      throw Exception(_parseError(e, 'Login failed on the backend. Check console.'));
     } catch (e) {
       throw Exception(e.toString().replaceAll('Exception: ', ''));
     }
