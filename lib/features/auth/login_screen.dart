@@ -11,6 +11,28 @@ import 'bloc/auth_event.dart';
 import 'bloc/auth_state.dart';
 import 'forgot_password_screen.dart';
 import 'signup_screen.dart';
+import 'package:flutter/services.dart';
+
+String formatGoogleSignInError(Object error) {
+  if (error is PlatformException) {
+  switch (error.code) {
+    case GoogleSignIn.kSignInCanceledError:
+      return 'Google sign-in was canceled. Please try again.';
+    case GoogleSignIn.kSignInFailedError:
+      return 'Google sign-in failed. Please make sure Google Play Services is up to date.';
+    case GoogleSignIn.kNetworkError:
+      return 'A network error occurred. Please check your connection.';
+    default:
+      return 'Google sign-in could not be completed. Please try again.';
+  }
+}
+
+  if (error.toString().contains('reauth')) {
+    return 'Google account re-authentication failed. Please sign out of the Google account on your device and try again.';
+  }
+
+  return error.toString();
+}
 
 class LoginScreen extends StatefulWidget {
   final bool autoLogout;
@@ -39,7 +61,7 @@ class _LoginScreenState extends State<LoginScreen> {
   void initState() {
     super.initState();
     _loadCredentials();
-    _initGoogleSignIn();
+    // _initGoogleSignIn();
     
     if (widget.autoLogout && !_logoutMessageShown) {
       _logoutMessageShown = true; // Mark as shown
@@ -59,11 +81,12 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _initGoogleSignIn() async {
-    await GoogleSignIn.instance.initialize(
-      serverClientId: '140618226788-r55pqlat0o2vvlsc1on3j22e668a1hpq.apps.googleusercontent.com',
-    );
-  }
+  // Future<void> _initGoogleSignIn() async {
+  //   final GoogleSignIn googleSignIn = GoogleSignIn(
+  //     serverClientId: '140618226788-r55pqlat0o2vvlsc1on3j22e668a1hpq.apps.googleusercontent.com',
+  //     scopes: const <String>['email', 'profile'],
+  //   );
+  // }
 
   Future<void> _loadCredentials() async {
     final email = await _secureStorage.read(key: 'saved_email');
@@ -92,17 +115,51 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleGoogleSignIn() async {
-    try {
-      final account = await GoogleSignIn.instance.authenticate();
+  try {
+      // 1. Create instance AND pass the Client ID
+      final GoogleSignIn googleSignIn = GoogleSignIn(
+        serverClientId: '140618226788-lt31psljafm1en4n3aajo054thn5kfin.apps.googleusercontent.com',
+        scopes: const <String>['email', 'profile'],
+      );
+
+      // 2. Clear any existing session
+      await googleSignIn.signOut();
+
+        // 3. Attempt silent login
+        GoogleSignInAccount? account = await googleSignIn.signInSilently();
+        
+        if (account == null) {
+          // 4. Trigger the interactive sign-in modal
+          account = await googleSignIn.signIn();
+        }
+        
+        // ... continue with your authentication logic ...
+
       if (!mounted) return;
-      final GoogleSignInAuthentication auth = account.authentication;
-      if (auth.idToken != null && mounted) {
+
+      final GoogleSignInAuthentication auth = await account!.authentication;
+      if (auth.idToken != null && auth.idToken!.isNotEmpty && mounted) {
         context.read<AuthBloc>().add(GoogleLoginRequested(idToken: auth.idToken!));
+        return;
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Google sign-in did not return an identity token. Please try again.')),
+        );
+      }
+    } on PlatformException catch (error) {
+      if (mounted) {
+        await GoogleSignIn().signOut();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(formatGoogleSignInError(error))),
+        );
       }
     } catch (error) {
       if (mounted) {
+        await GoogleSignIn().signOut();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Google Sign-In failed: $error')),
+          SnackBar(content: Text(formatGoogleSignInError(error))),
         );
       }
     }

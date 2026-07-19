@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../auth/login_screen.dart';
 import '../grading/grading_repository.dart';
+import '../grading/models.dart';
 import 'tabs/analytics_tab.dart';
 import 'tabs/student_settings_tab.dart';
 import 'live_alerts_sheet.dart';
@@ -25,6 +26,11 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   List<Map<String, dynamic>> _courses = [];
   List<Map<String, dynamic>> _recentGrades = [];
   Map<String, dynamic>? _ongoingAssessment;
+  double _overallMastery = 0;
+  int _totalScans = 0;
+  int _passedScans = 0;
+  double _averagePercent = 0;
+  Map<String, Map<String, dynamic>> _competencies = {};
   bool _loading = true;
   String? _error;
 
@@ -130,11 +136,18 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
         } catch (_) {}
       }
 
+      final analyticsSummary = await _computeAnalyticsSummary(courses);
+
       if (mounted) {
         setState(() {
           _courses = courses;
           _recentGrades = recentGrades.take(10).toList();
           _ongoingAssessment = ongoing;
+          _overallMastery = analyticsSummary['overallMastery'] as double;
+          _totalScans = analyticsSummary['totalScans'] as int;
+          _passedScans = analyticsSummary['passedScans'] as int;
+          _averagePercent = analyticsSummary['averagePercent'] as double;
+          _competencies = analyticsSummary['competencies'] as Map<String, Map<String, dynamic>>;
           _loading = false;
         });
       }
@@ -158,7 +171,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
         loading: _loading,
         onCoursesChanged: _loadAll,
       ),
-      const StudentProfileScreen(),
       const StudentSettingsTab(),
     ];
 
@@ -183,7 +195,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Dashboard'),
           BottomNavigationBarItem(icon: Icon(Icons.menu_book), label: 'Courses'),
-          BottomNavigationBarItem(icon: Icon(Icons.show_chart), label: 'Analytics'),
           BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
         ],
       ),
@@ -330,11 +341,82 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                         isPassed: _recentGrades[i]['is_passed'] == true,
                       ),
                     ],
+                    const SizedBox(height: 24),
+                    StudentAnalyticsContent(
+                      userName: _userName,
+                      overallMastery: _overallMastery,
+                      totalScans: _totalScans,
+                      passedScans: _passedScans,
+                      averagePercent: _averagePercent,
+                      competencies: _competencies,
+                      loading: _loading,
+                      error: _error,
+                      onRetry: _loadAll,
+                    ),
                   ],
                 ),
               ),
       ),
     );
+  }
+
+  Future<Map<String, dynamic>> _computeAnalyticsSummary(List<Map<String, dynamic>> courses) async {
+    final allScans = <BubbleScan>[];
+    final templateMap = <String, BubbleTemplate>{};
+
+    for (final c in courses) {
+      try {
+        final templates = await _repo.fetchTemplates(c['course_id']!);
+        for (final t in templates) {
+          templateMap[t.templateId] = t;
+          try {
+            final scans = await _repo.fetchScans(t.templateId);
+            allScans.addAll(scans);
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }
+
+    final validScans = allScans.where((s) => s.studentIdentifier.isNotEmpty && s.scorePercent != null).toList();
+    double totalPercent = 0;
+    int passed = 0;
+    for (final s in validScans) {
+      totalPercent += s.scorePercent!;
+      final t = templateMap[s.templateId];
+      if (t != null && s.scorePercent! >= (t.passingScore ?? 50)) {
+        passed++;
+      }
+    }
+
+    final avgPercent = validScans.isNotEmpty ? totalPercent / validScans.length : 0.0;
+    final competencies = <String, Map<String, dynamic>>{};
+    for (final s in validScans) {
+      final t = templateMap[s.templateId];
+      if (t == null) continue;
+      final key = t.name;
+      if (!competencies.containsKey(key)) {
+        competencies[key] = {
+          'name': key,
+          'total': t.totalItems,
+          'scans': <BubbleScan>[],
+          'template': t,
+        };
+      }
+      (competencies[key]!['scans'] as List<BubbleScan>).add(s);
+    }
+
+    double mastery = 0.0;
+    if (validScans.isNotEmpty) {
+      mastery = passed * 100.0 / validScans.length;
+    }
+
+    return {
+      'overallMastery': mastery,
+      'totalScans': validScans.length,
+      'passedScans': passed,
+      'averagePercent': avgPercent,
+      'competencies': competencies,
+    };
   }
 
   Widget _buildGradeCard({

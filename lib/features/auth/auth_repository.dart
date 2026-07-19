@@ -159,7 +159,10 @@ class AuthRepository {
         data: {'id_token': idToken},
       );
 
-      final data = response.data;
+      // SAFETY FIX 1: If Django returns a raw string, force decode it to a Map
+      final data = response.data is String 
+          ? jsonDecode(response.data) 
+          : response.data;
 
       // Backend indicates no user with this email exists → redirect to signup
       if (data['user_exists'] == false) {
@@ -199,7 +202,11 @@ class AuthRepository {
         'role': user?['role']?.toString() ?? 'faculty',
       };
     } on DioException catch (e) {
-      throw Exception(e.response?.data?['detail'] ?? 'Google Login failed.');
+      // SAFETY FIX 2: Use the built-in parser so HTML strings don't crash the app
+      print('DJANGO ERROR: ${e.response?.data}');
+      throw Exception(_parseError(e, 'Google Login failed on the backend.'));
+    } catch (e) {
+      throw Exception(e.toString().replaceAll('Exception: ', ''));
     }
   }
 
