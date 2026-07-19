@@ -115,49 +115,44 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleGoogleSignIn() async {
-  try {
-      // 1. Create instance AND pass the Client ID
-      final GoogleSignIn googleSignIn = GoogleSignIn(
-        serverClientId: '140618226788-lt31psljafm1en4n3aajo054thn5kfin.apps.googleusercontent.com',
-        scopes: const <String>['email', 'profile'],
-      );
+    final GoogleSignIn googleSignIn = GoogleSignIn(
+      serverClientId: '140618226788-lt31psljafm1en4n3aajo054thn5kfin.apps.googleusercontent.com',
+      scopes: const <String>['email', 'profile'],
+    );
 
-      // 2. Clear any existing session
+    try {
+      // 1. Clear any existing session
       await googleSignIn.signOut();
 
-        // 3. Attempt silent login
-        GoogleSignInAccount? account = await googleSignIn.signInSilently();
-        
-        if (account == null) {
-          // 4. Trigger the interactive sign-in modal
-          account = await googleSignIn.signIn();
-        }
-        
-        // ... continue with your authentication logic ...
+      // 2. Attempt silent login
+      GoogleSignInAccount? account = await googleSignIn.signInSilently();
+      
+      account ??= await googleSignIn.signIn();
+
+      if (account == null) return;
+
+      final GoogleSignInAuthentication auth = await account.authentication;
+      final String? idToken = auth.idToken;
 
       if (!mounted) return;
 
-      final GoogleSignInAuthentication auth = await account!.authentication;
-      if (auth.idToken != null && auth.idToken!.isNotEmpty && mounted) {
-        context.read<AuthBloc>().add(GoogleLoginRequested(idToken: auth.idToken!));
-        return;
-      }
-
-      if (mounted) {
+      if (idToken != null && idToken.isNotEmpty) {
+        context.read<AuthBloc>().add(GoogleLoginRequested(idToken: idToken));
+      } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Google sign-in did not return an identity token. Please try again.')),
         );
       }
     } on PlatformException catch (error) {
       if (mounted) {
-        await GoogleSignIn().signOut();
+        await googleSignIn.signOut();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(formatGoogleSignInError(error))),
         );
       }
     } catch (error) {
       if (mounted) {
-        await GoogleSignIn().signOut();
+        await googleSignIn.signOut();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(formatGoogleSignInError(error))),
         );

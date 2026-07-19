@@ -52,8 +52,9 @@ dependencies:
   # On-device OMR scanning
   image: ^4.5.3
   google_mlkit_barcode_scanning: ^0.13.0
-  google_sign_in: ^6.3.0
-  flutter_secure_storage: ^10.3.1
+  google_sign_in: ^6.2.1
+  http: ^1.2.0
+  flutter_secure_storage: ^9.0.0  # For storing tokens securely
 
 dev_dependencies:
   flutter_test:

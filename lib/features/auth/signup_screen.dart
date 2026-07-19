@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../student_dashboard/student_dashboard_screen.dart';
+import '../faculty_dashboard/faculty_dashboard_screen.dart';
 import 'bloc/auth_bloc.dart';
 import 'bloc/auth_event.dart';
 import 'bloc/auth_state.dart';
@@ -86,7 +87,7 @@ class _SignupScreenState extends State<SignupScreen> {
               context,
               MaterialPageRoute(
                 builder: (context) => state.role == 'faculty'
-                    ? const StudentDashboardScreen() // fallback
+                    ? const FacultyDashboardScreen()
                     : const StudentDashboardScreen(),
               ),
               (route) => false,

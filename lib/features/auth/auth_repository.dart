@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/network/api_client.dart';
 
 class AuthRepository {
   final ApiClient _apiClient = ApiClient();
+  final FlutterSecureStorage _storage = const FlutterSecureStorage();
 
   /// Logs in against POST /api/auth/token/ and returns the user role.
   Future<String> login({
@@ -29,12 +31,12 @@ class AuthRepository {
         throw Exception('Login failed — no access token returned.');
       }
 
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('access_token', accessToken);
+      await _storage.write(key: 'access_token', value: accessToken);
       if (refreshToken != null) {
-        await prefs.setString('refresh_token', refreshToken);
+        await _storage.write(key: 'refresh_token', value: refreshToken);
       }
 
+      final prefs = await SharedPreferences.getInstance();
       // Persist user profile for dashboard display
       if (user != null) {
         await prefs.setString('user_name', user['name']?.toString() ?? '');
@@ -67,9 +69,8 @@ class AuthRepository {
   }
 
   Future<void> logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('access_token');
-    await prefs.remove('refresh_token');
+    await _storage.delete(key: 'access_token');
+    await _storage.delete(key: 'refresh_token');
   }
 
   /// Extract a human-readable error from a DioException response.
@@ -156,7 +157,7 @@ class AuthRepository {
     try {
       final response = await _apiClient.dio.post(
         '/auth/google/',
-        data: {'id_token': idToken},
+        data: {'credential': idToken},
       );
 
       // SAFETY FIX 1: If Django returns a raw string, force decode it to a Map
@@ -181,12 +182,12 @@ class AuthRepository {
         throw Exception('Google Login failed — no access token returned.');
       }
 
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('access_token', accessToken);
+      await _storage.write(key: 'access_token', value: accessToken);
       if (refreshToken != null) {
-        await prefs.setString('refresh_token', refreshToken);
+        await _storage.write(key: 'refresh_token', value: refreshToken);
       }
 
+      final prefs = await SharedPreferences.getInstance();
       if (user != null) {
         await prefs.setString('user_name', user['name']?.toString() ?? '');
         await prefs.setString('user_email', user['email']?.toString() ?? '');
@@ -203,7 +204,6 @@ class AuthRepository {
       };
     } on DioException catch (e) {
       // SAFETY FIX 2: Use the built-in parser so HTML strings don't crash the app
-      print('DJANGO ERROR: ${e.response?.data}');
       throw Exception(_parseError(e, 'Google Login failed on the backend.'));
     } catch (e) {
       throw Exception(e.toString().replaceAll('Exception: ', ''));
@@ -242,12 +242,12 @@ class AuthRepository {
         throw Exception('Signup failed — no access token returned.');
       }
 
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('access_token', accessToken);
+      await _storage.write(key: 'access_token', value: accessToken);
       if (refreshToken != null) {
-        await prefs.setString('refresh_token', refreshToken);
+        await _storage.write(key: 'refresh_token', value: refreshToken);
       }
 
+      final prefs = await SharedPreferences.getInstance();
       if (user != null) {
         await prefs.setString('user_name', user['name']?.toString() ?? '');
         await prefs.setString('user_email', user['email']?.toString() ?? '');

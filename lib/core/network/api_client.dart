@@ -1,7 +1,6 @@
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../features/auth/login_screen.dart';
 
 /// Resolves the API base URL depending on the platform:
@@ -16,6 +15,7 @@ class ApiClient {
   late Dio dio;
   static final String baseUrl = _resolveBaseUrl();
   static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+  final FlutterSecureStorage _storage = const FlutterSecureStorage();
 
   ApiClient() {
     dio = Dio(BaseOptions(
@@ -36,8 +36,7 @@ class ApiClient {
     dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
-          final prefs = await SharedPreferences.getInstance();
-          final token = prefs.getString('access_token');
+          final token = await _storage.read(key: 'access_token');
           if (token != null) {
             options.headers['Authorization'] = 'Bearer $token';
           }
@@ -49,8 +48,7 @@ class ApiClient {
             final refreshed = await _tryRefreshToken();
             if (refreshed) {
               final retryOptions = e.requestOptions;
-              final prefs = await SharedPreferences.getInstance();
-              final newToken = prefs.getString('access_token');
+              final newToken = await _storage.read(key: 'access_token');
               if (newToken != null) {
                 retryOptions.headers['Authorization'] = 'Bearer $newToken';
               }
@@ -72,9 +70,8 @@ class ApiClient {
   }
 
   Future<void> _forceLogout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('access_token');
-    await prefs.remove('refresh_token');
+    await _storage.delete(key: 'access_token');
+    await _storage.delete(key: 'refresh_token');
 
     // Use navigatorKey to redirect to LoginScreen
     if (navigatorKey.currentState != null) {
@@ -89,8 +86,7 @@ class ApiClient {
 
   Future<bool> _tryRefreshToken() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final refreshToken = prefs.getString('refresh_token');
+      final refreshToken = await _storage.read(key: 'refresh_token');
       if (refreshToken == null) return false;
 
       final response = await Dio(BaseOptions(
@@ -105,7 +101,7 @@ class ApiClient {
 
       final access = response.data['access'] as String?;
       if (access != null) {
-        await prefs.setString('access_token', access);
+        await _storage.write(key: 'access_token', value: access);
         return true;
       }
     } catch (_) {
