@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import '../../grading/grading_repository.dart';
-import '../../grading/models.dart';
-import '../../scanner/scanner_widgets.dart';
 
 class CoursesTab extends StatefulWidget {
-  final void Function(String courseId, String courseName, BubbleTemplate? template) onSectionPicked;
+  final void Function(String courseId, String courseCode, String courseTitle) onCourseSelected;
 
-  const CoursesTab({super.key, required this.onSectionPicked});
+  const CoursesTab({super.key, required this.onCourseSelected});
 
   @override
   State<CoursesTab> createState() => _CoursesTabState();
@@ -15,7 +13,6 @@ class CoursesTab extends StatefulWidget {
 class _CoursesTabState extends State<CoursesTab> {
   final GradingRepository _repository = GradingRepository();
   List<Map<String, dynamic>> _courses = [];
-  List<BubbleTemplate> _allTemplates = [];
   bool _loading = true;
   String? _error;
 
@@ -29,17 +26,9 @@ class _CoursesTabState extends State<CoursesTab> {
     setState(() => _loading = true);
     try {
       final courses = await _repository.fetchFacultyCourses();
-      final allTemplates = <BubbleTemplate>[];
-      for (final c in courses) {
-        try {
-          final t = await _repository.fetchTemplates(c['course_id']!);
-          allTemplates.addAll(t);
-        } catch (_) {}
-      }
       if (mounted) {
         setState(() {
           _courses = courses;
-          _allTemplates = allTemplates;
           _loading = false;
         });
       }
@@ -53,29 +42,6 @@ class _CoursesTabState extends State<CoursesTab> {
     }
   }
 
-  void _openSectionSheet(String courseId, String courseName) {
-    final templates =
-        _allTemplates.where((t) => t.courseId == courseId).toList();
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => SectionSelectionSheet(
-        courseId: courseId,
-        courseName: courseName,
-        templates: templates,
-      ),
-    ).then((result) {
-      if (result != null && mounted) {
-        widget.onSectionPicked(
-          courseId,
-          courseName,
-          result['template'] as BubbleTemplate?,
-        );
-      }
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     const primaryRed = Color(0xFF8B1515);
@@ -87,40 +53,24 @@ class _CoursesTabState extends State<CoursesTab> {
         child: ListView(
           padding: const EdgeInsets.all(24.0),
           children: [
-            const Text(
-              'COURSE MANAGEMENT',
-              style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  color: textGrey,
-                  letterSpacing: 0.5),
-            ),
+            const Text('COURSE MANAGEMENT',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: textGrey, letterSpacing: 0.5)),
             const SizedBox(height: 16),
-
             if (_loading)
-              const Padding(
-                padding: EdgeInsets.all(48),
-                child: Center(child: CircularProgressIndicator()),
-              ),
-
+              const Padding(padding: EdgeInsets.all(48), child: Center(child: CircularProgressIndicator())),
             if (_error != null)
               Padding(
                 padding: const EdgeInsets.all(24),
                 child: Center(
                   child: Column(
                     children: [
-                      Text(_error!,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: primaryRed)),
+                      Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: primaryRed)),
                       const SizedBox(height: 12),
-                      ElevatedButton(
-                          onPressed: _loadCourses,
-                          child: const Text('Retry')),
+                      ElevatedButton(onPressed: _loadCourses, child: const Text('Retry')),
                     ],
                   ),
                 ),
               ),
-
             if (!_loading && _error == null)
               for (int i = 0; i < _courses.length; i++) ...[
                 if (i > 0) const SizedBox(height: 12),
@@ -130,13 +80,11 @@ class _CoursesTabState extends State<CoursesTab> {
                   _courses[i]['course_id'] ?? '',
                 ),
               ],
-
             if (!_loading && _error == null && _courses.isEmpty)
               const Padding(
                 padding: EdgeInsets.all(24),
                 child: Text('No courses found in your teaching load.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: textGrey)),
+                    textAlign: TextAlign.center, style: TextStyle(color: textGrey)),
               ),
           ],
         ),
@@ -145,10 +93,8 @@ class _CoursesTabState extends State<CoursesTab> {
   }
 
   Widget _buildCourseCard(String code, String title, String courseId) {
-    final templateCount =
-        _allTemplates.where((t) => t.courseId == courseId).length;
     return GestureDetector(
-      onTap: () => _openSectionSheet(courseId, '$code - $title'),
+      onTap: () => widget.onCourseSelected(courseId, code, title),
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
@@ -180,12 +126,6 @@ class _CoursesTabState extends State<CoursesTab> {
                     Text(title,
                         style: const TextStyle(
                             fontSize: 13, color: Color(0xFF8391A1))),
-                    if (templateCount > 0) ...[
-                      const SizedBox(height: 4),
-                      Text('$templateCount template(s)',
-                          style: const TextStyle(
-                              fontSize: 11, color: Color(0xFF8B1515))),
-                    ],
                   ],
                 ),
               ),

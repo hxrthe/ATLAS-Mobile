@@ -1,5 +1,4 @@
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../features/auth/login_screen.dart';
@@ -20,8 +19,9 @@ class ApiClient {
   ApiClient() {
     dio = Dio(BaseOptions(
       baseUrl: baseUrl,
-      connectTimeout: const Duration(seconds: 10),
-      receiveTimeout: const Duration(seconds: 10),
+      connectTimeout: const Duration(seconds: 60),
+      receiveTimeout: const Duration(seconds: 60),
+      sendTimeout: const Duration(seconds: 60),
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
@@ -44,8 +44,26 @@ class ApiClient {
           return handler.next(options);
         },
         onError: (DioException e, handler) async {
+          // Retry on connection errors or 502 Bad Gateway (common ngrok tunnel instability)
+          final isRetryable = e.type == DioExceptionType.connectionError || 
+                             e.response?.statusCode == 502;
+                             
+          if (isRetryable && e.requestOptions.extra['_retried'] != true) {
+            e.requestOptions.extra['_retried'] = true;
+            
+            // Add a small delay before retrying to let the tunnel stabilize
+            await Future.delayed(const Duration(milliseconds: 500));
+            
+            try {
+              final retryResponse = await dio.fetch(e.requestOptions);
+              return handler.resolve(retryResponse);
+            } catch (_) {
+              // If retry fails, continue to default error handling
+            }
+          }
+
           // Don't try to refresh on the login endpoint itself
-          if (e.response?.statusCode == 401 && e.requestOptions.path != '/auth/token/') {
+          if (e.response?.statusCode == 401 && e.requestOptions.path != 'auth/token/') {
             final refreshed = await _tryRefreshToken();
             if (refreshed) {
               final retryOptions = e.requestOptions;
@@ -95,13 +113,13 @@ class ApiClient {
 
       final response = await Dio(BaseOptions(
         baseUrl: baseUrl,
-        connectTimeout: const Duration(seconds: 5),
-        receiveTimeout: const Duration(seconds: 5),
+        connectTimeout: const Duration(seconds: 60),
+        receiveTimeout: const Duration(seconds: 60),
         headers: {
           'Content-Type': 'application/json',
           'ngrok-skip-browser-warning': 'true',
         },
-      )).post('/auth/token/refresh/', data: {'refresh': refreshToken});
+      )).post('auth/token/refresh/', data: {'refresh': refreshToken});
 
       final access = response.data['access'] as String?;
       if (access != null) {

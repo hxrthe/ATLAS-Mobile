@@ -110,10 +110,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _refresh() async {
-    await _loadCredentials();
-  }
-
   Future<void> _saveCredentials() async {
     if (_keepActive) {
       await _secureStorage.write(key: 'saved_email', value: _usernameController.text);

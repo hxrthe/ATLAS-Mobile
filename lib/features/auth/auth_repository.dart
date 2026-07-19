@@ -1,10 +1,13 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/network/api_client.dart';
 
 class AuthRepository {
   final ApiClient _apiClient = ApiClient();
+  final SupabaseClient _supabase = Supabase.instance.client;
 
   /// Logs in against POST /api/auth/token/ and returns the user role.
   Future<String> login({
@@ -13,7 +16,7 @@ class AuthRepository {
   }) async {
     try {
       final response = await _apiClient.dio.post(
-        '/auth/token/',
+        'auth/token/',
         data: {
           'email': email.trim().toLowerCase(),
           'password': password,
@@ -21,6 +24,10 @@ class AuthRepository {
       );
 
       final data = response.data;
+      if (data is! Map<String, dynamic>) {
+        throw Exception('Unexpected server response. Please try again.');
+      }
+
       final accessToken = data['access'] as String?;
       final refreshToken = data['refresh'] as String?;
       final user = data['user'] as Map<String, dynamic>?;
@@ -106,7 +113,7 @@ class AuthRepository {
   Future<void> requestPasswordReset(String email) async {
     try {
       final response = await _apiClient.dio.post(
-        '/auth/password-reset/request/',
+        'auth/password-reset/request/',
         data: {'email': email.trim().toLowerCase()},
       );
       // Some backends return a message on success — check it's not an error
@@ -123,7 +130,7 @@ class AuthRepository {
   Future<String> verifyPasswordResetOtp(String email, String otp) async {
     try {
       final response = await _apiClient.dio.post(
-        '/auth/password-reset/verify/',
+        'auth/password-reset/verify/',
         data: {
           'email': email.trim().toLowerCase(),
           'otp': otp.trim(),
@@ -141,7 +148,7 @@ class AuthRepository {
   Future<void> confirmPasswordReset(String resetToken, String newPassword) async {
     try {
       await _apiClient.dio.post(
-        '/auth/password-reset/confirm/',
+        'auth/password-reset/confirm/',
         data: {
           'reset_token': resetToken,
           'new_password': newPassword,
@@ -154,17 +161,18 @@ class AuthRepository {
 
   Future<Map<String, dynamic>> loginWithGoogle(String idToken) async {
     try {
+      // 1. Send the token to your Django backend
       final response = await _apiClient.dio.post(
         '/auth/google/',
         data: {'id_token': idToken},
       );
 
-      // SAFETY FIX 1: If Django returns a raw string, force decode it to a Map
+      // 2. Safely parse the response in case Django returns an HTML error
       final data = response.data is String 
           ? jsonDecode(response.data) 
           : response.data;
 
-      // Backend indicates no user with this email exists → redirect to signup
+      // 3. Handle backend indicating the user doesn't exist yet
       if (data['user_exists'] == false) {
         return {
           'user_exists': false,
@@ -173,6 +181,7 @@ class AuthRepository {
         };
       }
 
+      // 4. Handle successful login
       final accessToken = data['access'] as String?;
       final refreshToken = data['refresh'] as String?;
       final user = data['user'] as Map<String, dynamic>?;
@@ -202,8 +211,6 @@ class AuthRepository {
         'role': user?['role']?.toString() ?? 'faculty',
       };
     } on DioException catch (e) {
-      // SAFETY FIX 2: Use the built-in parser so HTML strings don't crash the app
-      print('DJANGO ERROR: ${e.response?.data}');
       throw Exception(_parseError(e, 'Google Login failed on the backend.'));
     } catch (e) {
       throw Exception(e.toString().replaceAll('Exception: ', ''));
@@ -221,7 +228,7 @@ class AuthRepository {
   }) async {
     try {
       final response = await _apiClient.dio.post(
-        '/auth/register/',
+        'auth/register/',
         data: {
           'email': email.trim().toLowerCase(),
           'password': password,
@@ -234,6 +241,10 @@ class AuthRepository {
       );
 
       final data = response.data;
+      if (data is! Map<String, dynamic>) {
+        throw Exception('Unexpected server response. Please try again.');
+      }
+
       final accessToken = data['access'] as String?;
       final refreshToken = data['refresh'] as String?;
       final user = data['user'] as Map<String, dynamic>?;

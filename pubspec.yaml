@@ -32,6 +32,8 @@ dependencies:
   flutter:
     sdk: flutter
 
+  # Supabase fo Google Sign-in
+  supabase_flutter: ^2.7.0
   # State Management (App Logic Control)
   flutter_bloc: ^9.1.1
   equatable: ^2.0.5 # Helps with BLoC state comparisons
@@ -54,6 +56,7 @@ dependencies:
   google_mlkit_barcode_scanning: ^0.13.0
   google_sign_in: ^6.3.0
   flutter_secure_storage: ^10.3.1
+  url_launcher: ^6.3.0
   video_player: ^2.9.2
 
 dev_dependencies:

@@ -6,6 +6,7 @@ import '../scanner/scanner_screen.dart';
 import '../scanner/scanner_widgets.dart';
 import '../grading/grading_repository.dart';
 import '../grading/models.dart';
+import '../faculty_dashboard/course_detail_screen.dart';
 import 'tabs/courses_tab.dart';
 import 'tabs/reports_tab.dart';
 import 'tabs/settings_tab.dart';
@@ -17,7 +18,8 @@ class FacultyDashboardScreen extends StatefulWidget {
   State<FacultyDashboardScreen> createState() => _FacultyDashboardScreenState();
 }
 
-class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
+class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
+    with SingleTickerProviderStateMixin {
   int _selectedIndex = 0;
   String _userName = 'Instructor';
   Timer? _inactivityTimer;
@@ -32,6 +34,9 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
   bool _loading = true;
   String? _error;
 
+  late AnimationController _navSlideController;
+  late Animation<Offset> _navSlideAnimation;
+
   final Color primaryRed = const Color(0xFF8B1515);
   final Color darkRed = const Color(0xFF5A0C0C);
   final Color textGrey = const Color(0xFF8391A1);
@@ -40,6 +45,17 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
   @override
   void initState() {
     super.initState();
+    _navSlideController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    _navSlideAnimation = Tween<Offset>(
+      begin: Offset.zero,
+      end: const Offset(0, 1.5),
+    ).animate(CurvedAnimation(
+      parent: _navSlideController,
+      curve: Curves.easeInOut,
+    ));
     _initLoad();
     _resetInactivityTimer();
   }
@@ -47,6 +63,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
   @override
   void dispose() {
     _inactivityTimer?.cancel();
+    _navSlideController.dispose();
     super.dispose();
   }
 
@@ -171,16 +188,42 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
 
   void _navigateToScanner(BuildContext context, String courseId,
       String courseName,
-      {BubbleTemplate? preselectedTemplate}) {
-    Navigator.push(
+      {BubbleTemplate? preselectedTemplate}) async {
+    // Pause inactivity timer while scanning
+    _inactivityTimer?.cancel();
+    
+    final effectiveCourseId = courseId.isEmpty ? null : courseId;
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => ScannerScreen(
-          preSelectedCourseId: courseId,
+          preSelectedCourseId: effectiveCourseId,
           preSelectedCourseName: courseName,
+          preselectedTemplate: preselectedTemplate,
         ),
       ),
     );
+    
+    // Resume timer when returning
+    _resetInactivityTimer();
+  }
+
+  void _navigateToCourseDetail(String courseId, String courseCode,
+      String courseTitle) async {
+    await _navSlideController.forward();
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CourseDetailScreen(
+          courseId: courseId,
+          courseCode: courseCode,
+          courseTitle: courseTitle,
+          onBack: () => Navigator.pop(context),
+        ),
+      ),
+    );
+    _navSlideController.reverse();
   }
 
   String _timeAgo(String iso) {
@@ -202,10 +245,9 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
       _buildHomeTab(context),
       CoursesTab(
         key: ValueKey('courses_$_loading'),
-        onSectionPicked:
-            (String courseId, String courseName, BubbleTemplate? template) {
-          _navigateToScanner(context, courseId, courseName,
-              preselectedTemplate: template);
+        onCourseSelected:
+            (String courseId, String courseCode, String courseTitle) {
+          _navigateToCourseDetail(courseId, courseCode, courseTitle);
         },
       ),
       ReportsTab(
@@ -219,7 +261,9 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
       child: Scaffold(
         backgroundColor: backgroundGrey,
         extendBody: true,
-        bottomNavigationBar: BottomAppBar(
+        bottomNavigationBar: SlideTransition(
+        position: _navSlideAnimation,
+        child: BottomAppBar(
         height: 75,
         shape: const AutomaticNotchedShape(
           RoundedRectangleBorder(
@@ -277,7 +321,10 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
           ],
         ),
       ),
-      floatingActionButton: SizedBox(
+      ),
+      floatingActionButton: SlideTransition(
+        position: _navSlideAnimation,
+        child: SizedBox(
         height: 72,
         width: 72,
         child: FloatingActionButton(
@@ -290,6 +337,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
           elevation: 10,
           child: const Icon(Icons.qr_code_scanner, color: Colors.white, size: 36),
         ),
+      ),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       body: tabs[_selectedIndex],

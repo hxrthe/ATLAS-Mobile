@@ -5,6 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../auth/login_screen.dart';
 import '../../auth/bloc/auth_bloc.dart';
 import '../../auth/auth_repository.dart';
+import '../../settings/account_security_screen.dart';
+import '../../settings/help_support_screen.dart';
 
 class StudentSettingsTab extends StatefulWidget {
   const StudentSettingsTab({super.key});
@@ -55,15 +57,25 @@ class _StudentSettingsTabState extends State<StudentSettingsTab> {
           const Divider(height: 32),
           ListTile(
             leading: const Icon(Icons.lock_outline),
-            title: const Text('Privacy & Security'),
+            title: const Text('Account & Security'),
             trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-            onTap: () {},
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const AccountSecurityScreen()),
+              );
+            },
           ),
           ListTile(
             leading: const Icon(Icons.help_outline),
             title: const Text('Help & Support'),
             trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-            onTap: () {},
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const HelpSupportScreen()),
+              );
+            },
           ),
           const SizedBox(height: 32),
           ElevatedButton.icon(

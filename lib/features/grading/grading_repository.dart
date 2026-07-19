@@ -10,7 +10,7 @@ class GradingRepository {
   /// Fetch all bubble sheet templates for a course.
   Future<List<BubbleTemplate>> fetchTemplates(String courseId) async {
     final response = await _apiClient.dio.get(
-      '/grading/bubble/templates/',
+      'grading/bubble/templates/',
       queryParameters: {'course_id': courseId},
     );
 
@@ -27,7 +27,7 @@ class GradingRepository {
   /// Fetch a template by its linked assessment ID.
   Future<BubbleTemplate> fetchTemplateByAssessment(String assessmentId) async {
     final response = await _apiClient.dio.get(
-      '/grading/bubble/templates/',
+      'grading/bubble/templates/',
       queryParameters: {'assessment_id': assessmentId},
     );
 
@@ -42,7 +42,7 @@ class GradingRepository {
   /// Fetch a single template detail (includes answer_key and layout_metadata).
   Future<BubbleTemplate> fetchTemplateDetail(String templateId) async {
     final response = await _apiClient.dio.get(
-      '/grading/bubble/templates/$templateId/',
+      'grading/bubble/templates/$templateId/',
     );
 
     final data = response.data;
@@ -82,7 +82,7 @@ class GradingRepository {
     }
 
     final response = await _apiClient.dio.get(
-      '/grading/bubble/templates/$templateId/scans/',
+      'grading/bubble/templates/$templateId/scans/',
       queryParameters: queryParams.isNotEmpty ? queryParams : null,
     );
 
@@ -100,7 +100,7 @@ class GradingRepository {
   Future<BubbleScan> updateScan(
       String scanId, Map<String, dynamic> updates) async {
     final response = await _apiClient.dio.patch(
-      '/grading/bubble/scans/$scanId/',
+      'grading/bubble/scans/$scanId/',
       data: updates,
     );
 
@@ -125,7 +125,7 @@ class GradingRepository {
     });
 
     final postResp = await _apiClient.dio.post(
-      '/grading/bubble/scans/',
+      'grading/bubble/scans/',
       data: formData,
     );
     if (postResp.data['success'] != true) {
@@ -176,7 +176,7 @@ class GradingRepository {
   /// Trigger a server-side re-extraction of answer_key from linked assessment items.
   Future<BubbleTemplate> syncKeyFromAssessment(String templateId) async {
     final response = await _apiClient.dio.post(
-      '/grading/bubble/templates/$templateId/sync-key/',
+      'grading/bubble/templates/$templateId/sync-key/',
     );
 
     final data = response.data;
@@ -190,7 +190,7 @@ class GradingRepository {
   /// DELETE a scan.
   Future<void> deleteScan(String scanId) async {
     final response = await _apiClient.dio.delete(
-      '/grading/bubble/scans/$scanId/',
+      'grading/bubble/scans/$scanId/',
     );
 
     final data = response.data;
@@ -201,7 +201,7 @@ class GradingRepository {
 
   /// Fetch course list for the faculty user via dashboard summary.
   Future<List<Map<String, dynamic>>> fetchFacultyCourses() async {
-    final response = await _apiClient.dio.get('/auth/dashboard/summary/');
+    final response = await _apiClient.dio.get('auth/dashboard/summary/');
     final data = response.data;
 
     final recent = data['recent'] as List<dynamic>? ?? [];
@@ -210,6 +210,7 @@ class GradingRepository {
               'course_id': item['course_id'] ?? '',
               'course_code': item['course_code'] ?? '',
               'course_title': item['course_title'] ?? '',
+              'section': item['section'] ?? '',
             })
         .toList();
   }
@@ -217,7 +218,7 @@ class GradingRepository {
   /// Fetch all assessments for a course.
   Future<List<Map<String, dynamic>>> fetchAssessments(String courseId) async {
     final response = await _apiClient.dio.get(
-      '/assessment/assessments/',
+      'assessment/assessments/',
       queryParameters: {'course_id': courseId},
     );
     final data = response.data;
@@ -283,26 +284,69 @@ class GradingRepository {
         .toList();
   }
 
+  /// Fetch course workspace (all assessments, modules, course info).
+  Future<Map<String, dynamic>> fetchCourseWorkspace(String courseId) async {
+    final response = await _apiClient.dio.get(
+      '/curriculum/faculty-course-workspace/$courseId/',
+    );
+    return response.data as Map<String, dynamic>;
+  }
+
+  /// Fetch full assessment detail with items grouped by section.
+  Future<Map<String, dynamic>> fetchAssessmentDetail(String assessmentId) async {
+    final response = await _apiClient.dio.get(
+      '/curriculum/assessment/$assessmentId/',
+    );
+    final data = response.data;
+    if (data['success'] != true) {
+      throw Exception(data['detail'] ?? 'Failed to fetch assessment detail.');
+    }
+    return data['assessment'] as Map<String, dynamic>;
+  }
+
+  /// Fetch student scores for a course and assessment.
+  Future<Map<String, dynamic>> fetchStudentScores(
+      String courseId, String assessmentId) async {
+    final response = await _apiClient.dio.get(
+      '/grading/student-scores/',
+      queryParameters: {'course_id': courseId, 'assessment_id': assessmentId},
+    );
+    final data = response.data;
+    if (data['success'] != true) {
+      throw Exception(data['detail'] ?? 'Failed to fetch student scores.');
+    }
+    return data;
+  }
+
+  /// Update an assessment item's answer via PATCH.
+  Future<void> updateAssessmentItem(
+      String itemId, Map<String, dynamic> updates) async {
+    await _apiClient.dio.patch(
+      '/curriculum/assessment-item/$itemId/',
+      data: updates,
+    );
+  }
+
   /// Fetch current user profile.
   Future<Map<String, dynamic>> fetchMyProfile() async {
-    final response = await _apiClient.dio.get('/auth/me/');
+    final response = await _apiClient.dio.get('auth/me/');
     return response.data as Map<String, dynamic>;
   }
 
   /// Update current user profile (name, email).
   Future<void> updateProfile(Map<String, dynamic> updates) async {
-    await _apiClient.dio.patch('/auth/me/', data: updates);
+    await _apiClient.dio.patch('auth/me/', data: updates);
   }
 
   /// Request password reset OTP.
   Future<void> requestPasswordReset(String email) async {
-    await _apiClient.dio.post('/auth/password-reset/request/', data: {'email': email});
+    await _apiClient.dio.post('auth/password-reset/request/', data: {'email': email});
   }
 
   /// Verify password reset OTP.
   Future<String> verifyPasswordResetOtp(String email, String otp) async {
     final response = await _apiClient.dio.post(
-      '/auth/password-reset/verify/',
+      'auth/password-reset/verify/',
       data: {'email': email, 'otp': otp},
     );
     return response.data['reset_token'] as String;
@@ -311,7 +355,7 @@ class GradingRepository {
   /// Confirm password reset with new password.
   Future<void> confirmPasswordReset(String resetToken, String newPassword) async {
     await _apiClient.dio.post(
-      '/auth/password-reset/confirm/',
+      'auth/password-reset/confirm/',
       data: {'reset_token': resetToken, 'new_password': newPassword},
     );
   }
@@ -349,7 +393,7 @@ class GradingRepository {
   /// Enroll in a course by course code.
   Future<Map<String, dynamic>> enrollInCourse(String courseCode) async {
     final response = await _apiClient.dio.post(
-      '/auth/enroll/',
+      'auth/enroll/',
       data: {'course_code': courseCode},
     );
 
@@ -367,7 +411,7 @@ class GradingRepository {
   /// Unenroll from a course.
   Future<Map<String, dynamic>> unenrollFromCourse(String courseId) async {
     final response = await _apiClient.dio.delete(
-      '/auth/enroll/$courseId/',
+      'auth/enroll/$courseId/',
     );
 
     final data = response.data;
@@ -402,7 +446,7 @@ class GradingRepository {
     if (studentDetails != null) payload['student_details'] = studentDetails;
     if (section != null) payload['section'] = section;
 
-    final response = await _apiClient.dio.patch('/auth/me/', data: payload);
+    final response = await _apiClient.dio.patch('auth/me/', data: payload);
 
     final updated = response.data as Map<String, dynamic>;
     final prefs = await SharedPreferences.getInstance();
