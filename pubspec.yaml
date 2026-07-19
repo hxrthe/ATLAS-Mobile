@@ -57,6 +57,7 @@ dependencies:
   google_sign_in: ^7.2.0
   flutter_secure_storage: ^10.3.1
   url_launcher: ^6.3.0
+  video_player: ^2.9.2
 
 dev_dependencies:
   flutter_test:
@@ -114,6 +115,7 @@ flutter:
 
   assets:
     - assets/images/
+    - assets/atlascutesys.mp4
 #    - assets/animations/
 
 flutter_launcher_icons:
