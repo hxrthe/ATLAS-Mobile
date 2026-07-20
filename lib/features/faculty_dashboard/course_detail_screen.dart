@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import '../grading/grading_repository.dart';
 
@@ -43,6 +46,10 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   String? _scoresError;
   String? _scoreSectionFilter;
 
+  double? _passingScore;
+  bool _loadingPassingScore = false;
+  bool _savingPassingScore = false;
+
   @override
   void initState() {
     super.initState();
@@ -60,6 +67,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
 
   void _onTabChanged() {
     if (!mounted) return;
+    debugPrint('Tab changed to: ${_tabController.index}, selectedAssessment: $_selectedAssessmentId, scoreRows: ${_scoreRows.length}');
     if (_tabController.index == 1 &&
         _scoreRows.isEmpty &&
         !_loadingScores &&
@@ -80,11 +88,10 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
               ?.map((a) => a as Map<String, dynamic>)
               .toList() ??
           [];
-      final enrolled = (ws['enrolled_students'] as List<dynamic>?)
-              ?.map((s) => s as Map<String, dynamic>)
-              .toList() ??
-          [];
-      
+
+      // Fetch enrolled students from dedicated endpoint
+      final enrolled = await _repo.fetchCourseStudents(widget.courseId);
+
       String? selId;
       if (rawAssessments.isNotEmpty) selId = rawAssessments.first['assessment_id']?.toString();
 
@@ -150,6 +157,8 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
       _loadingEM = true;
       _scoreRows = [];
       _scoresError = null;
+      _passingScore = null;
+      _loadingPassingScore = false;
     });
     await _loadAssessmentItems(newId);
     if (_tabController.index == 1) await _loadScores();
@@ -168,6 +177,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
               ?.map((r) => r as Map<String, dynamic>)
               .toList() ??
           [];
+      debugPrint('Score rows: $rows');
       if (mounted) {
         setState(() {
           _scoreRows = rows;
@@ -175,6 +185,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
         });
       }
     } catch (e) {
+      debugPrint('Load scores error: $e');
       if (mounted) {
         setState(() {
           _loadingScores = false;
@@ -223,10 +234,45 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     }
   }
 
+  /// Extract the student identifier (user_id) from an enrolled student record.
+  String _studentUserId(Map<String, dynamic> student) {
+    return (student['user_id'] ?? student['student_id'] ?? '').toString();
+  }
+
+  /// Parse courses_enrolled which may be a JSON string or already parsed List.
+  List<dynamic> _parseCoursesEnrolled(dynamic raw) {
+    if (raw is List) return raw;
+    if (raw is String) {
+      try {
+        final decoded = jsonDecode(raw);
+        return decoded is List ? decoded : [];
+      } catch (_) {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  /// Extract the section for the current course from a student's data.
+  String _sectionForCourse(Map<String, dynamic> student) {
+    // First try flat 'section' field (if backend flattens it)
+    final flatSection = (student['section'] ?? '').toString().trim();
+    if (flatSection.isNotEmpty) return flatSection;
+
+    // Parse courses_enrolled (may be JSON string or list)
+    final enrolled = _parseCoursesEnrolled(student['courses_enrolled']);
+    for (final entry in enrolled) {
+      if (entry is Map && entry['course_id']?.toString() == widget.courseId) {
+        return (entry['section'] ?? '').toString().trim();
+      }
+    }
+    return '';
+  }
+
   List<String> _uniqueStudentSections() {
     final seen = <String>{};
     for (final s in _enrolledStudents) {
-      final sec = (s['section'] ?? '').toString().trim();
+      final sec = _sectionForCourse(s);
       if (sec.isNotEmpty) seen.add(sec);
     }
     final sorted = seen.toList()..sort();
@@ -390,18 +436,34 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
               _subTabBtn('Questions', 0),
               const SizedBox(width: 8),
               _subTabBtn('Answer Key', 1),
+              const SizedBox(width: 8),
+              _subTabBtn('Passing Score', 2),
             ],
           ),
         ),
-        Expanded(child: _emSubTab == 0 ? _buildQuestionsList() : _buildAnswerKeyPanel()),
+        Expanded(child: _buildEMSubPanel()),
       ],
     );
+  }
+
+  Widget _buildEMSubPanel() {
+    switch (_emSubTab) {
+      case 1:
+        return _buildAnswerKeyPanel();
+      case 2:
+        return _buildPassingScorePanel();
+      default:
+        return _buildQuestionsList();
+    }
   }
 
   Widget _subTabBtn(String label, int index) {
     final active = index == _emSubTab;
     return GestureDetector(
-      onTap: () => setState(() => _emSubTab = index),
+      onTap: () {
+        setState(() => _emSubTab = index);
+        if (index == 2 && _passingScore == null && !_loadingPassingScore) _loadPassingScore();
+      },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
@@ -577,6 +639,215 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     );
   }
 
+  // ═══ Passing Score ═══════════════════════════════════════════════════
+
+  Future<void> _loadPassingScore() async {
+    if (_selectedAssessmentId == null) return;
+    setState(() => _loadingPassingScore = true);
+    try {
+      final template = await _repo.fetchTemplateByAssessment(_selectedAssessmentId!);
+      if (mounted) {
+        setState(() {
+          _passingScore = template.passingScore ?? 50;
+          _loadingPassingScore = false;
+        });
+      }
+    } catch (_) {
+      // Template may not exist yet — default to 50%
+      if (mounted) {
+        setState(() {
+          _passingScore = 50;
+          _loadingPassingScore = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _savePassingScore() async {
+    if (_selectedAssessmentId == null || _passingScore == null) return;
+    setState(() => _savingPassingScore = true);
+    try {
+      // Always fetch template to guarantee a valid course_id
+      final template =
+          await _repo.fetchTemplateByAssessment(_selectedAssessmentId!);
+      final templateId = template.templateId;
+      final courseId = template.courseId.isNotEmpty ? template.courseId : widget.courseId;
+      if (courseId.isEmpty) throw Exception('course_id is required');
+      await _repo.updateTemplatePassingScore(templateId, _passingScore!, courseId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Passing score saved: ${_passingScore!.toStringAsFixed(0)}%'),
+          backgroundColor: const Color(0xFF198754),
+        ));
+      }
+    } catch (e) {
+      String msg;
+      if (e is DioException) {
+        final body = e.response?.data;
+        if (body is Map) {
+          msg = body['detail']?.toString() ??
+              body['passing_score']?.toString() ??
+              body.values.first?.toString() ??
+              'Failed to save';
+        } else {
+          msg = e.message ?? 'Failed to save';
+        }
+      } else {
+        msg = e.toString().replaceAll('Exception: ', '');
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(msg),
+          backgroundColor: primaryRed,
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _savingPassingScore = false);
+    }
+  }
+
+  Widget _buildPassingScorePanel() {
+    if (_loadingPassingScore) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final current = _passingScore ?? 50;
+    return Center(
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 420),
+        margin: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.02),
+                      blurRadius: 10)
+                ],
+              ),
+              child: Column(
+                children: [
+                  const Icon(Icons.grading, size: 48, color: primaryRed),
+                  const SizedBox(height: 12),
+                  const Text('Passing Score Threshold',
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 16)),
+                  const SizedBox(height: 4),
+                  const Text(
+                      'Students scoring at or above this percentage\nwill be marked as passed.',
+                      textAlign: TextAlign.center,
+                      style:
+                          TextStyle(fontSize: 12, color: textGrey)),
+                  const SizedBox(height: 24),
+                  Text('${current.toStringAsFixed(0)}%',
+                      style: const TextStyle(
+                          fontSize: 48,
+                          fontWeight: FontWeight.w900,
+                          color: primaryRed)),
+                  const SizedBox(height: 16),
+                  SliderTheme(
+                    data: SliderThemeData(
+                      activeTrackColor: primaryRed,
+                      inactiveTrackColor: primaryRed.withValues(alpha: 0.12),
+                      thumbColor: primaryRed,
+                      overlayColor: primaryRed.withValues(alpha: 0.12),
+                      trackHeight: 6,
+                      thumbShape: const RoundSliderThumbShape(
+                          enabledThumbRadius: 14),
+                    ),
+                    child: Slider(
+                      value: current,
+                      min: 0,
+                      max: 100,
+                      divisions: 100,
+                      onChanged: (v) =>
+                          setState(() => _passingScore = v),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('0%',
+                          style: const TextStyle(
+                              fontSize: 11, color: textGrey)),
+                      Text('100%',
+                          style: const TextStyle(
+                              fontSize: 11, color: textGrey)),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  // Quick-set buttons
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [50, 60, 70, 75].map((v) {
+                      return Padding(
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 4),
+                        child: GestureDetector(
+                          onTap: () =>
+                              setState(() => _passingScore = v.toDouble()),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: current == v
+                                  ? primaryRed
+                                  : primaryRed.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              '$v%',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: current == v
+                                    ? Colors.white
+                                    : primaryRed,
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _savingPassingScore ? null : _savePassingScore,
+                icon: _savingPassingScore
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.save, size: 18),
+                label: Text(_savingPassingScore ? 'Saving...' : 'Save Passing Score',
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryRed,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12))),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ═══ Scores Tab ══════════════════════════════════════════════════════
 
   Widget _buildScoresTab() {
@@ -596,28 +867,54 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
 
     // Merge enrolled students with scores
     List<Map<String, dynamic>> displayRows = [];
+
+    debugPrint('=== Scores Tab Debug ===');
+    debugPrint('Enrolled students count: ${_enrolledStudents.length}');
+    debugPrint('Score rows count: ${_scoreRows.length}');
+    debugPrint('Course ID: ${widget.courseId}');
+    if (_enrolledStudents.isNotEmpty) {
+      final first = _enrolledStudents.first;
+      debugPrint('First enrolled student keys: ${first.keys.toList()}');
+      debugPrint('First enrolled student user_id: ${_studentUserId(first)}');
+      debugPrint('First enrolled student sr_code: ${first['sr_code']}');
+      debugPrint('First enrolled student section: "${_sectionForCourse(first)}"');
+    }
+    if (_scoreRows.isNotEmpty) {
+      debugPrint('First score row keys: ${_scoreRows.first.keys.toList()}');
+      debugPrint('First score row: ${_scoreRows.first}');
+    }
+    debugPrint('========================');
     
     // Filter enrolled students by section if applicable
     List<Map<String, dynamic>> filteredStudents = _enrolledStudents;
     if (_scoreSectionFilter != null && _scoreSectionFilter!.isNotEmpty) {
-      filteredStudents = filteredStudents.where((s) => 
-        (s['section'] ?? '').toString().trim() == _scoreSectionFilter
+      filteredStudents = filteredStudents.where((s) =>
+        _sectionForCourse(s) == _scoreSectionFilter
       ).toList();
     }
 
     for (final student in filteredStudents) {
-      final studentId = (student['student_id'] ?? '').toString();
-      final section = (student['section'] ?? '').toString().trim();
+      final userId = _studentUserId(student);
+      final srCode = (student['sr_code'] ?? student['sr-code'] ?? userId).toString();
+      final section = _sectionForCourse(student);
+      
+      // Match score row by user_id (the student_identifier in bubble_sheet_scans)
       final scoreMatch = _scoreRows.firstWhere(
-        (r) => (r['student_id'] ?? '').toString() == studentId,
+        (r) {
+          final sid = (r['student_id'] ?? r['user_id'] ?? r['student_identifier'] ?? '').toString();
+          return sid == userId;
+        },
         orElse: () => {},
       );
 
       if (scoreMatch.isNotEmpty) {
-        displayRows.add(Map<String, dynamic>.from(scoreMatch)..['section'] = section);
+        displayRows.add(Map<String, dynamic>.from(scoreMatch)
+          ..['section'] = section
+          ..['sr_code'] = srCode);
       } else {
         displayRows.add({
-          'student_id': studentId,
+          'student_id': userId,
+          'sr_code': srCode,
           'section': section,
           'score': null,
           'percent': null,
@@ -646,7 +943,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
               borderRadius: BorderRadius.circular(8)),
           columns: [
             const DataColumn(
-                label: Text('Student ID',
+                label: Text('SR Code',
                     style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 13,
@@ -671,7 +968,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                         color: darkText))),
           ],
           rows: displayRows.map((r) {
-            final sid = (r['student_id'] ?? '').toString();
+            final sid = (r['sr_code'] ?? r['student_id'] ?? '').toString();
             final sec = (r['section'] ?? '').toString();
             final score = r['score'];
             final pct = r['percent'];

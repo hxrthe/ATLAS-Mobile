@@ -91,8 +91,15 @@ class ApiClient {
 
   Future<void> _forceLogout() async {
     final prefs = await SharedPreferences.getInstance();
+
+    // If the user intentionally logged out, the settings tab already handles
+    // navigation — don't override with the autoLogout message.
+    final isIntentional = prefs.getString('logout_type') == 'intentional';
     await prefs.remove('access_token');
     await prefs.remove('refresh_token');
+    await prefs.remove('logout_type');
+
+    if (isIntentional) return;
 
     // Use navigatorKey to redirect to LoginScreen
     if (navigatorKey.currentState != null) {
