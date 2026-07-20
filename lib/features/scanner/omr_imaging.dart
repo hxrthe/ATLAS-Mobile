@@ -87,7 +87,8 @@ class OmrImaging {
     for (int y = 0; y < gray.height; y++) {
       for (int x = 0; x < gray.width; x++) {
         final lum = img.getLuminance(gray.getPixel(x, y));
-        gray.setPixel(x, y, lum < 64
+        // FIX: Increased threshold from 64 to 100 for reliable corner detection
+        gray.setPixel(x, y, lum < 100
             ? img.ColorInt32.rgba(0, 0, 0, 255)
             : img.ColorInt32.rgba(255, 255, 255, 255));
       }
@@ -216,24 +217,26 @@ class OmrImaging {
     if (mat == null) return (src, roughDpi);
 
     // Determine output dimensions from expected fiducial spread
-    double minX = double.infinity, maxX = 0, minY = double.infinity, maxY = 0;
+    // FIX: We no longer track minX or minY so the top-left edge remains an absolute (0,0)
+    double maxX = 0, maxY = 0;
     for (final e in expected) {
-      if (e.x < minX) minX = e.x;
       if (e.x > maxX) maxX = e.x;
-      if (e.y < minY) minY = e.y;
       if (e.y > maxY) maxY = e.y;
     }
-    final ow = (maxX - minX + 40).round();
-    final oh = (maxY - minY + 40).round();
+    
+    final ow = (maxX + 60).round();
+    final oh = (maxY + 60).round();
 
     final out = img.Image(width: ow, height: oh);
     final inv = _invert3x3(mat);
 
     for (int y = 0; y < oh; y++) {
       for (int x = 0; x < ow; x++) {
-        final srcXY = _applyHomography(inv, x + minX - 20, y + minY - 20);
+        // FIX: Apply homography directly to x and y without the shifting offset
+        final srcXY = _applyHomography(inv, x.toDouble(), y.toDouble());
         final sx = srcXY.x.round();
         final sy = srcXY.y.round();
+        
         if (sx >= 0 && sy >= 0 && sx < src.width && sy < src.height) {
           out.setPixel(x, y, src.getPixel(sx, sy));
         } else {
@@ -843,17 +846,36 @@ class OmrImaging {
   /// Robust fiducial detection: tries blob detection first (fast), falls back
   /// to edge-based page detection if < 4 fiducials found.
   static List<_FPoint> detectFiducialsRobust(img.Image src, Map<String, dynamic> layout) {
-    // Try primary: blob-based fiducial detection
+    // 1. Try primary: blob-based fiducial detection
     final fiducials = detectFiducials(src, layout);
-    if (fiducials.length >= 4) return fiducials;
 
-    // Fallback: edge-based page detection
+    bool isGeometryValid = false;
+    if (fiducials.length == 4) {
+      final sorted = sortCorners(fiducials);
+      final area = _polygonArea(sorted);
+      final imgArea = src.width * src.height;
+
+      // STRICT VALIDATION: The 4 points must cover at least 15% of the photo
+      // AND they must form a proper rectangle (no extreme skewing).
+      // This immediately rejects random background objects like cups.
+      if (area >= imgArea * 0.15 && _maxCosine(sorted) < 0.40) {
+        isGeometryValid = true;
+      }
+    }
+
+    if (isGeometryValid) {
+      return fiducials;
+    }
+
+    // 2. Fallback: Edge-based page detection (looks for the physical white paper boundary)
     final pageCorners = detectPageEdges(src);
     if (pageCorners != null && pageCorners.length == 4) {
       return pageCorners;
     }
 
-    return fiducials; // return whatever we have
+    // 3. Reject hallucinations: If no valid paper shape is found, return empty.
+    // This stops the engine from warping and grading background noise.
+    return [];
   }
 
   // ── Homography helpers ─────────────────────────────────────────────────

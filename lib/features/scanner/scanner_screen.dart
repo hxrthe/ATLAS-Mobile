@@ -31,11 +31,17 @@ class ScannerScreen extends StatefulWidget {
 enum _ScreenMode { scanning, review, detail }
 
 class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateMixin {
+
+  
+
   CameraController? _controller;
   bool _isCameraReady = false;
   bool _isStreaming = false;
   int _frameCount = 0;
   static const int _frameSkip = 3;
+  int _lastQrCheckFrame = 0;
+  int _lastDiagnosticsFrame = 0;
+  int _lastOverlayFrame = 0;
 
   final GradingRepository _repository = GradingRepository();
   List<BubbleTemplate> _templates = [];
@@ -48,6 +54,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
   // List<BubbleOverlayData> _liveBubbles = []; // Removed
   bool _assessmentIdentified = false;
   bool _isCapturing = false;
+  bool _isFrameProcessing = false;
   static const int _lockThresholdFrames = 10;
 
   AnimationController? _scoreFlashController;
@@ -55,6 +62,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
   String? _scoreFlashText;
 
   Timer? _torchTimer;
+  Timer? _focusTimer;
 
   List<ScanRecord> _scanRecords = [];
   bool _isLoadingRecords = false;
@@ -64,6 +72,51 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
 
   Rect? _roi;
   Size? _lastScreenSize;
+
+  void _showScoreDialog(String studentId, double scoreRaw, double maxScore, double percent) {
+    showDialog(
+      context: context,
+      barrierDismissible: false, // Forces the user to tap the button to close
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Scan Complete', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(studentId, style: const TextStyle(fontSize: 18, color: grayText, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 16),
+            Text(
+              '${percent.toStringAsFixed(1)}%', 
+              style: TextStyle(
+                fontSize: 48, 
+                fontWeight: FontWeight.w900, 
+                color: percent >= 60 ? Colors.green.shade700 : primaryRed
+              )
+            ),
+            const SizedBox(height: 4),
+            Text('${scoreRaw.toStringAsFixed(0)} / ${maxScore.toStringAsFixed(0)} correct', style: const TextStyle(fontSize: 16, color: darkText)),
+          ],
+        ),
+        actions: [
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primaryRed,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text('Scan Next Paper', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   void _updateROI(Size size) {
     if (_lastScreenSize == size) return;
@@ -115,6 +168,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
   @override
   void dispose() {
     _torchTimer?.cancel();
+    _focusTimer?.cancel();
     _stopImageStream();
     _controller?.dispose();
     _scoreFlashController?.dispose();
@@ -209,13 +263,16 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       final cameras = await availableCameras();
       if (cameras.isNotEmpty) {
         _controller = CameraController(
-          cameras.first, ResolutionPreset.high,
+          cameras.first, 
+          ResolutionPreset.max, // FIX: Changed from 'low' to 'max' for sharp focus
           enableAudio: false,
           imageFormatGroup: defaultTargetPlatform == TargetPlatform.iOS
               ? ImageFormatGroup.bgra8888 : ImageFormatGroup.nv21,
         );
         await _controller!.initialize();
+        await _applyCenterFocus();
         _startTorchAutoToggle();
+        _startFocusLoop();
         await _syncTorch(); // must complete before starting stream
         if (mounted) { setState(() => _isCameraReady = true); _startImageStream(); }
       }
@@ -226,6 +283,24 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
   void _startTorchAutoToggle() {
     _syncTorch(); // immediate
     _torchTimer = Timer.periodic(const Duration(minutes: 1), (_) => _syncTorch());
+  }
+
+  void _startFocusLoop() {
+    _focusTimer?.cancel();
+    _focusTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
+      if (!mounted || _controller == null || !_controller!.value.isInitialized || _isCapturing) return;
+      await _applyCenterFocus();
+    });
+  }
+
+  Future<void> _applyCenterFocus() async {
+    if (_controller == null || !_controller!.value.isInitialized) return;
+    try {
+      await _controller!.setFocusMode(FocusMode.auto);
+      await _controller!.setExposureMode(ExposureMode.auto);
+      await _controller!.setFocusPoint(const Offset(0.5, 0.5));
+      await _controller!.setExposurePoint(const Offset(0.5, 0.5));
+    } catch (_) {}
   }
 
   Future<void> _syncTorch() async {
@@ -256,62 +331,66 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
   void _onFrame(CameraImage frame) async {
     _frameCount++;
     if (_frameCount % _frameSkip != 0) return;
-    if (_isCapturing) return;
+    if (_isCapturing || _isFrameProcessing) return;
 
-    // 1. QR Detection (every 3 frames for near-instant identification)
-    if (_frameCount % 3 == 0) {
-      final qr = await OmrImaging.decodeQRFromFrame(frame);
-      if (qr != null && qr.isNotEmpty) {
-        final parts = qr.split('|');
-        if (parts.isNotEmpty) {
-          final assessmentId = parts[0].trim();
+    _isFrameProcessing = true;
+    try {
+      final shouldCheckQr = _frameCount - _lastQrCheckFrame >= 18;
+      if (shouldCheckQr) {
+        _lastQrCheckFrame = _frameCount;
+        final qr = await OmrImaging.decodeQRFromFrame(frame);
+        if (qr != null && qr.isNotEmpty) {
+          final parts = qr.split('|');
+          if (parts.isNotEmpty) {
+            final assessmentId = parts[0].trim();
 
-          // Only switch if it's a different assessment
-          if (_selectedTemplate?.assessmentId != assessmentId) {
-            final match = _templates.where((t) => t.assessmentId == assessmentId);
-            if (match.isNotEmpty) {
-              _onTemplateSelected(match.first);
-              if (mounted) setState(() => _assessmentIdentified = true);
-            } else {
-              // Not in current course templates? Try fetching specifically by assessment ID
-              _identifyNewAssessment(assessmentId);
+            if (_selectedTemplate?.assessmentId != assessmentId) {
+              final match = _templates.where((t) => t.assessmentId == assessmentId);
+              if (match.isNotEmpty) {
+                _onTemplateSelected(match.first);
+                if (mounted) setState(() => _assessmentIdentified = true);
+              } else {
+                _identifyNewAssessment(assessmentId);
+              }
+            } else if (!_assessmentIdentified && mounted) {
+              setState(() => _assessmentIdentified = true);
             }
-          } else {
-             // Already using this assessment, just mark as identified if it wasn't
-             if (!_assessmentIdentified && mounted) {
-               setState(() => _assessmentIdentified = true);
-             }
           }
         }
       }
+
+      if (_selectedTemplate == null) return;
+
+      if (_frameCount - _lastDiagnosticsFrame >= 36) {
+        _lastDiagnosticsFrame = _frameCount;
+        final diag = OmrImaging.runDiagnostics(frame, lockedCorners: _fiducialLock.corners.where((c) => c.detected).length);
+        if (mounted) setState(() => _diagnostics = diag);
+      }
+
+      final det = OmrImaging.detectFiducialsFast(frame, scaleDown: 4, roi: _roi);
+
+      final newLock = _fiducialLock.update(
+        tl: det.tl, tr: det.tr, bl: det.bl, br: det.br,
+        tlPos: det.tlx != null && det.tly != null ? Offset(det.tlx!, det.tly!) : null,
+        trPos: det.trx != null && det.tryv != null ? Offset(det.trx!, det.tryv!) : null,
+        blPos: det.blx != null && det.bly != null ? Offset(det.blx!, det.bly!) : null,
+        brPos: det.brx != null && det.bry != null ? Offset(det.brx!, det.bry!) : null,
+        lockThresholdFrames: _lockThresholdFrames,
+      );
+
+      _fiducialLock = newLock;
+
+      final shouldRefreshOverlay = _frameCount - _lastOverlayFrame >= 12 || _fiducialLock.allLocked != newLock.allLocked;
+      if (shouldRefreshOverlay) {
+        _lastOverlayFrame = _frameCount;
+        if (mounted) setState(() {});
+      }
+    } finally {
+      _isFrameProcessing = false;
     }
-
-    if (_selectedTemplate == null) return;
-
-    // 2. Diagnostics (every 30 frames)
-    if (_frameCount % 30 == 0) {
-      final diag = OmrImaging.runDiagnostics(frame, lockedCorners: _fiducialLock.corners.where((c) => c.detected).length);
-      if (mounted) setState(() => _diagnostics = diag);
-    }
-
-    // 3. Fiducial Detection
-    final det = OmrImaging.detectFiducialsFast(frame, scaleDown: 4, roi: _roi);
-
-    final newLock = _fiducialLock.update(
-      tl: det.tl, tr: det.tr, bl: det.bl, br: det.br,
-      tlPos: det.tlx != null && det.tly != null ? Offset(det.tlx!, det.tly!) : null,
-      trPos: det.trx != null && det.tryv != null ? Offset(det.trx!, det.tryv!) : null,
-      blPos: det.blx != null && det.bly != null ? Offset(det.blx!, det.bly!) : null,
-      brPos: det.brx != null && det.bry != null ? Offset(det.brx!, det.bry!) : null,
-      lockThresholdFrames: _lockThresholdFrames,
-    );
-
-    _fiducialLock = newLock;
-
-    if (mounted) setState(() {});
   }
 
-  bool get _readyToCapture =>
+ bool get _readyToCapture =>
       _fiducialLock.allLocked && _assessmentIdentified && !_isCapturing;
 
   Future<void> _manualCapture() async {
@@ -320,13 +399,18 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     _isCapturing = true;
     try {
       HapticFeedback.mediumImpact();
+      await _stopImageStream();
+      await _applyCenterFocus();
+      _showScanFeedback('Scanning in progress…');
       final image = await _controller!.takePicture();
       _processScanInBackground(image.path);
+      await _startImageStream();
       // Re-apply torch after capture (takePicture kills flash on Android)
       _syncTorch();
     } catch (e) {
       debugPrint("Capture error: $e");
       _isCapturing = false;
+      if (mounted) _showScanFeedback('Scan failed. Please try again.', isSuccess: false, long: true);
     }
   }
 
@@ -398,20 +482,50 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       );
 
       await ScanHistory.addRecord(record);
-      final scoreStr = result.scorePercent.toStringAsFixed(0);
-      _showScoreFlash('$finalStudentId: $scoreStr%');
 
       HapticFeedback.heavyImpact();
       SystemSound.play(SystemSoundType.click);
 
       if (mounted) {
-        setState(() { _scanRecords.insert(0, record); _isCapturing = false; });
+        setState(() { 
+          _scanRecords.insert(0, record); 
+          _isCapturing = false; 
+        });
+        
+        // FIX: Trigger the strict pop-up instead of a fast snackbar
+        _showScoreDialog(
+          finalStudentId, 
+          result.scoreRaw, 
+          result.maxScore.toDouble(), 
+          result.scorePercent
+        );
       }
+      
       _attemptBackgroundUpload(record);
+
+    // FIX: The missing catch block is restored here!
     } catch (e) {
       debugPrint("OMR processing error: $e");
-      if (mounted) { setState(() => _isCapturing = false); _showScoreFlash('Scan error'); }
+      if (mounted) {
+        setState(() => _isCapturing = false);
+        _showScoreFlash('Scan error');
+        _showScanFeedback('Scan failed. Please try again.', isSuccess: false, long: true);
+      }
     }
+  }
+
+  void _showScanFeedback(String message, {bool isSuccess = true, bool long = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).removeCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: isSuccess ? const Color(0xFF2E7D32) : const Color(0xFFC62828),
+        duration: Duration(seconds: long ? 3 : 2),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      ),
+    );
   }
 
   void _showScoreFlash(String text) {
@@ -431,14 +545,25 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
         studentId: record.studentIdentifier,
         responses: record.responses,
       );
+      
       await ScanHistory.updateRecord(record.id, {'server_scan_id': scan.scanId});
+      
       if (mounted) {
         setState(() {
           final idx = _scanRecords.indexWhere((r) => r.id == record.id);
-          if (idx >= 0) { _scanRecords[idx] = _scanRecords[idx].copyWith(serverScanId: scan.scanId); }
+          if (idx >= 0) { 
+            _scanRecords[idx] = _scanRecords[idx].copyWith(serverScanId: scan.scanId); 
+          }
         });
+        // Success feedback
+        _showScanFeedback('Scan successfully synced to the system.');
       }
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) {
+        // Let the user know the scan is safe locally, but the system sync failed
+        _showScanFeedback('Saved locally. Network error prevented system sync.', isSuccess: false, long: true);
+      }
+    }
   }
 
   Future<void> _loadScanRecords() async {
@@ -603,6 +728,11 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       scoreFlashAnimation: _scoreFlashAnimation,
       readyToCapture: _readyToCapture,
       onCapture: _manualCapture,
+      onFocusRequest: (point) async {
+        if (_controller == null || !_controller!.value.isInitialized) return;
+        await _controller!.setFocusPoint(point);
+        await _controller!.setExposurePoint(point);
+      },
       onBack: () => Navigator.pop(context),
       onReviewPapers: _openReview,
     );

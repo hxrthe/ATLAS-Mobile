@@ -487,26 +487,26 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 12),
                       
-                      TextButton(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => SignupScreen(
-                                prefillEmail: _usernameController.text.trim(),
-                                prefillName: '',
-                              ),
-                            ),
-                          );
-                        },
-                        child: Text(
-                          "Don't have an account? Sign up",
-                          style: TextStyle(
-                            color: primaryRed,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
+                      // TextButton(
+                      //   onPressed: () {
+                      //     Navigator.push(
+                      //       context,
+                      //       MaterialPageRoute(
+                      //         builder: (context) => SignupScreen(
+                      //           prefillEmail: _usernameController.text.trim(),
+                      //           prefillName: '',
+                      //         ),
+                      //       ),
+                      //     );
+                      //   },
+                      //   // child: Text(
+                      //   //   "Don't have an account? Sign up",
+                      //   //   style: TextStyle(
+                      //   //     color: primaryRed,
+                      //   //     fontWeight: FontWeight.w600,
+                      //   //   ),
+                        // ),
+                      // ),
                       
                       // Bottom padding so the form doesn't hit the absolute edge of the screen
                       const SizedBox(height: 24),

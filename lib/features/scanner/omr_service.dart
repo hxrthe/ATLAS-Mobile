@@ -8,7 +8,7 @@ import 'omr_models.dart';
 /// Primary path: Python OpenCV (reliable). Fallback: on-device Dart (if server unreachable).
 class OmrService {
   static const String _defaultBaseUrl = 'http://192.168.1.3:8001';
-  static const Duration _timeout = Duration(seconds: 30);
+  static const Duration _timeout = Duration(seconds: 6);
 
   final Dio _dio;
   final String baseUrl;
@@ -39,6 +39,24 @@ class OmrService {
     return _serverAvailable;
   }
 
+  /// Use the local engine whenever the network is weak or the server cannot respond quickly.
+  Future<bool> shouldUseLocalEngine() async {
+    final available = await isServerAvailable();
+    if (!available) return true;
+
+    try {
+      final stopwatch = Stopwatch()..start();
+      await _dio.get(
+        '$baseUrl/api/omr/health',
+        options: Options(responseType: ResponseType.json),
+      );
+      stopwatch.stop();
+      return stopwatch.elapsed > const Duration(milliseconds: 1500);
+    } catch (_) {
+      return true;
+    }
+  }
+
   /// Scan an OMR image using the Python server.
   /// Falls back to on-device Dart engine if server is unreachable.
   Future<OmrResult> scanImage(
@@ -46,10 +64,9 @@ class OmrService {
     BubbleTemplate template, {
     String? studentId,
   }) async {
-    final available = await isServerAvailable();
+    final useLocal = await shouldUseLocalEngine();
 
-    if (!available) {
-      // Fallback to on-device Dart engine
+    if (useLocal) {
       return OmrEngine.processScan(imagePath, template, studentId: studentId);
     }
 

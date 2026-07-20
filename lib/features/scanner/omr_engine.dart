@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:image/image.dart' as img;
 import '../grading/models.dart';
 import 'omr_imaging.dart';
+import 'dart:isolate';
 import 'omr_models.dart';
 
 /// On‑device OMR scanning engine.
@@ -16,8 +17,8 @@ class OmrEngine {
   static const double minGap = 0.10;             // minimum gap for largest-gap detection
   static const double minJump = 0.25;            // confident surplus (OMRChecker's CONFIDENT_SURPLUS)
   static const double confidentSurplus = 0.05;   // extra margin for confident detection
-  static const double marginFill = 0.08;         // best vs second-best gap for ambiguity
-  static const double goodFill = 0.42;           // above this = confirmed (not just acceptable)
+  static const double marginFill = 0.05;         // best vs second-best gap for ambiguity
+  static const double goodFill = 0.38;           // above this = confirmed (not just acceptable)
   static const double hysteresisMargin = 0.06;   // must exceed global threshold by this much
 
   static Future<OmrResult> processScan(
@@ -25,72 +26,75 @@ class OmrEngine {
     BubbleTemplate template, {
     String? studentId,
   }) async {
-    final sw = Stopwatch()..start();
+    // Offload the heavy image processing to a background thread
+    return await Isolate.run(() async {
+      final sw = Stopwatch()..start();
 
-    final bytes = await File(imagePath).readAsBytes();
-    img.Image? image = img.decodeImage(bytes);
-    if (image == null) throw Exception('Failed to decode image.');
+      final bytes = await File(imagePath).readAsBytes();
+      img.Image? image = img.decodeImage(bytes);
+      if (image == null) throw Exception('Failed to decode image.');
 
-    final layout = template.layoutMetadata;
+      final layout = template.layoutMetadata;
 
-    // Step 1 – Fiducial detect + warp (robust: blob → edge fallback)
-    final fiducials = OmrImaging.detectFiducialsRobust(image, layout);
-    img.Image warped;
-    double dpi;
-    if (fiducials.length >= 4) {
-      final sorted = OmrImaging.sortCorners(fiducials);
-      final wf = OmrImaging.warp(sorted, image, layout);
-      warped = wf.$1;
-      dpi = wf.$2;
-    } else {
-      warped = image;
-      dpi = warped.width / (((layout['page_width_pt'] as num?) ?? 595.28).toDouble() / 72.0);
-    }
+      // FIX: Step 1 – Pre-process the image FIRST to normalize lighting and contrast
+      final processed = OmrImaging.preProcessForOcr(image);
 
-    // Step 1b – Enhanced preprocessing (6-stage pipeline from AndroidOMRHelper)
-    warped = OmrImaging.preProcessForOcr(warped);
-
-    // Step 2 – ID bubbles (primary student identification)
-    studentId ??= OmrImaging.readIDBubbles(warped, layout, dpi);
-
-    // Step 3 – Answer bubbles
-    final readings = _readAnswers(warped, template, layout, dpi);
-
-    final responses = <String, String>{};
-    for (final r in readings) {
-      if (r.detectedAnswer != '?') {
-        responses[r.itemNumber.toString()] = r.detectedAnswer;
+      // Step 2 – Detect fiducials on the clean, high-contrast image
+      final fiducials = OmrImaging.detectFiducialsRobust(processed, layout);
+      img.Image warped;
+      double dpi;
+      if (fiducials.length >= 4) {
+        final sorted = OmrImaging.sortCorners(fiducials);
+        final wf = OmrImaging.warp(sorted, processed, layout);
+        warped = wf.$1;
+        dpi = wf.$2;
+      } else {
+        warped = processed;
+        dpi = warped.width / (((layout['page_width_pt'] as num?) ?? 595.28).toDouble() / 72.0);
       }
-    }
 
-    // Step 4 – Grade
-    final gr = grade(responses, template.answerKey);
+      // Step 3 – ID bubbles (primary student identification)
+      studentId ??= OmrImaging.readIDBubbles(warped, layout, dpi);
 
-    sw.stop();
+      // Step 3 – Answer bubbles
+      final readings = _readAnswers(warped, template, layout, dpi);
 
-    final flagged = readings
-        .where((r) => r.isAmbiguous)
-        .map((r) => r.itemNumber)
-        .toList();
-    final reasons = <String>[];
-    final idPartial = studentId != null && studentId.contains('?');
-    if (studentId == null || idPartial) reasons.add('Student ID incomplete');
-    if (flagged.isNotEmpty) {
-      reasons.add('${flagged.length} ambiguous item(s)');
-    }
+      final responses = <String, String>{};
+      for (final r in readings) {
+        if (r.detectedAnswer != '?') {
+          responses[r.itemNumber.toString()] = r.detectedAnswer;
+        }
+      }
 
-    return OmrResult(
-      studentIdentifier: studentId,
-      responses: responses,
-      readings: readings,
-      correctCount: gr.$1,
-      maxScore: gr.$2,
-      scorePercent: gr.$3,
-      isFlagged: flagged.isNotEmpty || studentId == null || idPartial,
-      flagReason: reasons.isEmpty ? null : reasons.join('; '),
-      flaggedItems: flagged,
-      processingTime: sw.elapsed,
-    );
+      // Step 4 – Grade
+      final gr = grade(responses, template.answerKey);
+
+      sw.stop();
+
+      final flagged = readings
+          .where((r) => r.isAmbiguous)
+          .map((r) => r.itemNumber)
+          .toList();
+      final reasons = <String>[];
+      final idPartial = studentId != null && studentId!.contains('?');
+      if (studentId == null || idPartial) reasons.add('Student ID incomplete');
+      if (flagged.isNotEmpty) {
+        reasons.add('${flagged.length} ambiguous item(s)');
+      }
+
+      return OmrResult(
+        studentIdentifier: studentId,
+        responses: responses,
+        readings: readings,
+        correctCount: gr.$1,
+        maxScore: gr.$2,
+        scorePercent: gr.$3,
+        isFlagged: flagged.isNotEmpty || studentId == null || idPartial,
+        flagReason: reasons.isEmpty ? null : reasons.join('; '),
+        flaggedItems: flagged,
+        processingTime: sw.elapsed,
+      );
+    });
   }
 
   // ── Thresholding helpers ────────────────────────────────────────────────
@@ -120,6 +124,51 @@ class OmrEngine {
     final mean = values.reduce((a, b) => a + b) / values.length;
     final variance = values.map((f) => (f - mean) * (f - mean)).reduce((a, b) => a + b) / values.length;
     return variance > 0 ? sqrt(variance) : 0;
+  }
+
+  static ({String detectedAnswer, bool isAmbiguous, bool isConfirmed, String note}) evaluateBubbleSelection({
+    required String bestChoice,
+    required double bestFill,
+    required double secondFill,
+    required double globalThr,
+    required double effectiveThr,
+    required double maxGap,
+    required bool lowConfidence,
+    required bool noOutliers,
+    required bool aboveEffective,
+    required bool aboveGlobal,
+    required bool passesHysteresis,
+    required double goodFill,
+  }) {
+    final gap = (bestFill - secondFill).abs();
+    final strongSelection = bestFill >= 0.18 && gap >= 0.06;
+    final isAmbiguous = !strongSelection &&
+        (!passesHysteresis || gap < marginFill || (lowConfidence && bestFill < 0.16));
+    final isConfirmed = !isAmbiguous && (bestFill >= goodFill || (bestFill >= 0.22 && gap >= 0.08));
+
+    String note;
+    if (isAmbiguous) {
+      if (noOutliers) {
+        note = 'No outliers (all fills ~${bestFill.toStringAsFixed(2)})';
+      } else if (!aboveEffective) {
+        note = 'Low fill ($bestFill vs thr $effectiveThr)';
+      } else if (!aboveGlobal) {
+        note = 'Below global thr (${(globalThr - hysteresisMargin).toStringAsFixed(2)})';
+      } else if (lowConfidence) {
+        note = 'Low confidence (gap ${maxGap.toStringAsFixed(2)})';
+      } else {
+        note = 'Too close ($bestFill vs $secondFill)';
+      }
+    } else {
+      note = isConfirmed ? 'Confirmed ($bestFill, $effectiveThr)' : 'Acceptable ($bestFill, $effectiveThr)';
+    }
+
+    return (
+      detectedAnswer: isAmbiguous ? '?' : bestChoice,
+      isAmbiguous: isAmbiguous,
+      isConfirmed: isConfirmed,
+      note: note,
+    );
   }
 
   // ── Answer bubble reading ──────────────────────────────────────────────
@@ -246,36 +295,29 @@ class OmrEngine {
       final aboveGlobal = raw.bestFill >= (globalThr - hysteresisMargin);
       final passesHysteresis = aboveEffective && aboveGlobal;
 
-      final isAmbiguous = !passesHysteresis ||
-          (raw.bestFill - raw.secondFill).abs() < marginFill ||
-          lowConfidence;
-      final isConfirmed = !isAmbiguous && raw.bestFill >= goodFill;
-
-      String note;
-      if (isAmbiguous) {
-        if (noOutliers) {
-          note = 'No outliers (all fills ~${raw.bestFill.toStringAsFixed(2)})';
-        } else if (!aboveEffective) {
-          note = 'Low fill ($raw.bestFill vs thr $effectiveThr)';
-        } else if (!aboveGlobal) {
-          note = 'Below global thr (${(globalThr - hysteresisMargin).toStringAsFixed(2)})';
-        } else if (lowConfidence) {
-          note = 'Low confidence ($thresholdSource, gap ${maxGap.toStringAsFixed(2)})';
-        } else {
-          note = 'Too close ($raw.bestFill vs $raw.secondFill)';
-        }
-      } else {
-        note = isConfirmed ? 'Confirmed ($raw.bestFill, $thresholdSource)' : 'Acceptable ($raw.bestFill, $thresholdSource)';
-      }
+      final selection = evaluateBubbleSelection(
+        bestChoice: raw.bestChoice,
+        bestFill: raw.bestFill,
+        secondFill: raw.secondFill,
+        globalThr: globalThr,
+        effectiveThr: effectiveThr,
+        maxGap: maxGap,
+        lowConfidence: lowConfidence,
+        noOutliers: noOutliers,
+        aboveEffective: aboveEffective,
+        aboveGlobal: aboveGlobal,
+        passesHysteresis: passesHysteresis,
+        goodFill: goodFill,
+      );
 
       results.add(BubbleReading(
         itemNumber: raw.itemNumber,
-        detectedAnswer: isAmbiguous ? '?' : raw.bestChoice,
+        detectedAnswer: selection.detectedAnswer,
         fillRatio: raw.bestFill,
         secondFillRatio: raw.secondFill,
-        isAmbiguous: isAmbiguous,
-        isConfirmed: isConfirmed,
-        confidenceNote: note,
+        isAmbiguous: selection.isAmbiguous,
+        isConfirmed: selection.isConfirmed,
+        confidenceNote: selection.note,
       ));
     }
 

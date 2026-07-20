@@ -25,6 +25,7 @@ class LiveScanningView extends StatelessWidget {
   final Animation<double>? scoreFlashAnimation;
   final bool readyToCapture;
   final VoidCallback? onCapture;
+  final ValueChanged<Offset>? onFocusRequest;
   final VoidCallback onBack;
   final VoidCallback onReviewPapers;
 
@@ -40,6 +41,7 @@ class LiveScanningView extends StatelessWidget {
     this.scoreFlashAnimation,
     this.readyToCapture = false,
     this.onCapture,
+    this.onFocusRequest,
     required this.onBack,
     required this.onReviewPapers,
   });
@@ -57,11 +59,43 @@ class LiveScanningView extends StatelessWidget {
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          Positioned.fill(child: CameraPreview(controller!)),
-          Positioned.fill(child: _FiducialOverlay(
-            lockState: fiducialLock,
-            readyToCapture: readyToCapture,
-          )),
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapDown: (details) {
+                if (onFocusRequest != null) {
+                  final box = context.findRenderObject() as RenderBox?;
+                  if (box != null) {
+                    final local = details.localPosition;
+                    final dx = (local.dx / box.size.width).clamp(0.0, 1.0);
+                    final dy = (local.dy / box.size.height).clamp(0.0, 1.0);
+                    onFocusRequest!(Offset(dx, dy));
+                  }
+                }
+              },
+              child: CameraPreview(controller!),
+            ),
+          ),
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapDown: (details) {
+                if (onFocusRequest != null) {
+                  final box = context.findRenderObject() as RenderBox?;
+                  if (box != null) {
+                    final local = details.localPosition;
+                    final dx = (local.dx / box.size.width).clamp(0.0, 1.0);
+                    final dy = (local.dy / box.size.height).clamp(0.0, 1.0);
+                    onFocusRequest!(Offset(dx, dy));
+                  }
+                }
+              },
+              // FIX: Wrap CameraPreview in Center to prevent aspect ratio stretching
+              child: Center(
+                child: CameraPreview(controller!),
+              ),
+            ),
+          ),
           Positioned(
             top: 0, left: 0, right: 0,
             child: _TopBar(
