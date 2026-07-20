@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 import '../student_dashboard/student_dashboard_screen.dart';
 
@@ -85,6 +86,9 @@ class _LoginScreenState extends State<LoginScreen> {
         _keepActive = true;
       });
     }
+    // Clean up any stale logout_type flag so future auto-logouts work
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('logout_type');
   }
 
   Future<void> _saveCredentials() async {
@@ -103,6 +107,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
+    _videoController.pause();
+    _videoController.removeListener(() {});
     _videoController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();

@@ -187,6 +187,43 @@ class GradingRepository {
     return BubbleTemplate.fromJson(data['template']);
   }
 
+  /// Update the passing score for a bubble template.
+  Future<BubbleTemplate> updateTemplatePassingScore(
+      String templateId, double passingScore, String courseId) async {
+    final scoreRounded = double.parse(passingScore.toStringAsFixed(2));
+
+    try {
+      final response = await _apiClient.dio.patch(
+        'grading/bubble/templates/$templateId/',
+        data: {
+          'passing_score': scoreRounded,
+          'course_id': courseId,
+        },
+      );
+
+      final data = response.data;
+      final templateJson = data['template'] ?? data;
+      return BubbleTemplate.fromJson(templateJson);
+    } catch (e) {
+      // Handle both DioException (from interceptor chain) and plain Exception
+      String detail = 'Failed to update passing score.';
+      if (e is DioException) {
+        final body = e.response?.data;
+        if (body is Map) {
+          detail = body['detail']?.toString() ??
+              body['passing_score']?.toString() ??
+              body.values.first?.toString() ??
+              detail;
+        } else if (e.message != null && e.message!.isNotEmpty) {
+          detail = e.message!;
+        }
+      } else {
+        detail = e.toString().replaceAll('Exception: ', '');
+      }
+      throw Exception(detail);
+    }
+  }
+
   /// DELETE a scan.
   Future<void> deleteScan(String scanId) async {
     final response = await _apiClient.dio.delete(
@@ -284,12 +321,60 @@ class GradingRepository {
         .toList();
   }
 
+  /// Fetch distinct sections for faculty's students from student_data.
+  Future<List<String>> fetchSections() async {
+    try {
+      final response = await _apiClient.dio.get(
+        'grading/sections/',
+      );
+      final data = response.data;
+      final sections = data['sections'] as List<dynamic>? ?? [];
+      return sections.map((s) => s.toString()).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Fetch item analysis (difficulty & discrimination) for a template from bubble_sheet_scans.
+  Future<List<Map<String, dynamic>>> fetchItemAnalysis(String templateId) async {
+    final response = await _apiClient.dio.get(
+      'grading/bubble/templates/$templateId/item-analysis/',
+    );
+    final data = response.data;
+    final items = data['items'] as List<dynamic>? ?? [];
+    return items
+        .map((i) => {
+              'item_number': i['item_number'] ?? 0,
+              'difficulty': (i['difficulty'] as num?)?.toDouble() ?? 0,
+              'discrimination': (i['discrimination'] as num?)?.toDouble() ?? 0,
+            })
+        .toList();
+  }
+
   /// Fetch course workspace (all assessments, modules, course info).
   Future<Map<String, dynamic>> fetchCourseWorkspace(String courseId) async {
     final response = await _apiClient.dio.get(
       '/curriculum/faculty-course-workspace/$courseId/',
     );
     return response.data as Map<String, dynamic>;
+  }
+
+  /// Fetch enrolled students for a course from student_data.
+  /// Returns list with user_id, sr_code, and courses_enrolled per student.
+  Future<List<Map<String, dynamic>>> fetchCourseStudents(String courseId) async {
+    try {
+      final response = await _apiClient.dio.get(
+        '/curriculum/course-students/$courseId/',
+      );
+      final data = response.data;
+      if (data['success'] == true) {
+        final students = data['students'] as List<dynamic>? ?? [];
+        return students.map((s) => s as Map<String, dynamic>).toList();
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
   }
 
   /// Fetch full assessment detail with items grouped by section.

@@ -75,6 +75,7 @@ class AuthRepository {
 
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('logout_type', 'intentional');
     await prefs.remove('access_token');
     await prefs.remove('refresh_token');
   }

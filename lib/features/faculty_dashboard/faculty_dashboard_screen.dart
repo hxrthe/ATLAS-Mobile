@@ -23,6 +23,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
   int _selectedIndex = 0;
   String _userName = 'Instructor';
   Timer? _inactivityTimer;
+  Timer? _eventsTimer;
 
   // Real data
   final GradingRepository _repo = GradingRepository();
@@ -31,6 +32,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
   List<BubbleTemplate> _activeTemplates = [];
   List<BubbleTemplate> _allTemplates = [];
   List<Map<String, dynamic>> _systemEvents = [];
+  String? _activeAssessmentType;
   bool _loading = true;
   String? _error;
 
@@ -63,6 +65,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
   @override
   void dispose() {
     _inactivityTimer?.cancel();
+    _eventsTimer?.cancel();
     _navSlideController.dispose();
     super.dispose();
   }
@@ -91,7 +94,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
 
     await _loadAll();
     // Refresh events periodically
-    Timer.periodic(const Duration(seconds: 30), (_) => _loadEvents());
+    _eventsTimer = Timer.periodic(const Duration(seconds: 30), (_) => _loadEvents());
   }
 
   Future<void> _loadAll() async {
@@ -121,6 +124,17 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
 
       final events = await _repo.fetchRecentScans(limit: 20);
 
+      // Fetch assessment type for the active course
+      String? assessmentType;
+      if (activeCourse != null) {
+        try {
+          final assessments = await _repo.fetchAssessments(activeCourse['course_id']!);
+          if (assessments.isNotEmpty) {
+            assessmentType = assessments.first['assessment_type'] as String?;
+          }
+        } catch (_) {}
+      }
+
       if (mounted) {
         setState(() {
           _courses = courses;
@@ -128,6 +142,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
           _activeTemplates = activeTemplates;
           _allTemplates = allTemplates;
           _systemEvents = events;
+          _activeAssessmentType = assessmentType;
           _loading = false;
         });
       }
@@ -236,6 +251,21 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
       return '${diff.inDays}d ago';
     } catch (_) {
       return '';
+    }
+  }
+
+  String _assessmentTypeLabel(String? type) {
+    switch (type?.toLowerCase()) {
+      case 'prelim':
+        return 'PRELIM';
+      case 'midterm':
+        return 'MIDTERM';
+      case 'semi-finals':
+        return 'SEMI-FINALS';
+      case 'finals':
+        return 'FINALS';
+      default:
+        return type?.toUpperCase() ?? '';
     }
   }
 
@@ -458,28 +488,52 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFD4811B).withValues(alpha: 0.9),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              _activeCourse != null
-                                  ? (_activeTemplates.any((t) =>
-                                              t.hasAnswerKey ||
-                                              t.assessmentId != null)
-                                          ? 'ACTIVE SESSION'
-                                          : 'NO ANSWER KEY')
-                                  : 'NO COURSES',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.5,
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFD4811B).withValues(alpha: 0.9),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  _activeCourse != null
+                                      ? (_activeTemplates.any((t) =>
+                                                  t.hasAnswerKey ||
+                                                  t.assessmentId != null)
+                                              ? 'ACTIVE SESSION'
+                                              : 'NO ANSWER KEY')
+                                      : 'NO COURSES',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
                               ),
-                            ),
+                              if (_activeAssessmentType != null &&
+                                  _activeAssessmentType!.isNotEmpty)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.2),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    _assessmentTypeLabel(_activeAssessmentType),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                           const SizedBox(height: 12),
                           Text(
