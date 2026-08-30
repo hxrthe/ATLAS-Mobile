@@ -5,6 +5,7 @@ import 'package:flutter/material.dart' hide Image;
 import 'package:image/image.dart' as img;
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
 import 'omr_models.dart';
+import 'omr_classifier.dart';
 
 /// Low‑level pixel operations for fiducial detection, perspective warp,
 /// bubble sampling, ID‑bubble decoding, and real-time frame analysis.
@@ -268,11 +269,14 @@ class OmrImaging {
 
     // Phase 1: Sample all columns, collect all fills for global threshold
     final allColumnFills = <List<double>>[];
+    // PDF draws first ID row at y_top + 2.5mm (see bubble_sheet_generator).
+    const firstRowOffsetMm = 2.5;
     for (int c = 0; c < cols; c++) {
       final cx = ((x0mm + c * colPitch) * dpi / 25.4).round();
       final fills = <double>[];
       for (int r = 0; r < labels.length; r++) {
-        final cy = ((yTopMm + r * rowPitch) * dpi / 25.4).round();
+        final cy =
+            ((yTopMm + firstRowOffsetMm + r * rowPitch) * dpi / 25.4).round();
         fills.add(sampleCircle(warped, cx, cy, rPx));
       }
       allColumnFills.add(fills);
@@ -348,7 +352,27 @@ class OmrImaging {
     return total > 0 ? filled / total : 0;
   }
 
+  /// Extract full 7-feature vector from a bubble region.
+  /// Uses [OmrClassifier.extractFeatures] which mirrors ZipGrade's SVM feature
+  /// extraction: fill ratio, edge density, mean intensity, variance,
+  /// ring ratio, background contrast, boundary gradient.
+  static BubbleFeatures sampleBubbleFeatures(img.Image image, int cx, int cy, int r) {
+    return OmrClassifier.extractFeatures(image, cx, cy, r);
+  }
+
+  /// Compute Otsu's threshold for a list of fill values.
+  /// Provides an alternative global threshold that minimises intra-class variance,
+  /// useful when the largest-gap method fails on low-contrast sheets.
+  static double otsuThreshold(List<double> values, double fallback) {
+    return OmrClassifier.otsuThreshold(values, fallback);
+  }
+
   // ── Enhanced preprocessing pipeline ────────────────────────────────────
+
+  /// Simple box blur for Otsu preprocessing (reference GaussianBlur step).
+  static img.Image blurOnly(img.Image src, {int kernel = 5}) {
+    return _blurImage(src, kernel);
+  }
 
   /// Full OMR preprocessing chain mimicking AndroidOMRHelper's 6-stage pipeline.
   /// 1. Gaussian blur (noise reduction)
@@ -634,7 +658,8 @@ class OmrImaging {
   static List<_FPoint>? _approxQuadrilateral(List<_FPoint> contour, int w, int h) {
     if (contour.length < 4) return null;
     final perimeter = _arcLength(contour);
-    final epsilon = 0.025 * perimeter;
+    // Match ShreenidhiBodas/OMR: approxPolyDP at ~2% of perimeter
+    final epsilon = 0.02 * perimeter;
 
     // Simplified Douglas-Peucker
     final simplified = _douglasPeucker(contour, epsilon);
@@ -729,7 +754,7 @@ class OmrImaging {
     return maxCos;
   }
 
-  /// Order 4 points as TL, TR, BR, BL.
+  /// Order 4 points as TL, TR, BL, BR.
   static List<_FPoint> _orderPoints(List<_FPoint> pts) {
     final sorted = List<_FPoint>.from(pts)
       ..sort((a, b) => (a.x + a.y).compareTo(b.x + b.y));
@@ -838,22 +863,227 @@ class OmrImaging {
     return out;
   }
 
-  // ── Robust fiducial detection (template match + blob fallback) ─────────
+  // ── Robust sheet alignment (contour-first hybrid) ─────────────────────
 
-  /// Robust fiducial detection: tries blob detection first (fast), falls back
-  /// to edge-based page detection if < 4 fiducials found.
-  static List<_FPoint> detectFiducialsRobust(img.Image src, Map<String, dynamic> layout) {
-    // Try primary: blob-based fiducial detection
-    final fiducials = detectFiducials(src, layout);
-    if (fiducials.length >= 4) return fiducials;
-
-    // Fallback: edge-based page detection
+  /// Contour-first sheet alignment (ShreenidhiBodas/OMR style).
+  /// Prefers full-page edge quadrilateral; falls back to corner fiducial blobs.
+  /// Returns corners ordered TL, TR, BL, BR.
+  static ({List<_FPoint> corners, bool fromPageEdges}) detectSheetCorners(
+    img.Image src,
+    Map<String, dynamic> layout,
+  ) {
     final pageCorners = detectPageEdges(src);
     if (pageCorners != null && pageCorners.length == 4) {
-      return pageCorners;
+      return (corners: pageCorners, fromPageEdges: true);
     }
 
-    return fiducials; // return whatever we have
+    final fiducials = detectFiducials(src, layout);
+    if (fiducials.length >= 4) {
+      return (corners: sortCorners(fiducials), fromPageEdges: false);
+    }
+
+    return (corners: fiducials, fromPageEdges: false);
+  }
+
+  /// Legacy API: contour-first, then fiducial blobs.
+  static List<_FPoint> detectFiducialsRobust(img.Image src, Map<String, dynamic> layout) {
+    return detectSheetCorners(src, layout).corners;
+  }
+
+  /// Warp the sheet onto a full page canvas at fixed [targetDpi].
+  /// When [fromPageEdges] is true, [corners] map to the page rectangle.
+  /// When false, [corners] are treated as fiducial centres mapped to layout mm.
+  /// Bubble mm→px is then simply `mm * dpi / 25.4` with no crop offset.
+  static (img.Image, double) warpToPage(
+    List<_FPoint> corners,
+    img.Image src,
+    Map<String, dynamic> layout, {
+    bool fromPageEdges = true,
+    double targetDpi = 150,
+  }) {
+    final pageWmm =
+        ((layout['page_width_pt'] as num?) ?? 612.0).toDouble() / 72.0 * 25.4;
+    final pageHmm =
+        ((layout['page_height_pt'] as num?) ?? 936.0).toDouble() / 72.0 * 25.4;
+    final ow = (pageWmm * targetDpi / 25.4).round().clamp(200, 4000);
+    final oh = (pageHmm * targetDpi / 25.4).round().clamp(200, 6000);
+
+    if (corners.length < 4) {
+      return (src, targetDpi);
+    }
+
+    final ordered = sortCorners(corners); // TL, TR, BL, BR
+    late final List<_FPoint> dst;
+    if (fromPageEdges) {
+      dst = [
+        _FPoint(0, 0),
+        _FPoint((ow - 1).toDouble(), 0),
+        _FPoint((ow - 1).toDouble(), (oh - 1).toDouble()),
+        _FPoint(0, (oh - 1).toDouble()),
+      ];
+    } else {
+      final fids = layout['fiducials'] as List<dynamic>? ?? [];
+      if (fids.length < 4) {
+        dst = [
+          _FPoint(0, 0),
+          _FPoint((ow - 1).toDouble(), 0),
+          _FPoint((ow - 1).toDouble(), (oh - 1).toDouble()),
+          _FPoint(0, (oh - 1).toDouble()),
+        ];
+      } else {
+        final centres = <_FPoint>[];
+        for (final f in fids) {
+          final xmm = (f['x_mm'] as num).toDouble();
+          final ymm = (f['y_spec_mm'] as num).toDouble();
+          final wmm = (f['w_mm'] as num?)?.toDouble() ?? 10.0;
+          final hmm = (f['h_mm'] as num?)?.toDouble() ?? 10.0;
+          centres.add(_FPoint(
+            (xmm + wmm / 2) * targetDpi / 25.4,
+            (ymm + hmm / 2) * targetDpi / 25.4,
+          ));
+        }
+        final sortedCentres = sortCorners(centres);
+        dst = [
+          sortedCentres[0],
+          sortedCentres[1],
+          sortedCentres[3], // BR
+          sortedCentres[2], // BL
+        ];
+      }
+    }
+
+    // Homography src/dst order: TL, TR, BR, BL
+    final srcPts = [ordered[0], ordered[1], ordered[3], ordered[2]];
+    final mat = _computeHomography(srcPts, dst);
+    if (mat == null) return (src, targetDpi);
+
+    final out = img.Image(width: ow, height: oh);
+    for (int y = 0; y < oh; y++) {
+      for (int x = 0; x < ow; x++) {
+        out.setPixel(x, y, img.ColorInt32.rgba(255, 255, 255, 255));
+      }
+    }
+
+    final inv = _invert3x3(mat);
+    for (int y = 0; y < oh; y++) {
+      for (int x = 0; x < ow; x++) {
+        final srcXY = _applyHomography(inv, x.toDouble(), y.toDouble());
+        final sx = srcXY.x.round();
+        final sy = srcXY.y.round();
+        if (sx >= 0 && sy >= 0 && sx < src.width && sy < src.height) {
+          out.setPixel(x, y, src.getPixel(sx, sy));
+        }
+      }
+    }
+
+    return (out, targetDpi);
+  }
+
+  /// Otsu binarization. BINARY_INV style: filled marks = 255, paper = 0.
+  static img.Image otsuBinarize(img.Image src) {
+    final hist = List<int>.filled(256, 0);
+    final w = src.width;
+    final h = src.height;
+    for (int y = 0; y < h; y++) {
+      for (int x = 0; x < w; x++) {
+        final lum = img.getLuminance(src.getPixel(x, y)).toInt().clamp(0, 255);
+        hist[lum]++;
+      }
+    }
+
+    final total = w * h;
+    double sumAll = 0;
+    for (int i = 0; i < 256; i++) {
+      sumAll += i * hist[i];
+    }
+
+    double sumB = 0;
+    int wB = 0;
+    double maxVar = -1;
+    int thr = 128;
+
+    for (int t = 0; t < 256; t++) {
+      wB += hist[t];
+      if (wB == 0) continue;
+      final wF = total - wB;
+      if (wF == 0) break;
+      sumB += t * hist[t];
+      final mB = sumB / wB;
+      final mF = (sumAll - sumB) / wF;
+      final varBetween = wB.toDouble() * wF * (mB - mF) * (mB - mF);
+      if (varBetween > maxVar) {
+        maxVar = varBetween;
+        thr = t;
+      }
+    }
+
+    final out = img.Image(width: w, height: h);
+    for (int y = 0; y < h; y++) {
+      for (int x = 0; x < w; x++) {
+        final lum = img.getLuminance(src.getPixel(x, y)).toInt();
+        final v = lum < thr ? 255 : 0;
+        out.setPixel(x, y, img.ColorInt8.rgb(v, v, v));
+      }
+    }
+    return out;
+  }
+
+  /// Fraction of filled (non-zero) pixels inside a circular mask on a binary image.
+  static double maskFillRatio(img.Image binary, int cx, int cy, int r) {
+    if (r < 1) return 0;
+    int total = 0, filled = 0;
+    final r2 = r * r;
+    for (int dy = -r; dy <= r; dy++) {
+      final y = cy + dy;
+      if (y < 0 || y >= binary.height) continue;
+      for (int dx = -r; dx <= r; dx++) {
+        if (dx * dx + dy * dy > r2) continue;
+        final x = cx + dx;
+        if (x < 0 || x >= binary.width) continue;
+        total++;
+        if (img.getLuminance(binary.getPixel(x, y)) > 128) filled++;
+      }
+    }
+    return total > 0 ? filled / total : 0;
+  }
+
+  /// Refine a bubble centre by searching for the densest dark region nearby.
+  /// Skips refinement when the template position looks empty, so the search
+  /// does not latch onto the printed ring outline.
+  static (int, int) refineBubbleCenter(
+    img.Image binary,
+    int cx,
+    int cy,
+    int r, {
+    int searchRadius = 6,
+  }) {
+    final probeR = max(2, (r * 0.7).round());
+    final base = maskFillRatio(binary, cx, cy, probeR);
+    if (base < 0.12) return (cx, cy);
+
+    double bestScore = base;
+    int bestX = cx, bestY = cy;
+    for (int dy = -searchRadius; dy <= searchRadius; dy++) {
+      for (int dx = -searchRadius; dx <= searchRadius; dx++) {
+        if (dx == 0 && dy == 0) continue;
+        final score = maskFillRatio(binary, cx + dx, cy + dy, probeR);
+        if (score > bestScore) {
+          bestScore = score;
+          bestX = cx + dx;
+          bestY = cy + dy;
+        }
+      }
+    }
+    if (bestScore > base + 0.05) return (bestX, bestY);
+    return (cx, cy);
+  }
+
+  static int mmToPx(double mm, double dpi) => (mm * dpi / 25.4).round();
+
+  /// Parse assessment ID from QR payload (`id` or `id|...`).
+  static String? parseAssessmentId(String? qrRaw) {
+    if (qrRaw == null || qrRaw.trim().isEmpty) return null;
+    return qrRaw.split('|').first.trim();
   }
 
   // ── Homography helpers ─────────────────────────────────────────────────
@@ -1145,8 +1375,11 @@ class OmrImaging {
         while (q.isNotEmpty) {
           final p = q.removeAt(0);
           blobSize++;
-          sumX += p.x;
-          sumY += p.y;
+          // Weighted moments: darker pixels contribute more to centroid
+          // (mirrors OpenCV's moment-based centroid for sub-pixel precision)
+          final darkness = (darkThreshold - grid[p.y][p.x]).clamp(1, darkThreshold);
+          sumX += p.x * darkness;
+          sumY += p.y * darkness;
           if (p.x < minX) minX = p.x;
           if (p.x > maxX) maxX = p.x;
           if (p.y < minY) minY = p.y;
@@ -1173,10 +1406,23 @@ class OmrImaging {
         // Very relaxed aspect ratio to handle extreme tilt/skew and blur stretching
         final aspectOk = bw > 0 && bh > 0 && (bw / bh).abs() >= 0.2 && (bw / bh).abs() <= 5.0;
 
+        // Total darkness weight for normalising weighted centroid
+        final totalDarkness = (() {
+          int td = 0;
+          for (int yy = minY; yy <= maxY; yy++) {
+            for (int xx = minX; xx <= maxX; xx++) {
+              if (grid[yy][xx] <= darkThreshold) {
+                td += (darkThreshold - grid[yy][xx]).clamp(1, darkThreshold);
+              }
+            }
+          }
+          return td;
+        })();
+
         if (bw >= minDim && bh >= minDim && bw <= maxDim && bh <= maxDim && aspectOk && blobSize > bestSize) {
           bestSize = blobSize;
-          bestCx = sumX ~/ blobSize;
-          bestCy = sumY ~/ blobSize;
+          bestCx = totalDarkness > 0 ? (sumX / totalDarkness).round() : (sumX ~/ blobSize);
+          bestCy = totalDarkness > 0 ? (sumY / totalDarkness).round() : (sumY ~/ blobSize);
         }
       }
     }

@@ -170,18 +170,21 @@ class _FiducialPainter extends CustomPainter {
       _drawFiducialSquare(canvas, pos.$1, pos.$2, fiducialSize, color);
     }
 
-    // Center status text
+    // Center status text — capture is unlocked by assessment QR; corners optional
     final detectedCount = lockState.corners.where((c) => c.detected).length;
     final String msg;
     final Color msgColor;
-    if (lockState.allLocked) {
+    if (readyToCapture) {
       msg = '\u2713 READY \u2014 tap to capture';
       msgColor = Colors.green;
+    } else if (lockState.allLocked) {
+      msg = 'Scan assessment QR to unlock';
+      msgColor = Colors.white;
     } else if (detectedCount == 0) {
-      msg = 'Align corner squares';
+      msg = 'Show assessment QR (corners optional)';
       msgColor = Colors.white70;
     } else {
-      msg = '${4 - detectedCount} more corner${detectedCount == 3 ? '' : 's'}\u2026';
+      msg = 'Show assessment QR to unlock capture';
       msgColor = Colors.white;
     }
     final tp = TextPainter(

@@ -14,6 +14,7 @@ class ReportsTab extends StatefulWidget {
 class _ReportsTabState extends State<ReportsTab> {
   final GradingRepository _repo = GradingRepository();
   bool _loading = true;
+  bool _savingPassingScore = false;
   String? _error;
 
   List<Map<String, dynamic>> _courses = [];
@@ -201,6 +202,126 @@ class _ReportsTabState extends State<ReportsTab> {
     }
   }
 
+  Future<void> _savePassingScore(double newScore) async {
+    if (_filterAssessmentId == null) return;
+    final template = _templates.cast<BubbleTemplate?>().firstWhere(
+      (t) => t?.assessmentId == _filterAssessmentId,
+      orElse: () => null,
+    );
+    if (template == null) return;
+
+    setState(() => _savingPassingScore = true);
+    try {
+      final updated = await _repo.updateTemplatePassingScore(
+          template.templateId, newScore, _filterCourseId ?? '');
+
+      if (mounted) {
+        setState(() {
+          final idx =
+              _templates.indexWhere((t) => t.templateId == template.templateId);
+          if (idx != -1) {
+            _templates[idx] = updated;
+          }
+          _savingPassingScore = false;
+        });
+        _recalculate();
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Passing score saved: ${newScore.toStringAsFixed(0)}%'),
+          backgroundColor: const Color(0xFF198754),
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _savingPassingScore = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(e.toString().replaceAll('Exception: ', '')),
+          backgroundColor: const Color(0xFF8B1515),
+        ));
+      }
+    }
+  }
+
+  void _showSetPassingScore(double initialValue) {
+    double current = initialValue;
+    const primaryRed = Color(0xFF8B1515);
+    const textGrey = Color(0xFF8391A1);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(builder: (context, setModalState) {
+          return Container(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.grading, size: 48, color: primaryRed),
+                const SizedBox(height: 12),
+                const Text('Passing Score Threshold',
+                    style:
+                        TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                const SizedBox(height: 4),
+                const Text(
+                    'Students scoring at or above this percentage\nwill be marked as passed.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12, color: textGrey)),
+                const SizedBox(height: 24),
+                Text('${current.toStringAsFixed(0)}%',
+                    style: const TextStyle(
+                        fontSize: 48,
+                        fontWeight: FontWeight.w900,
+                        color: primaryRed)),
+                const SizedBox(height: 16),
+                SliderTheme(
+                  data: SliderThemeData(
+                    activeTrackColor: primaryRed,
+                    inactiveTrackColor: primaryRed.withValues(alpha: 0.12),
+                    thumbColor: primaryRed,
+                    overlayColor: primaryRed.withValues(alpha: 0.12),
+                    trackHeight: 6,
+                    thumbShape:
+                        const RoundSliderThumbShape(enabledThumbRadius: 14),
+                  ),
+                  child: Slider(
+                    value: current,
+                    min: 0,
+                    max: 100,
+                    divisions: 100,
+                    onChanged: (v) => setModalState(() => current = v),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _savingPassingScore
+                        ? null
+                        : () {
+                            Navigator.pop(ctx);
+                            _savePassingScore(current);
+                          },
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: primaryRed,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12))),
+                    child: const Text('Save Passing Score',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            ),
+          );
+        });
+      },
+    );
+  }
+
   /// Extract the student identifier (user_id) from an enrolled student record.
   String _studentUserId(Map<String, dynamic> student) {
     return (student['user_id'] ?? student['student_id'] ?? '').toString();
@@ -323,12 +444,20 @@ class _ReportsTabState extends State<ReportsTab> {
       );
     }
 
-    final passingScore = _filteredScans.isNotEmpty
-        ? _templates
-            .where((t) => t.templateId == _filteredScans.first.templateId)
-            .map((t) => t.passingScore)
-            .firstOrNull
+    final selectedTemplate = _filterAssessmentId != null
+        ? _templates.cast<BubbleTemplate?>().firstWhere(
+              (t) => t?.assessmentId == _filterAssessmentId,
+              orElse: () => null,
+            )
         : null;
+
+    final passingScore = selectedTemplate?.passingScore ??
+        (_filteredScans.isNotEmpty
+            ? _templates
+                .where((t) => t.templateId == _filteredScans.first.templateId)
+                .map((t) => t.passingScore)
+                .firstOrNull
+            : null);
 
     return SafeArea(
       child: RefreshIndicator(
@@ -427,12 +556,18 @@ class _ReportsTabState extends State<ReportsTab> {
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: _statCard(
-                          'Passing',
-                          passingScore != null
-                              ? '${passingScore.toStringAsFixed(0)}%'
-                              : 'N/A',
-                          const Color(0xFF1E232C),
+                        child: GestureDetector(
+                          onTap: _filterAssessmentId != null
+                              ? () =>
+                                  _showSetPassingScore(passingScore ?? 50.0)
+                              : null,
+                          child: _statCard(
+                            'Passing',
+                            passingScore != null
+                                ? '${passingScore.toStringAsFixed(0)}%'
+                                : 'N/A',
+                            const Color(0xFF1E232C),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),

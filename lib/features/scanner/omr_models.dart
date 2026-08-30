@@ -9,6 +9,19 @@ class BubbleReading {
   final bool isConfirmed;
   final String? confidenceNote;
 
+  // ── ZipGrade-inspired fields ──────────────────────────────────────────
+  /// 0–1 probability this is a glare artifact (specular reflection).
+  final double glareProbability;
+
+  /// 0–1 probability this is an erasure mark.
+  final double erasureProbability;
+
+  /// 0–1 overall confidence in the classification.
+  final double confidenceScore;
+
+  /// Full 7-feature vector for debug/analysis.
+  final Map<String, double>? features;
+
   BubbleReading({
     required this.itemNumber,
     required this.detectedAnswer,
@@ -17,6 +30,10 @@ class BubbleReading {
     required this.isAmbiguous,
     required this.isConfirmed,
     this.confidenceNote,
+    this.glareProbability = 0,
+    this.erasureProbability = 0,
+    this.confidenceScore = 0,
+    this.features,
   });
 
   Map<String, dynamic> toJson() => {
@@ -26,6 +43,10 @@ class BubbleReading {
         'second_fill_ratio': secondFillRatio,
         'is_ambiguous': isAmbiguous,
         'confidence_note': confidenceNote,
+        'glare_probability': glareProbability,
+        'erasure_probability': erasureProbability,
+        'confidence_score': confidenceScore,
+        'features': features,
       };
 
   factory BubbleReading.fromJson(Map<String, dynamic> json) {
@@ -37,12 +58,20 @@ class BubbleReading {
       isAmbiguous: json['is_ambiguous'] ?? false,
       isConfirmed: false,
       confidenceNote: json['confidence_note'],
+      glareProbability: (json['glare_probability'] as num?)?.toDouble() ?? 0,
+      erasureProbability: (json['erasure_probability'] as num?)?.toDouble() ?? 0,
+      confidenceScore: (json['confidence_score'] as num?)?.toDouble() ?? 0,
+      features: json['features'] != null
+          ? Map<String, double>.from(json['features'])
+          : null,
     );
   }
 }
 
 class OmrResult {
   final String? studentIdentifier;
+  /// Assessment ID from QR (or template), when available.
+  final String? assessmentId;
   final Map<String, String> responses;
   final List<BubbleReading> readings;
   final int correctCount;
@@ -55,6 +84,7 @@ class OmrResult {
 
   OmrResult({
     this.studentIdentifier,
+    this.assessmentId,
     required this.responses,
     required this.readings,
     required this.correctCount,
@@ -227,9 +257,9 @@ class ScannerDiagnostics {
     } else if (hasGlare) {
       message = 'Bright Light Detected';
     } else if (lockedCorners == 0) {
-      message = 'Align corner squares';
+      message = 'Point at sheet (QR + page edges)';
     } else if (lockedCorners < 4) {
-      message = 'Align ${4 - lockedCorners} more corner${(4 - lockedCorners) == 1 ? '' : 's'}';
+      message = 'Corners optional — capture when ready';
     } else {
       message = '';
     }

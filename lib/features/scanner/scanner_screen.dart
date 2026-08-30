@@ -312,7 +312,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
   }
 
   bool get _readyToCapture =>
-      _fiducialLock.allLocked && _assessmentIdentified && !_isCapturing;
+      _assessmentIdentified && !_isCapturing;
 
   Future<void> _manualCapture() async {
     if (_isCapturing) return;
