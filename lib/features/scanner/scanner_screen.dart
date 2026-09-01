@@ -181,12 +181,22 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
 
   Future<void> _onTemplateSelected(BubbleTemplate t) async {
     setState(() { _selectedTemplate = t; _templatesError = null; });
-    if (t.answerKey.isEmpty && t.hasAnswerKey) {
+    final needsDetail = !t.hasLayoutItems ||
+        (t.answerKey.isEmpty && t.hasAnswerKey);
+    if (needsDetail) {
       setState(() => _isLoadingTemplates = true);
       try {
         final detail = await _repository.fetchTemplateDetail(t.templateId);
-        if (mounted) { setState(() { _selectedTemplate = detail; _isLoadingTemplates = false; }); _updateCachedTemplate(detail); }
-      } catch (_) { if (mounted) setState(() => _isLoadingTemplates = false); }
+        if (mounted) {
+          setState(() {
+            _selectedTemplate = detail;
+            _isLoadingTemplates = false;
+          });
+          _updateCachedTemplate(detail);
+        }
+      } catch (_) {
+        if (mounted) setState(() => _isLoadingTemplates = false);
+      }
     } else if (t.answerKey.isEmpty && t.assessmentId != null) {
       setState(() => _isLoadingTemplates = true);
       try {
@@ -294,19 +304,19 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       if (mounted) setState(() => _diagnostics = diag);
     }
 
-    // 3. Fiducial Detection
-    final det = OmrImaging.detectFiducialsFast(frame, scaleDown: 4, roi: _roi);
+    // 3. Page contour detection (ShreenidhiBodas/OMR — Canny sheet boundary)
+    if (_frameCount % 6 == 0) {
+      final det = OmrImaging.detectPageCornersFast(frame, targetWidth: 400);
 
-    final newLock = _fiducialLock.update(
-      tl: det.tl, tr: det.tr, bl: det.bl, br: det.br,
-      tlPos: det.tlx != null && det.tly != null ? Offset(det.tlx!, det.tly!) : null,
-      trPos: det.trx != null && det.tryv != null ? Offset(det.trx!, det.tryv!) : null,
-      blPos: det.blx != null && det.bly != null ? Offset(det.blx!, det.bly!) : null,
-      brPos: det.brx != null && det.bry != null ? Offset(det.brx!, det.bry!) : null,
-      lockThresholdFrames: _lockThresholdFrames,
-    );
-
-    _fiducialLock = newLock;
+      _fiducialLock = _fiducialLock.update(
+        tl: det.tl, tr: det.tr, bl: det.bl, br: det.br,
+        tlPos: det.tlx != null && det.tly != null ? Offset(det.tlx!, det.tly!) : null,
+        trPos: det.trx != null && det.tryv != null ? Offset(det.trx!, det.tryv!) : null,
+        blPos: det.blx != null && det.bly != null ? Offset(det.blx!, det.bly!) : null,
+        brPos: det.brx != null && det.bry != null ? Offset(det.brx!, det.bry!) : null,
+        lockThresholdFrames: _lockThresholdFrames,
+      );
+    }
 
     if (mounted) setState(() {});
   }
@@ -332,21 +342,44 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
 
   Future<void> _processScanInBackground(String imagePath) async {
     try {
-      final template = _selectedTemplate;
-      if (template == null) {
+      final selected = _selectedTemplate;
+      if (selected == null) {
         _isCapturing = false;
         return;
       }
 
-      // Primary: Python OpenCV OMR service. Falls back to on-device if unreachable.
+      BubbleTemplate scanTemplate = selected;
+
+      // Ensure layout bubble coordinates are loaded (required for OMR).
+      if (!scanTemplate.hasLayoutItems) {
+        try {
+          scanTemplate = await _repository.fetchTemplateDetail(scanTemplate.templateId);
+          if (mounted) {
+            setState(() => _selectedTemplate = scanTemplate);
+            _updateCachedTemplate(scanTemplate);
+          }
+        } catch (e) {
+          debugPrint('Failed to load template layout: $e');
+        }
+      }
+
+      if (!scanTemplate.hasLayoutItems) {
+        _isCapturing = false;
+        if (mounted) {
+          _showScoreFlash('Regenerate PDF first');
+        }
+        return;
+      }
+
+      // Primary: on-device OMR (multi-strategy alignment + template coordinates).
       final omrService = OmrService();
-      final result = await omrService.scanImage(imagePath, template);
+      final result = await omrService.scanImage(imagePath, scanTemplate);
       final finalStudentId = result.studentIdentifier ?? 'Unknown';
 
       // Check for duplicate scan (same student + same assessment)
       final allRecords = await ScanHistory.getAll();
       final duplicate = allRecords.where(
-        (r) => r.studentIdentifier == finalStudentId && r.templateId == template.templateId,
+        (r) => r.studentIdentifier == finalStudentId && r.templateId == scanTemplate.templateId,
       );
       if (duplicate.isNotEmpty && mounted) {
         _isCapturing = false;
@@ -383,8 +416,8 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
 
       final record = ScanRecord(
         id: 'scan_${DateTime.now().millisecondsSinceEpoch}',
-        templateId: template.templateId,
-        templateName: template.name,
+        templateId: scanTemplate.templateId,
+        templateName: scanTemplate.name,
         studentIdentifier: finalStudentId,
         responses: result.responses,
         scorePercent: result.scorePercent,
@@ -430,6 +463,8 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
         imagePath: record.imagePath!,
         studentId: record.studentIdentifier,
         responses: record.responses,
+        isFlagged: record.isFlagged,
+        flagReason: record.flagReason,
       );
       await ScanHistory.updateRecord(record.id, {'server_scan_id': scan.scanId});
       if (mounted) {

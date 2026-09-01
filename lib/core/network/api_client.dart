@@ -3,12 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../features/auth/login_screen.dart';
 
-/// Resolves the API base URL depending on the platform:
-/// - Uses ngrok tunnel for all platforms so the app works from anywhere.
-/// - Fallback: localhost / 10.0.2.2 for local dev without ngrok.
+/// Render backend (public). For local dev, swap to ngrok or http://10.0.2.2:8000/api/
+const String _renderApiBaseUrl = 'https://atlas-rcch.onrender.com/api/';
+
 String _resolveBaseUrl() {
-  // When using ngrok, use the same public URL for all platforms.
-  return 'https://platinoid-sandra-endocentric.ngrok-free.dev/api/';
+  return _renderApiBaseUrl;
 }
 
 class ApiClient {
@@ -19,13 +18,12 @@ class ApiClient {
   ApiClient() {
     dio = Dio(BaseOptions(
       baseUrl: baseUrl,
-      connectTimeout: const Duration(seconds: 60),
-      receiveTimeout: const Duration(seconds: 60),
-      sendTimeout: const Duration(seconds: 60),
+      connectTimeout: const Duration(seconds: 90),
+      receiveTimeout: const Duration(seconds: 90),
+      sendTimeout: const Duration(seconds: 90),
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        'ngrok-skip-browser-warning': 'true',
       },
     ));
 
@@ -44,16 +42,15 @@ class ApiClient {
           return handler.next(options);
         },
         onError: (DioException e, handler) async {
-          // Retry on connection errors or 502 Bad Gateway (common ngrok tunnel instability)
-          final isRetryable = e.type == DioExceptionType.connectionError || 
-                             e.response?.statusCode == 502;
-                             
+          // Retry on connection errors or 502 (Render cold start / wake-up)
+          final isRetryable = e.type == DioExceptionType.connectionError ||
+              e.response?.statusCode == 502;
+
           if (isRetryable && e.requestOptions.extra['_retried'] != true) {
             e.requestOptions.extra['_retried'] = true;
-            
-            // Add a small delay before retrying to let the tunnel stabilize
-            await Future.delayed(const Duration(milliseconds: 500));
-            
+
+            await Future.delayed(const Duration(seconds: 3));
+
             try {
               final retryResponse = await dio.fetch(e.requestOptions);
               return handler.resolve(retryResponse);
@@ -120,11 +117,10 @@ class ApiClient {
 
       final response = await Dio(BaseOptions(
         baseUrl: baseUrl,
-        connectTimeout: const Duration(seconds: 60),
-        receiveTimeout: const Duration(seconds: 60),
+        connectTimeout: const Duration(seconds: 90),
+        receiveTimeout: const Duration(seconds: 90),
         headers: {
           'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',
         },
       )).post('auth/token/refresh/', data: {'refresh': refreshToken});
 

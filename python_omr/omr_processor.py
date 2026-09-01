@@ -1,14 +1,14 @@
 """
-OMR Processor — hybrid pipeline for ATLAS bubble sheets.
+OMR Processor — ShreenidhiBodas/OMR pipeline for ATLAS bubble sheets.
 
-Inspired by ShreenidhiBodas/OMR + ATLAS layout metadata:
-  1. Contour-first page detection (Canny → largest quadrilateral)
-  2. four_point_transform onto a full page canvas at fixed DPI
-  3. Otsu BINARY_INV on warped grayscale
-  4. Mask fill counting at template positions (+ local centre refine)
-  5. Hybrid score = 0.60*mask + 0.40*luminance-fill (borderline aid)
-  6. Student ID + grade + flag
-  7. Optional assessment QR via OpenCV QRCodeDetector
+test_grader.py flow:
+  1. Resize + grayscale + GaussianBlur + Canny → page contour
+  2. four_point_transform → bird's-eye view
+  3. Otsu BINARY_INV
+  4. findContours → filter bubbles (aspect 0.9–1.1, min 20×20)
+  5. sort top-to-bottom → rows → countNonZero → pick highest fill
+  6. Column 1: assessment QR + student ID; columns 2–3: answers via layout_metadata
+  7. Grade against answer key
 """
 import argparse, json, math, os, sys
 from dataclasses import dataclass, field
@@ -112,16 +112,14 @@ def four_point_transform(img: np.ndarray, pts: np.ndarray, out_w: int, out_h: in
 
 
 def detect_page(img: np.ndarray) -> Optional[np.ndarray]:
-    """Canny contour page detection — ShreenidhiBodas/OMR style (75, 200)."""
+    """Canny contour page detection — test_grader.py (75, 200), no morph close."""
     h, w = img.shape[:2]
     blurred = cv2.GaussianBlur(img, (5, 5), 0)
-    edges = cv2.Canny(blurred, 75, 200)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-    closed = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
-    contours, _ = cv2.findContours(closed, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    edged = cv2.Canny(blurred, 75, 200)
+    contours, _ = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
         return None
-    contours = sorted(contours, key=cv2.contourArea, reverse=True)[:5]
+    contours = sorted(contours, key=cv2.contourArea, reverse=True)
     for cnt in contours:
         peri = cv2.arcLength(cnt, True)
         approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
@@ -129,21 +127,262 @@ def detect_page(img: np.ndarray) -> Optional[np.ndarray]:
             continue
         pts = approx.reshape(4, 2).astype(np.float32)
         area = cv2.contourArea(pts)
-        if not (0.15 <= area / (w * h) <= 0.95):
-            continue
-        max_cos = 0.0
-        for i in range(4):
-            a, b, c = pts[i], pts[(i + 1) % 4], pts[(i + 2) % 4]
-            ab, bc = np.linalg.norm(a - b), np.linalg.norm(b - c)
-            if ab > 0 and bc > 0:
-                max_cos = max(
-                    max_cos,
-                    abs((ab * ab + bc * bc - np.linalg.norm(c - a) ** 2) / (2 * ab * bc)),
-                )
-        if max_cos >= 0.35:
+        if not (0.10 <= area / (w * h) <= 0.98):
             continue
         return order_points(pts)
     return None
+
+
+def find_bubble_contours(thresh: np.ndarray, min_size: int = 20) -> List[np.ndarray]:
+    """Reference: boundingRect filter aspect 0.9–1.1, min 20×20."""
+    cnts, _ = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    bubbles = []
+    h, w = thresh.shape[:2]
+    for c in cnts:
+        x, y, bw, bh = cv2.boundingRect(c)
+        if bw < min_size or bh < min_size:
+            continue
+        aspect = bw / float(bh)
+        if not (0.9 <= aspect <= 1.1):
+            continue
+        if bw > w * 0.12 or bh > h * 0.06:
+            continue
+        bubbles.append(c)
+    return bubbles
+
+
+def contour_fill_count(thresh: np.ndarray, contour: np.ndarray) -> int:
+    mask = np.zeros(thresh.shape, dtype=np.uint8)
+    cv2.drawContours(mask, [contour], -1, 255, -1)
+    masked = cv2.bitwise_and(thresh, thresh, mask=mask)
+    return int(cv2.countNonZero(masked))
+
+
+def sort_top_to_bottom(contours: List[np.ndarray]) -> List[np.ndarray]:
+    return sorted(contours, key=lambda c: (cv2.boundingRect(c)[1], cv2.boundingRect(c)[0]))
+
+
+def sort_left_to_right(contours: List[np.ndarray]) -> List[np.ndarray]:
+    return sorted(contours, key=lambda c: cv2.boundingRect(c)[0])
+
+
+def group_into_rows(sorted_contours: List[np.ndarray], row_pitch_px: float) -> List[List[np.ndarray]]:
+    if not sorted_contours:
+        return []
+    rows: List[List[np.ndarray]] = []
+    current = [sorted_contours[0]]
+    row_y = cv2.boundingRect(sorted_contours[0])[1]
+    for c in sorted_contours[1:]:
+        y = cv2.boundingRect(c)[1]
+        if abs(y - row_y) > row_pitch_px * 0.55:
+            rows.append(sort_left_to_right(current))
+            current = [c]
+            row_y = y
+        else:
+            current.append(c)
+            row_y = int((row_y + y) / 2)
+    if current:
+        rows.append(sort_left_to_right(current))
+    return rows
+
+
+def read_row(row: List[np.ndarray], thresh: np.ndarray, choices: List[str]) -> Tuple[str, int, int, bool]:
+    if not row:
+        return "?", 0, 0, True
+    fills = [(contour_fill_count(thresh, c), j, c) for j, c in enumerate(row[: len(choices)])]
+    if not fills:
+        return "?", 0, 0, True
+    fills.sort(key=lambda x: x[0], reverse=True)
+    best_fill, best_idx, _ = fills[0]
+    second_fill = fills[1][0] if len(fills) > 1 else 0
+    if best_fill <= 0:
+        return "?", 0, second_fill, True
+    ambiguous = second_fill > 0 and (best_fill - second_fill) < best_fill * 0.15
+    ans = "?" if ambiguous else choices[best_idx] if best_idx < len(choices) else "?"
+    return ans, best_fill, second_fill, ambiguous or len(row) < len(choices)
+
+
+def _left_zone_px(layout: dict, dpi: float):
+    lz = layout.get("left_zone")
+    if lz:
+        grid = layout.get("answer_grid", {})
+        col_a = grid.get("col_a", {})
+        y_bot = float(col_a.get("y_bottom_spec_mm", 280))
+        return (
+            mm_to_px(float(lz["x0_mm"]), dpi),
+            mm_to_px(float(lz.get("y_start_spec_mm", 80)), dpi),
+            mm_to_px(float(lz["x1_mm"]), dpi),
+            mm_to_px(y_bot, dpi),
+        )
+    return mm_to_px(23.0, dpi), mm_to_px(80, dpi), mm_to_px(81.0, dpi), mm_to_px(280, dpi)
+
+
+def _answer_zone_px(layout: dict, dpi: float):
+    grid = layout.get("answer_grid", {})
+    y_start = float(grid.get("y_start_spec_mm", 80.0))
+    y_end = y_start + 200.0
+    for key in ("col_a", "col_b"):
+        col = grid.get(key)
+        if col and col.get("y_bottom_spec_mm"):
+            y_end = max(y_end, float(col["y_bottom_spec_mm"]))
+    left_mm = float(grid.get("answer_zone_x0_mm") or grid.get("col_a", {}).get("x0_mm", 83.0))
+    right_mm = float(grid.get("answer_zone_x1_mm", 193.0))
+    return (
+        mm_to_px(left_mm, dpi),
+        mm_to_px(y_start, dpi),
+        mm_to_px(right_mm, dpi),
+        mm_to_px(y_end, dpi),
+    )
+
+
+def _answer_column_zone_px(col_meta: dict, grid: dict, dpi: float, answer_zone):
+    x0 = float(col_meta["x0_mm"])
+    col_w = float(grid.get("col_width_mm") or (
+        float(grid.get("col_b", {}).get("x0_mm", x0)) - x0 - float(grid.get("col_gap_mm", 1.5))
+    ))
+    left, top, _, bottom = answer_zone
+    return mm_to_px(x0, dpi), top, mm_to_px(x0 + col_w, dpi), bottom
+
+
+def read_answer_bubbles_reference(
+    thresh: np.ndarray, layout: dict, dpi: float, total_items: int, num_choices: int
+) -> List[BubbleReading]:
+    choices = [chr(65 + i) for i in range(num_choices)]
+    grid = layout.get("answer_grid", {})
+    row_pitch_px = mm_to_px(float(grid.get("row_pitch_mm", 6.0)), dpi)
+    all_b = find_bubble_contours(thresh, min_size=20)
+
+    def centroid(c):
+        m = cv2.moments(c)
+        if m["m00"] == 0:
+            x, y, w, h = cv2.boundingRect(c)
+            return x + w / 2, y + h / 2
+        return m["m10"] / m["m00"], m["m01"] / m["m00"]
+
+    answer_zone = _answer_zone_px(layout, dpi)
+    left_px, top_px, right_px, bot_px = answer_zone
+
+    in_zone = [
+        c
+        for c in all_b
+        if left_px <= centroid(c)[0] <= right_px
+        and top_px <= centroid(c)[1] <= bot_px
+    ]
+    results: List[BubbleReading] = []
+
+    def read_col(bubbles, col_meta):
+        start = int(col_meta.get("start_item", 1))
+        sorted_b = sort_top_to_bottom(bubbles)
+        for ri, row in enumerate(group_into_rows(sorted_b, row_pitch_px)):
+            ans, bf, sf, amb = read_row(row, thresh, choices)
+            results.append(
+                BubbleReading(
+                    item_number=start + ri,
+                    detected_answer=ans,
+                    fill_ratio=min(1.0, bf / 500.0),
+                    second_fill_ratio=min(1.0, sf / 500.0) if sf else 0.0,
+                    is_ambiguous=amb,
+                    is_confirmed=not amb and ans != "?",
+                    confidence_note=f"Contour fill {bf}",
+                )
+            )
+
+    col_a_meta, col_b_meta = grid.get("col_a"), grid.get("col_b")
+    if col_a_meta:
+        zone_a = _answer_column_zone_px(col_a_meta, grid, dpi, answer_zone)
+        read_col([c for c in in_zone if zone_a[0] <= centroid(c)[0] <= zone_a[2]], col_a_meta)
+    if col_b_meta:
+        zone_b = _answer_column_zone_px(col_b_meta, grid, dpi, answer_zone)
+        read_col([c for c in in_zone if zone_b[0] <= centroid(c)[0] <= zone_b[2]], col_b_meta)
+    elif not col_a_meta:
+        sorted_b = sort_top_to_bottom(in_zone)
+        for ri, row in enumerate(group_into_rows(sorted_b, row_pitch_px)):
+            if ri >= total_items:
+                break
+            ans, bf, sf, amb = read_row(row, thresh, choices)
+            results.append(
+                BubbleReading(
+                    item_number=ri + 1,
+                    detected_answer=ans,
+                    fill_ratio=min(1.0, bf / 500.0),
+                    second_fill_ratio=min(1.0, sf / 500.0) if sf else 0.0,
+                    is_ambiguous=amb,
+                    is_confirmed=not amb and ans != "?",
+                )
+            )
+
+    by_item = {r.item_number: r for r in results}
+    out = []
+    for i in range(1, total_items + 1):
+        out.append(
+            by_item.get(i)
+            or BubbleReading(
+                item_number=i, detected_answer="?", fill_ratio=0.0, is_ambiguous=True, confidence_note="Row not detected"
+            )
+        )
+    return out
+
+
+def read_id_bubbles_reference(thresh: np.ndarray, layout: dict, dpi: float) -> Optional[str]:
+    idc = layout.get("id_columns")
+    if not idc:
+        return None
+    labels = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "-"]
+    x0 = float(idc["x0_mm"])
+    y_top = float(idc["y_top_spec_mm"])
+    cols = int(idc.get("num_cols", 8))
+    col_pitch = float(idc["col_pitch_mm"])
+    row_pitch = float(idc["row_pitch_mm"])
+    left_zone = _left_zone_px(layout, dpi)
+    x0px = mm_to_px(x0, dpi)
+    y0px = mm_to_px(y_top + ID_FIRST_ROW_OFFSET_MM, dpi)
+    x1px = mm_to_px(x0 + cols * col_pitch, dpi)
+    y1px = mm_to_px(y_top + ID_FIRST_ROW_OFFSET_MM + len(labels) * row_pitch, dpi)
+    col_pitch_px = mm_to_px(col_pitch, dpi)
+    row_pitch_px = mm_to_px(row_pitch, dpi)
+
+    def centroid(c):
+        m = cv2.moments(c)
+        if m["m00"] == 0:
+            x, y, w, h = cv2.boundingRect(c)
+            return x + w / 2, y + h / 2
+        return m["m10"] / m["m00"], m["m01"] / m["m00"]
+
+    id_b = [
+        c
+        for c in find_bubble_contours(thresh, min_size=10)
+        if left_zone[0] <= centroid(c)[0] <= left_zone[2]
+        and x0px - col_pitch_px * 0.4 <= centroid(c)[0] <= x1px + col_pitch_px * 0.4
+        and y0px - row_pitch_px * 0.4 <= centroid(c)[1] <= y1px + row_pitch_px * 0.4
+    ]
+    if not id_b:
+        return None
+
+    sorted_x = sort_left_to_right(id_b)
+    columns: List[List[np.ndarray]] = []
+    col: List[np.ndarray] = []
+    col_cx = None
+    for c in sorted_x:
+        cx, _ = centroid(c)
+        if col_cx is None or abs(cx - col_cx) <= col_pitch_px * 0.45:
+            col.append(c)
+            col_cx = cx if col_cx is None else (col_cx + cx) / 2
+        else:
+            columns.append(col)
+            col = [c]
+            col_cx = cx
+    if col:
+        columns.append(col)
+
+    buf = []
+    for column in columns:
+        rows = group_into_rows(sort_top_to_bottom(column), row_pitch_px)
+        if not rows or not rows[0]:
+            buf.append("?")
+            continue
+        ans, _, _, _ = read_row(rows[0], thresh, labels)
+        buf.append(ans)
+    return "".join(buf) if buf else None
 
 
 def detect_assessment_qr(color_img: Optional[np.ndarray], gray: np.ndarray) -> Optional[str]:
@@ -405,34 +644,52 @@ def process_omr(
     out_w = max(200, int(round((page_w_pt / 72.0) * target_dpi)))
     out_h = max(200, int(round((page_h_pt / 72.0) * target_dpi)))
 
-    page_pts = detect_page(gray)
+    # Reference: optional resize to width 700 before page detect
+    work = gray
+    scale_back = 1.0
+    if work.shape[1] > 700:
+        scale_back = work.shape[1] / 700.0
+        work = cv2.resize(work, (700, int(work.shape[0] / scale_back)))
+
+    page_pts = detect_page(work)
     alignment_ok = page_pts is not None
+    if alignment_ok and scale_back != 1.0:
+        page_pts = (page_pts * scale_back).astype(np.float32)
+        work = gray
+
     if alignment_ok:
-        warped = four_point_transform(gray, page_pts, out_w, out_h)
+        warped = four_point_transform(work, page_pts, out_w, out_h)
         dpi = target_dpi
     else:
-        warped = gray
+        warped = work
         dpi = warped.shape[1] / (page_w_pt / 72.0)
 
-    # Otsu on lightly blurred warp (reference style)
     binary = otsu_binarize_inv(warped)
-    gray_enh = preprocess(warped)
-
     student_id = read_id_bubbles(binary, layout, dpi)
 
     grid = layout.get("answer_grid", {})
+    num_choices = int(grid.get("num_choices", layout.get("num_choices", 4)))
     items = layout.get("items", {})
-    num_choices = grid.get("num_choices", layout.get("num_choices", 4))
-    if isinstance(num_choices, str):
-        num_choices = 4
-    # Infer from first item if needed
+    total_items = int(layout.get("total_items", len(items) or 0))
+    if not total_items and items:
+        total_items = max(int(k) for k in items.keys())
+
     if items:
-        sample = next(iter(items.values()))
-        if isinstance(sample, dict):
-            num_choices = max(num_choices, len([k for k in sample if k in "ABCDEFGH"]))
-    choices = [chr(65 + i) for i in range(int(num_choices))]
-    bubble_r_mm = float(grid.get("bubble_r_mm", 2.0))
-    readings = read_answer_bubbles(binary, gray_enh, items, choices, dpi, bubble_r_mm)
+        readings = read_answer_bubbles(
+            binary, warped, items, [chr(65 + i) for i in range(num_choices)], dpi
+        )
+        confirmed = sum(1 for r in readings if r.detected_answer != "?" and not r.is_ambiguous)
+        if confirmed < max(1, int(total_items * 0.15)):
+            contour_readings = read_answer_bubbles_reference(
+                binary, layout, dpi, total_items, num_choices
+            )
+            contour_confirmed = sum(
+                1 for r in contour_readings if r.detected_answer != "?" and not r.is_ambiguous
+            )
+            if contour_confirmed > confirmed:
+                readings = contour_readings
+    else:
+        readings = read_answer_bubbles_reference(binary, layout, dpi, total_items, num_choices)
 
     responses = {str(r.item_number): r.detected_answer for r in readings if r.detected_answer != "?"}
     correct, max_score, pct = grade(responses, answer_key or {})
@@ -440,11 +697,15 @@ def process_omr(
     flagged = [r.item_number for r in readings if r.is_ambiguous]
     reasons = []
     if not alignment_ok:
-        reasons.append("Page alignment weak")
-    if student_id is None or "?" in student_id:
+        reasons.append("Page alignment failed")
+    if student_id is None or "?" in (student_id or ""):
         reasons.append("Student ID incomplete")
     if flagged:
         reasons.append(f"{len(flagged)} ambiguous item(s)")
+
+    flag_reason = "; ".join(reasons) if reasons else None
+    if flag_reason and len(flag_reason) > 255:
+        flag_reason = flag_reason[:254] + "…"
 
     return OmrResult(
         student_identifier=student_id,
@@ -454,7 +715,7 @@ def process_omr(
         max_score=max_score,
         score_percent=pct,
         is_flagged=bool(reasons),
-        flag_reason="; ".join(reasons) if reasons else None,
+        flag_reason=flag_reason,
         flagged_items=flagged,
         assessment_id=assessment_id,
     )

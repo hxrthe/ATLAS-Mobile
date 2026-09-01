@@ -120,31 +120,47 @@ class OmrImaging {
     }
 
     if (blobs.length < 4) return [];
+    return _assignBlobsToCorners(blobs, src.width, src.height);
+  }
 
-    // Assign to corners by proximity
+  /// One-to-one greedy assignment: each blob maps to at most one corner.
+  static List<_FPoint> _assignBlobsToCorners(
+    List<_Blob> blobs,
+    int width,
+    int height,
+  ) {
     final corners = [
       _FPoint(0, 0),
-      _FPoint(src.width.toDouble(), 0),
-      _FPoint(0, src.height.toDouble()),
-      _FPoint(src.width.toDouble(), src.height.toDouble()),
+      _FPoint(width.toDouble(), 0),
+      _FPoint(0, height.toDouble()),
+      _FPoint(width.toDouble(), height.toDouble()),
     ];
 
-    final best = List<_FPoint?>.filled(4, null);
-    final bestDist = List.filled(4, double.infinity);
-
-    for (final b in blobs) {
-      for (int i = 0; i < 4; i++) {
-        final dx = b.cx - corners[i].x;
-        final dy = b.cy - corners[i].y;
+    final pairs = <({int bi, int ci, double d})>[];
+    for (int bi = 0; bi < blobs.length; bi++) {
+      for (int ci = 0; ci < 4; ci++) {
+        final dx = blobs[bi].cx - corners[ci].x;
+        final dy = blobs[bi].cy - corners[ci].y;
         final d = sqrt(dx * dx + dy * dy);
-        if (d < bestDist[i] && d < src.width * 0.5) {
-          bestDist[i] = d;
-          best[i] = _FPoint(b.cx, b.cy);
-        }
+        if (d < width * 0.5) pairs.add((bi: bi, ci: ci, d: d));
       }
     }
+    pairs.sort((a, b) => a.d.compareTo(b.d));
 
-    return best.whereType<_FPoint>().toList();
+    final usedBlobs = <int>{};
+    final usedCorners = <int>{};
+    final assigned = List<_FPoint?>.filled(4, null);
+
+    for (final p in pairs) {
+      if (usedBlobs.contains(p.bi) || usedCorners.contains(p.ci)) continue;
+      usedBlobs.add(p.bi);
+      usedCorners.add(p.ci);
+      assigned[p.ci] = _FPoint(blobs[p.bi].cx, blobs[p.bi].cy);
+      if (usedCorners.length == 4) break;
+    }
+
+    if (usedCorners.length < 4) return [];
+    return assigned.cast<_FPoint>();
   }
 
   static Map<String, int> _flood(img.Image bin, List<List<bool>> visited, int sx, int sy) {
@@ -312,21 +328,27 @@ class OmrImaging {
   }
 
   /// Largest-gap thresholding: find the largest gap between sorted values.
-  /// Falls back to [fallback] if no gap ≥ 0.10.
-  static double _largestGap(List<double> values, double fallback) {
-    if (values.length < 2) return fallback;
+  /// Returns `(threshold, maxGap)`. Falls back when maxGap < 0.10.
+  static (double threshold, double maxGap) largestGapThreshold(
+    List<double> values,
+    double fallback,
+  ) {
+    if (values.length < 2) return (fallback, 0);
     final sorted = List<double>.from(values)..sort();
-    double maxGap = 0;
-    double thr = fallback;
-    for (int i = 1; i < sorted.length; i++) {
+    var maxGap = 0.0;
+    var thr = fallback;
+    for (var i = 1; i < sorted.length; i++) {
       final gap = sorted[i] - sorted[i - 1];
       if (gap > maxGap) {
         maxGap = gap;
         thr = sorted[i - 1] + gap / 2;
       }
     }
-    return maxGap >= 0.10 ? thr : fallback;
+    return maxGap >= 0.10 ? (thr, maxGap) : (fallback, maxGap);
   }
+
+  static double _largestGap(List<double> values, double fallback) =>
+      largestGapThreshold(values, fallback).$1;
 
   // ── Circle sampling ────────────────────────────────────────────────────
 
@@ -595,63 +617,226 @@ class OmrImaging {
     return out;
   }
 
-  // ── Edge-based page detection (fallback when fiducials fail) ────────────
+  // ── Canny edge detection (ShreenidhiBodas/OMR: 75 / 200) ───────────────
 
-  /// Detect the OMR sheet boundary using edge detection + contour analysis.
-  /// Mirrors AndroidOMRHelper's `findPage()` and OMRChecker's `CropPage`.
-  /// Returns 4 corner points (TL, TR, BL, BR) of the detected page, or null.
-  static List<_FPoint>? detectPageEdges(img.Image src) {
-    final w = src.width;
-    final h = src.height;
+  /// Canny edges on grayscale — reference repo uses (75, 200).
+  static img.Image cannyEdges(
+    img.Image src, {
+    int lowThreshold = 75,
+    int highThreshold = 200,
+  }) {
+    final gray = img.grayscale(src);
+    final blurred = _blurImage(gray, 5);
+    final w = blurred.width;
+    final h = blurred.height;
 
-    // Step 1: Preprocess for edge detection
-    var processed = _blurImage(src, 3);
-    processed = _normalizeImage(processed);
-    processed = _truncateThreshold(processed, 200);
-    processed = _normalizeImage(processed);
+    const sobelX = [-1, 0, 1, -2, 0, 2, -1, 0, 1];
+    const sobelY = [-1, -2, -1, 0, 0, 0, 1, 2, 1];
 
-    // Step 2: Sobel edge detection
-    final edges = sobelEdges(processed);
+    final mag = List.generate(h, (_) => List.filled(w, 0.0));
+    final angle = List.generate(h, (_) => List.filled(w, 0));
 
-    // Step 3: Binary threshold on edges (keep strong edges)
-    final bin = img.Image(width: w, height: h);
-    for (int y = 0; y < h; y++) {
-      for (int x = 0; x < w; x++) {
-        final lum = img.getLuminance(edges.getPixel(x, y)).toInt();
-        final v = lum > 55 ? 0 : 255; // inverted: dark edges = 0, rest = 255
-        bin.setPixel(x, y, img.ColorInt8.rgb(v, v, v));
-      }
-    }
-
-    // Step 4: Morphological close to connect broken edges
-    final closed = _morphClose(bin, 5);
-
-    // Step 5: Find contours - extract connected components
-    final contours = _findContours(closed);
-    if (contours.isEmpty) return null;
-
-    // Step 6: Sort contours by area (descending), take top 5
-    contours.sort((a, b) => b.length.compareTo(a.length));
-    final topContours = contours.take(5);
-
-    // Step 7: Find best quadrilateral
-    for (final contour in topContours) {
-      if (contour.length < 4) continue;
-      final quad = _approxQuadrilateral(contour, w, h);
-      if (quad != null) {
-        // Validate: area must be 15%-95% of total
-        final area = _polygonArea(quad);
-        final ratio = area / (w * h);
-        if (ratio >= 0.15 && ratio <= 0.95) {
-          // Validate: roughly rectangular (max cosine < 0.35)
-          if (_maxCosine(quad) < 0.35) {
-            return _orderPoints(quad);
+    for (int y = 1; y < h - 1; y++) {
+      for (int x = 1; x < w - 1; x++) {
+        int gx = 0, gy = 0;
+        for (int ky = -1; ky <= 1; ky++) {
+          for (int kx = -1; kx <= 1; kx++) {
+            final lum = img.getLuminance(blurred.getPixel(x + kx, y + ky)).toInt();
+            final idx = (ky + 1) * 3 + (kx + 1);
+            gx += lum * sobelX[idx];
+            gy += lum * sobelY[idx];
           }
+        }
+        final m = sqrt(gx * gx + gy * gy);
+        mag[y][x] = m;
+        if (gx.abs() > gy.abs() * 3) {
+          angle[y][x] = 0;
+        } else if (gy.abs() > gx.abs() * 3) {
+          angle[y][x] = 2;
+        } else {
+          angle[y][x] = gx * gy >= 0 ? 1 : 3;
         }
       }
     }
 
+    // Non-maximum suppression
+    final suppressed = List.generate(h, (_) => List.filled(w, 0.0));
+    for (int y = 1; y < h - 1; y++) {
+      for (int x = 1; x < w - 1; x++) {
+        final m = mag[y][x];
+        if (m < lowThreshold) continue;
+        bool isMax = true;
+        switch (angle[y][x]) {
+          case 0:
+            isMax = m >= mag[y][x - 1] && m >= mag[y][x + 1];
+          case 1:
+            isMax = m >= mag[y - 1][x + 1] && m >= mag[y + 1][x - 1];
+          case 2:
+            isMax = m >= mag[y - 1][x] && m >= mag[y + 1][x];
+          default:
+            isMax = m >= mag[y - 1][x - 1] && m >= mag[y + 1][x + 1];
+        }
+        if (isMax) suppressed[y][x] = m;
+      }
+    }
+
+    // Double threshold + hysteresis (8-connected)
+    final strong = List.generate(h, (_) => List.filled(w, false));
+    final weak = List.generate(h, (_) => List.filled(w, false));
+    for (int y = 0; y < h; y++) {
+      for (int x = 0; x < w; x++) {
+        if (suppressed[y][x] >= highThreshold) {
+          strong[y][x] = true;
+        } else if (suppressed[y][x] >= lowThreshold) {
+          weak[y][x] = true;
+        }
+      }
+    }
+
+    final q = <_Pix>[];
+    for (int y = 0; y < h; y++) {
+      for (int x = 0; x < w; x++) {
+        if (strong[y][x]) q.add(_Pix(x, y));
+      }
+    }
+
+    while (q.isNotEmpty) {
+      final p = q.removeAt(0);
+      for (final d in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)]) {
+        final nx = p.x + d.$1;
+        final ny = p.y + d.$2;
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        if (weak[ny][nx] && !strong[ny][nx]) {
+          strong[ny][nx] = true;
+          q.add(_Pix(nx, ny));
+        }
+      }
+    }
+
+    final out = img.Image(width: w, height: h);
+    for (int y = 0; y < h; y++) {
+      for (int x = 0; x < w; x++) {
+        final v = strong[y][x] ? 0 : 255;
+        out.setPixel(x, y, img.ColorInt8.rgb(v, v, v));
+      }
+    }
+    return out;
+  }
+
+  // ── Edge-based page detection (contour-first alignment) ────────────────
+
+  /// Detect the OMR sheet boundary — ShreenidhiBodas/OMR pipeline:
+  /// GaussianBlur → Canny(75,200) → findContours(RETR_EXTERNAL) → approxPolyDP 2%.
+  /// Returns 4 corner points (TL, TR, BL, BR), or null.
+  static List<_FPoint>? detectPageEdges(img.Image src) {
+    final w = src.width;
+    final h = src.height;
+
+    // Reference: Canny on blurred grayscale — no morph close
+    final edges = cannyEdges(src);
+    final components = _findEdgeComponents(edges);
+    if (components.isEmpty) return null;
+
+    // Reference: sort by contour area (descending), first 4-point approx wins
+    components.sort((a, b) => _bboxArea(b).compareTo(_bboxArea(a)));
+
+    for (final component in components.take(10)) {
+      if (component.length < 20) continue;
+      final hull = _convexHull(component);
+      if (hull.length < 4) continue;
+      final quad = _approxQuadrilateral(hull, w, h);
+      if (quad == null) continue;
+      final area = _polygonArea(quad);
+      final ratio = area / (w * h);
+      if (ratio >= 0.10 && ratio <= 0.98 && _maxCosine(quad) < 0.40) {
+        return _orderPoints(quad);
+      }
+    }
+
     return null;
+  }
+
+  static double _bboxArea(List<_FPoint> pts) {
+    if (pts.isEmpty) return 0;
+    var minX = pts.first.x, maxX = pts.first.x;
+    var minY = pts.first.y, maxY = pts.first.y;
+    for (final p in pts) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+    return (maxX - minX) * (maxY - minY);
+  }
+
+  /// Connected edge-pixel components (RETR_EXTERNAL style on Canny output).
+  static List<List<_FPoint>> _findEdgeComponents(img.Image edges) {
+    final w = edges.width;
+    final h = edges.height;
+    final visited = List.generate(h, (_) => List.filled(w, false));
+    final components = <List<_FPoint>>[];
+
+    for (int y = 0; y < h; y++) {
+      for (int x = 0; x < w; x++) {
+        if (visited[y][x]) continue;
+        if (img.getLuminance(edges.getPixel(x, y)) >= 128) {
+          visited[y][x] = true;
+          continue;
+        }
+        final component = <_FPoint>[];
+        final q = <_Pix>[_Pix(x, y)];
+        visited[y][x] = true;
+        while (q.isNotEmpty) {
+          final p = q.removeAt(0);
+          component.add(_FPoint(p.x.toDouble(), p.y.toDouble()));
+          for (final d in [
+            (1, 0), (-1, 0), (0, 1), (0, -1),
+            (1, 1), (1, -1), (-1, 1), (-1, -1),
+          ]) {
+            final nx = p.x + d.$1;
+            final ny = p.y + d.$2;
+            if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+            if (visited[ny][nx]) continue;
+            visited[ny][nx] = true;
+            if (img.getLuminance(edges.getPixel(nx, ny)) < 128) {
+              q.add(_Pix(nx, ny));
+            }
+          }
+        }
+        if (component.length >= 30) components.add(component);
+      }
+    }
+    return components;
+  }
+
+  /// Andrew's monotone chain convex hull (ordered boundary for approxPolyDP).
+  static List<_FPoint> _convexHull(List<_FPoint> points) {
+    if (points.length < 3) return List.from(points);
+    final pts = List<_FPoint>.from(points)
+      ..sort((a, b) => a.x != b.x ? a.x.compareTo(b.x) : a.y.compareTo(b.y));
+
+    double cross(_FPoint o, _FPoint a, _FPoint b) =>
+        (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+
+    final lower = <_FPoint>[];
+    for (final p in pts) {
+      while (lower.length >= 2 &&
+          cross(lower[lower.length - 2], lower.last, p) <= 0) {
+        lower.removeLast();
+      }
+      lower.add(p);
+    }
+    final upper = <_FPoint>[];
+    for (final p in pts.reversed) {
+      while (upper.length >= 2 &&
+          cross(upper[upper.length - 2], upper.last, p) <= 0) {
+        upper.removeLast();
+      }
+      upper.add(p);
+    }
+    lower.removeLast();
+    upper.removeLast();
+    return [...lower, ...upper];
   }
 
   /// Approximate a contour to a 4-point polygon (Douglas-Peucker).
@@ -865,29 +1050,126 @@ class OmrImaging {
 
   // ── Robust sheet alignment (contour-first hybrid) ─────────────────────
 
-  /// Contour-first sheet alignment (ShreenidhiBodas/OMR style).
-  /// Prefers full-page edge quadrilateral; falls back to corner fiducial blobs.
-  /// Returns corners ordered TL, TR, BL, BR.
+  /// Page alignment — reference repo only (Canny contour quadrilateral).
+  /// Tries full resolution, then resize-to-700 like test_grader.py.
   static ({List<_FPoint> corners, bool fromPageEdges}) detectSheetCorners(
     img.Image src,
     Map<String, dynamic> layout,
   ) {
-    final pageCorners = detectPageEdges(src);
-    if (pageCorners != null && pageCorners.length == 4) {
-      return (corners: pageCorners, fromPageEdges: true);
+    final corners = _detectPageWithResizeFallback(src);
+    if (corners != null && corners.length == 4) {
+      return (corners: corners, fromPageEdges: true);
     }
+    return (corners: const [], fromPageEdges: true);
+  }
 
-    final fiducials = detectFiducials(src, layout);
-    if (fiducials.length >= 4) {
-      return (corners: sortCorners(fiducials), fromPageEdges: false);
-    }
+  /// Reference repo resizes to width 700 before contour detection.
+  static List<_FPoint>? _detectPageWithResizeFallback(img.Image src) {
+    var corners = detectPageEdges(src);
+    if (corners != null) return corners;
 
-    return (corners: fiducials, fromPageEdges: false);
+    const targetW = 700;
+    final scale = targetW / src.width;
+    final rh = max(40, (src.height * scale).round());
+    final resized = img.copyResize(src, width: targetW, height: rh);
+    corners = detectPageEdges(resized);
+    if (corners == null) return null;
+
+    final inv = src.width / targetW;
+    return corners.map((p) => _FPoint(p.x * inv, p.y * inv)).toList();
   }
 
   /// Legacy API: contour-first, then fiducial blobs.
   static List<_FPoint> detectFiducialsRobust(img.Image src, Map<String, dynamic> layout) {
-    return detectSheetCorners(src, layout).corners;
+    final page = _detectPageWithResizeFallback(src);
+    if (page != null && page.length == 4) return page;
+    return detectFiducials(src, layout);
+  }
+
+  /// Try fiducial, page-contour, and direct alignment; pick the best scoring warp.
+  static ({
+    img.Image gray,
+    img.Image binary,
+    double dpi,
+    String method,
+    bool lowConfidence,
+  }) prepareSheetForOmr(
+    img.Image src,
+    Map<String, dynamic> layout,
+  ) {
+    final targetDpi = (layout['dpi'] as num?)?.toDouble() ?? 150.0;
+    final pageWpt = ((layout['page_width_pt'] as num?) ?? 612.0).toDouble();
+    final pageHpt = ((layout['page_height_pt'] as num?) ?? 936.0).toDouble();
+    final numChoices =
+        (layout['answer_grid'] as Map?)?['num_choices'] as num? ?? 4;
+
+    ({
+      img.Image gray,
+      img.Image binary,
+      double dpi,
+      String method,
+      bool lowConfidence,
+    })? best;
+    var bestScore = -1;
+
+    void consider(
+      img.Image warped,
+      double dpi,
+      String method,
+      bool lowConfidence,
+    ) {
+      final gray = img.grayscale(warped);
+      final binary = otsuBinarize(blurOnly(gray, kernel: 5));
+      final score = _scoreAlignmentQuality(
+        gray,
+        binary,
+        layout,
+        dpi,
+        numChoices.toInt(),
+      );
+      if (score > bestScore) {
+        bestScore = score;
+        best = (
+          gray: gray,
+          binary: binary,
+          dpi: dpi,
+          method: method,
+          lowConfidence: lowConfidence,
+        );
+      }
+    }
+
+    // ATLAS sheets have corner fiducials — prefer when detected.
+    final fids = detectFiducials(src, layout);
+    if (fids.length >= 4) {
+      final wf = warpToPage(
+        fids,
+        src,
+        layout,
+        fromPageEdges: false,
+        targetDpi: targetDpi,
+      );
+      consider(wf.$1, wf.$2, 'fiducial', false);
+    }
+
+    final pageCorners = _detectPageWithResizeFallback(src);
+    if (pageCorners != null && pageCorners.length == 4) {
+      final wf = warpToPage(
+        pageCorners,
+        src,
+        layout,
+        fromPageEdges: true,
+        targetDpi: targetDpi,
+      );
+      consider(wf.$1, wf.$2, 'page_contour', false);
+    }
+
+    final dpiX = src.width * 72.0 / pageWpt;
+    final dpiY = src.height * 72.0 / pageHpt;
+    final directDpi = (dpiX + dpiY) / 2;
+    consider(src, directDpi, 'direct', true);
+
+    return best!;
   }
 
   /// Warp the sheet onto a full page canvas at fixed [targetDpi].
@@ -1059,7 +1341,6 @@ class OmrImaging {
   }) {
     final probeR = max(2, (r * 0.7).round());
     final base = maskFillRatio(binary, cx, cy, probeR);
-    if (base < 0.12) return (cx, cy);
 
     double bestScore = base;
     int bestX = cx, bestY = cy;
@@ -1074,11 +1355,62 @@ class OmrImaging {
         }
       }
     }
-    if (bestScore > base + 0.05) return (bestX, bestY);
+    // Apply shift when empty (misaligned) or clearly better local peak (ring).
+    if (base < 0.12 || bestScore > base + 0.04) return (bestX, bestY);
     return (cx, cy);
   }
 
   static int mmToPx(double mm, double dpi) => (mm * dpi / 25.4).round();
+
+  /// Score how well template bubble positions line up with visible marks.
+  /// Higher = better alignment hypothesis.
+  static int _scoreAlignmentQuality(
+    img.Image gray,
+    img.Image binary,
+    Map<String, dynamic> layout,
+    double dpi,
+    int numChoices,
+  ) {
+    final items = layout['items'] as Map<String, dynamic>? ?? {};
+    if (items.isEmpty) return 0;
+
+    final grid = layout['answer_grid'] as Map<String, dynamic>? ?? {};
+    final bubbleRMm = (grid['bubble_r_mm'] as num?)?.toDouble() ?? 2.0;
+    final rPx = max(3, (bubbleRMm * dpi / 25.4 * 0.90).round());
+    final choices =
+        List.generate(numChoices, (i) => String.fromCharCode(65 + i));
+
+    final keys = items.keys.map((k) => int.tryParse(k) ?? 0).where((k) => k > 0).toList()
+      ..sort();
+    if (keys.isEmpty) return 0;
+
+    // Sample ~15 items spread across the sheet (both columns).
+    final step = max(1, keys.length ~/ 15);
+    var score = 0;
+    for (var i = 0; i < keys.length; i += step) {
+      final itemData = items[keys[i].toString()] as Map<String, dynamic>?;
+      if (itemData == null) continue;
+
+      final fills = <double>[];
+      for (final ch in choices) {
+        final coord = itemData[ch] as Map<String, dynamic>?;
+        if (coord == null) continue;
+        final cx = mmToPx((coord['cx_mm'] as num).toDouble(), dpi);
+        final cy = mmToPx((coord['cy_spec_mm'] as num).toDouble(), dpi);
+        fills.add(max(
+          sampleCircle(gray, cx, cy, rPx),
+          maskFillRatio(binary, cx, cy, rPx),
+        ));
+      }
+      if (fills.isEmpty) continue;
+      fills.sort((a, b) => b.compareTo(a));
+      final top = fills.first;
+      final second = fills.length >= 2 ? fills[1] : 0.0;
+      if (top >= 0.35 && top - second >= 0.06) score += 2;
+      if (top >= 0.20) score += 1;
+    }
+    return score;
+  }
 
   /// Parse assessment ID from QR payload (`id` or `id|...`).
   static String? parseAssessmentId(String? qrRaw) {
@@ -1227,10 +1559,62 @@ class OmrImaging {
     return out;
   }
 
-  /// Fast fiducial detection on a live camera frame.
-  /// Returns whether each of the 4 corners is detected and their normalised positions.
-  /// `scaleDown` reduces the image for speed (e.g. 4 = quarter resolution).
-  /// `roi` is an optional normalized Region of Interest (0..1) to focus detection.
+  /// Live page detection — same pipeline as ShreenidhiBodas/OMR (Canny contours).
+  /// Returns page corners in portrait-UI normalised coordinates (0–1).
+  static ({bool tl, bool tr, bool bl, bool br,
+           double? tlx, double? tly,
+           double? trx, double? tryv,
+           double? blx, double? bly,
+           double? brx, double? bry}) detectPageCornersFast(
+    CameraImage frame, {
+    int targetWidth = 480,
+  }) {
+    const fail = (
+      tl: false, tr: false, bl: false, br: false,
+      tlx: null, tly: null, trx: null, tryv: null,
+      blx: null, bly: null, brx: null, bry: null,
+    );
+
+    try {
+      final gray = convertCameraImage(frame);
+      final scale = targetWidth / gray.width;
+      final rh = max(40, (gray.height * scale).round());
+      final small = img.copyResize(gray, width: targetWidth, height: rh);
+
+      final corners = detectPageEdges(small);
+      if (corners == null || corners.length < 4) return fail;
+
+      final ordered = _orderPoints(corners);
+      final sw = small.width.toDouble();
+      final sh = small.height.toDouble();
+      final landscape = sw > sh;
+
+      Offset toUi(_FPoint p) {
+        final sx = p.x / sw;
+        final sy = p.y / sh;
+        if (landscape) {
+          return Offset(sy, 1.0 - sx);
+        }
+        return Offset(sx, sy);
+      }
+
+      final tlUi = toUi(ordered[0]);
+      final trUi = toUi(ordered[1]);
+      final blUi = toUi(ordered[2]);
+      final brUi = toUi(ordered[3]);
+
+      return (
+        tl: true, tlx: tlUi.dx, tly: tlUi.dy,
+        tr: true, trx: trUi.dx, tryv: trUi.dy,
+        bl: true, blx: blUi.dx, bly: blUi.dy,
+        br: true, brx: brUi.dx, bry: brUi.dy,
+      );
+    } catch (_) {
+      return fail;
+    }
+  }
+
+  /// @deprecated Use [detectPageCornersFast] — fiducial blobs are not used.
   static ({bool tl, bool tr, bool bl, bool br,
            double? tlx, double? tly,
            double? trx, double? tryv,
@@ -1239,111 +1623,8 @@ class OmrImaging {
     CameraImage frame, {
     int scaleDown = 4,
     Rect? roi,
-  }) {
-    final w = frame.width ~/ scaleDown;
-    final h = frame.height ~/ scaleDown;
-    if (w < 40 || h < 40) {
-      return (tl: false, tr: false, bl: false, br: false,
-          tlx: null, tly: null, trx: null, tryv: null,
-          blx: null, bly: null, brx: null, bry: null);
-    }
-
-    // Sample Y plane at reduced resolution into a small grid
-    final yPlane = frame.planes[0];
-    final yRowStride = yPlane.bytesPerRow;
-
-    // Build reduced-resolution luminance grid
-    final grid = List.generate(h, (_) => List.filled(w, 0));
-    for (int y = 0; y < h; y++) {
-      final srcY = y * scaleDown;
-      for (int x = 0; x < w; x++) {
-        final srcX = x * scaleDown;
-        final idx = srcY * yRowStride + srcX;
-        grid[y][x] = idx < yPlane.bytes.length ? yPlane.bytes[idx] : 255;
-      }
-    }
-
-    // Define search bounds based on ROI, adjusting for 90deg rotation if sensor is landscape
-    double l, r, t, b;
-    if (w > h && roi != null) {
-      // Portrait UI (roi) -> Landscape Sensor (grid)
-      // UI: Top (y=0) is sensor Right (x=w)
-      // UI: Bottom (y=1) is sensor Left (x=0)
-      // UI: Left (x=0) is sensor Top (y=0)
-      // UI: Right (x=1) is sensor Bottom (y=h)
-      
-      // UI Y (top/bottom) maps to Sensor X (inverted)
-      l = (1.0 - roi.bottom) * w;
-      r = (1.0 - roi.top) * w;
-      
-      // UI X (left/right) maps to Sensor Y
-      t = roi.left * h;
-      b = roi.right * h;
-    } else {
-      l = (roi?.left ?? 0) * w;
-      r = (roi?.right ?? 1) * w;
-      t = (roi?.top ?? 0) * h;
-      b = (roi?.bottom ?? 1) * h;
-    }
-    
-    const cornerSizeFrac = 0.30; // Search in 30% of the ROI dimensions at each corner for maximum robustness
-    final sw = (r - l) * cornerSizeFrac;
-    final sh = (b - t) * cornerSizeFrac;
-
-    final cornerRegions = [
-      // Region 0: Top-Left of ROI in sensor
-      _CornerRegion(rx: l.round(), ry: t.round(), rw: sw.round(), rh: sh.round()),
-      // Region 1: Top-Right of ROI in sensor
-      _CornerRegion(rx: (r - sw).round(), ry: t.round(), rw: sw.round(), rh: sh.round()),
-      // Region 2: Bottom-Left of ROI in sensor
-      _CornerRegion(rx: l.round(), ry: (b - sh).round(), rw: sw.round(), rh: sh.round()),
-      // Region 3: Bottom-Right of ROI in sensor
-      _CornerRegion(rx: (r - sw).round(), ry: (b - sh).round(), rw: sw.round(), rh: sh.round()),
-    ];
-
-    final results = <({bool detected, double x, double y})>[];
-    for (final region in cornerRegions) {
-      final result = _findDarkBlobInRegion(grid, w, h, region);
-      results.add(result);
-    }
-
-    // Convert results to normalised coordinates (0–1)
-    double? toNormX(double px) => px / w;
-    double? toNormY(double py) => py / h;
-
-    // Correct mapping from Sensor Regions back to UI corners (TL, TR, BL, BR)
-    // Assuming 90deg rotation for landscape sensor to portrait UI
-    if (w > h && roi != null) {
-      // Sensor Index Mapping: 0:L,T | 1:R,T | 2:L,B | 3:R,B
-      // CW 90deg Map:
-      // UI TL (0,0) -> Sensor (1,0) = R,T = Index 1
-      // UI TR (1,0) -> Sensor (1,1) = R,B = Index 3
-      // UI BL (0,1) -> Sensor (0,0) = L,T = Index 0
-      // UI BR (1,1) -> Sensor (0,1) = L,B = Index 2
-      
-      return (
-        tl: results[1].detected, tlx: results[1].detected ? toNormX(results[1].x) : null, tly: results[1].detected ? toNormY(results[1].y) : null,
-        tr: results[3].detected, trx: results[3].detected ? toNormX(results[3].x) : null, tryv: results[3].detected ? toNormY(results[3].y) : null,
-        bl: results[0].detected, blx: results[0].detected ? toNormX(results[0].x) : null, bly: results[0].detected ? toNormY(results[0].y) : null,
-        br: results[2].detected, brx: results[2].detected ? toNormX(results[2].x) : null, bry: results[2].detected ? toNormY(results[2].y) : null,
-      );
-    }
-
-    return (
-      tl: results[0].detected,
-      tlx: results[0].detected ? toNormX(results[0].x) : null,
-      tly: results[0].detected ? toNormY(results[0].y) : null,
-      tr: results[1].detected,
-      trx: results[1].detected ? toNormX(results[1].x) : null,
-      tryv: results[1].detected ? toNormY(results[1].y) : null,
-      bl: results[2].detected,
-      blx: results[2].detected ? toNormX(results[2].x) : null,
-      bly: results[2].detected ? toNormY(results[2].y) : null,
-      br: results[3].detected,
-      brx: results[3].detected ? toNormX(results[3].x) : null,
-      bry: results[3].detected ? toNormY(results[3].y) : null,
-    );
-  }
+  }) =>
+      detectPageCornersFast(frame, targetWidth: 480);
 
   /// Finds the centroid of the darkest contiguous blob within a corner region.
   static ({bool detected, double x, double y}) _findDarkBlobInRegion(
@@ -1351,8 +1632,7 @@ class OmrImaging {
   ) {
     final visited = <int>{};
     int bestCx = 0, bestCy = 0, bestSize = 0;
-    // Increased threshold to 100 for better detection in varying light and motion blur
-    final darkThreshold = 100;
+    final darkThreshold = 85;
 
     final rx = region.rx.clamp(0, w - 1);
     final ry = region.ry.clamp(0, h - 1);
@@ -1401,10 +1681,10 @@ class OmrImaging {
         // Validate blob: must be roughly square-ish within size bounds
         final bw = maxX - minX + 1;
         final bh = maxY - minY + 1;
-        final minDim = (w * 0.010).round().clamp(2, 20); // Even smaller min
-        final maxDim = (w * 0.35).round().clamp(20, 150); // Even larger max
-        // Very relaxed aspect ratio to handle extreme tilt/skew and blur stretching
-        final aspectOk = bw > 0 && bh > 0 && (bw / bh).abs() >= 0.2 && (bw / bh).abs() <= 5.0;
+        final minDim = (w * 0.012).round().clamp(4, 24);
+        final maxDim = (w * 0.20).round().clamp(16, 80);
+        final aspect = bw > 0 && bh > 0 ? bw / bh : 0.0;
+        final aspectOk = aspect >= 0.65 && aspect <= 1.5;
 
         // Total darkness weight for normalising weighted centroid
         final totalDarkness = (() {
@@ -1427,8 +1707,7 @@ class OmrImaging {
       }
     }
 
-    // Lowered minimum pixel count to be extremely responsive
-    if (bestSize >= 2) {
+    if (bestSize >= 8) {
       return (detected: true, x: bestCx.toDouble(), y: bestCy.toDouble());
     }
     return (detected: false, x: 0.0, y: 0.0);

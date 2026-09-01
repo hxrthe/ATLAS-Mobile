@@ -29,6 +29,12 @@ class BubbleTemplate {
     required this.layoutMetadata,
   });
 
+  /// Returns true when bubble positions are available for template-based OMR.
+  bool get hasLayoutItems {
+    final items = layoutMetadata['items'];
+    return items is Map && items.isNotEmpty;
+  }
+
   factory BubbleTemplate.fromJson(Map<String, dynamic> json) {
     return BubbleTemplate(
       templateId: json['template_id'] ?? '',

@@ -159,33 +159,74 @@ class _FiducialPainter extends CustomPainter {
     );
 
     final fiducialSize = 90.0;
-    final positions = _calcPositions(size, topMargin, bottomMargin, finalClearWidth, finalClearHeight);
+    final expectedPositions =
+        _calcPositions(size, topMargin, bottomMargin, finalClearWidth, finalClearHeight);
 
-    for (int i = 0; i < 4; i++) {
-      final corner = lockState.corners[i];
-      final pos = positions[i];
-      // FIX: Transition from Red to Green
-      final Color color = corner.locked ? Colors.green : Colors.red.withValues(alpha: 0.6);
+    // Draw detected page boundary (reference repo: sheet quadrilateral)
+    final corners = lockState.corners;
+    final allDetected = corners.every((c) => c.detected && c.position != null);
 
-      _drawFiducialSquare(canvas, pos.$1, pos.$2, fiducialSize, color);
+    if (allDetected) {
+      Offset ui(int i) => Offset(
+            corners[i].position!.dx * size.width,
+            corners[i].position!.dy * size.height,
+          );
+      final path = Path()
+        ..moveTo(ui(0).dx, ui(0).dy)
+        ..lineTo(ui(1).dx, ui(1).dy)
+        ..lineTo(ui(3).dx, ui(3).dy)
+        ..lineTo(ui(2).dx, ui(2).dy)
+        ..close();
+
+      final outlineColor = lockState.allLocked ? Colors.green : Colors.orange;
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = outlineColor.withValues(alpha: 0.25)
+          ..style = PaintingStyle.fill,
+      );
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = outlineColor
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 4,
+      );
+
+      for (int i = 0; i < 4; i++) {
+        final p = ui(i);
+        canvas.drawCircle(p, 10, Paint()..color = outlineColor);
+      }
+    } else {
+      // Guide corners when page not yet detected
+      for (int i = 0; i < 4; i++) {
+        final expected = expectedPositions[i];
+        _drawFiducialSquare(
+          canvas,
+          expected.$1,
+          expected.$2,
+          fiducialSize,
+          Colors.white.withValues(alpha: 0.35),
+        );
+      }
     }
 
-    // Center status text — capture is unlocked by assessment QR; corners optional
-    final detectedCount = lockState.corners.where((c) => c.detected).length;
+    // Center status text
+    final pageDetected = lockState.corners.every((c) => c.detected);
     final String msg;
     final Color msgColor;
     if (readyToCapture) {
       msg = '\u2713 READY \u2014 tap to capture';
       msgColor = Colors.green;
-    } else if (lockState.allLocked) {
-      msg = 'Scan assessment QR to unlock';
-      msgColor = Colors.white;
-    } else if (detectedCount == 0) {
-      msg = 'Show assessment QR (corners optional)';
-      msgColor = Colors.white70;
+    } else if (lockState.allLocked && pageDetected) {
+      msg = 'Page locked \u2014 scan assessment QR';
+      msgColor = Colors.green;
+    } else if (pageDetected) {
+      msg = 'Page detected \u2014 hold steady';
+      msgColor = Colors.orange;
     } else {
-      msg = 'Show assessment QR to unlock capture';
-      msgColor = Colors.white;
+      msg = 'Fit entire sheet in frame';
+      msgColor = Colors.white70;
     }
     final tp = TextPainter(
       text: TextSpan(text: msg, style: TextStyle(color: msgColor, fontSize: 16, fontWeight: FontWeight.bold)),

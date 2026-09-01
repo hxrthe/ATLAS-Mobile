@@ -118,6 +118,8 @@ class GradingRepository {
     required String imagePath,
     String? studentId,
     required Map<String, String> responses,
+    bool? isFlagged,
+    String? flagReason,
   }) async {
     final formData = FormData.fromMap({
       'template_id': templateId,
@@ -136,10 +138,15 @@ class GradingRepository {
 
     final patchResp = await _apiClient.dio.patch(
       '/grading/bubble/scans/$scanId/',
-      // ignore: use_null_aware_elements
       data: <String, dynamic>{
-        'student_identifier': ?studentId,
+        if (studentId != null && studentId.isNotEmpty && studentId != 'Unknown')
+          'student_identifier': studentId,
         'responses': responses,
+        if (isFlagged != null) 'is_flagged': isFlagged,
+        if (flagReason != null && flagReason.isNotEmpty)
+          'flag_reason': flagReason.length > 255
+              ? '${flagReason.substring(0, 254)}…'
+              : flagReason,
       },
     );
     if (patchResp.data['success'] != true) {
