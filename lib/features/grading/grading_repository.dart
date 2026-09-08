@@ -112,7 +112,8 @@ class GradingRepository {
     return BubbleScan.fromJson(data['scan']);
   }
 
-  /// Upload a locally-graded scan: POST image → PATCH with OMR results.
+  /// Upload a locally-graded scan in one POST (client_graded) so the row
+  /// appears on faculty web grading results without depending on server OpenCV.
   Future<BubbleScan> uploadGradedScan({
     required String templateId,
     required String imagePath,
@@ -121,9 +122,23 @@ class GradingRepository {
     bool? isFlagged,
     String? flagReason,
   }) async {
+    final truncatedReason = (flagReason != null && flagReason.isNotEmpty)
+        ? (flagReason.length > 255
+            ? '${flagReason.substring(0, 254)}…'
+            : flagReason)
+        : null;
+
     final formData = FormData.fromMap({
       'template_id': templateId,
       'image': await MultipartFile.fromFile(imagePath, filename: 'scan.jpg'),
+      'client_graded': true,
+      'responses': jsonEncode(responses),
+      if (studentId != null &&
+          studentId.isNotEmpty &&
+          studentId != 'Unknown')
+        'student_identifier': studentId,
+      if (isFlagged != null) 'is_flagged': isFlagged,
+      if (truncatedReason != null) 'flag_reason': truncatedReason,
     });
 
     final postResp = await _apiClient.dio.post(
@@ -134,26 +149,34 @@ class GradingRepository {
       throw Exception(postResp.data['detail'] ?? 'Upload failed.');
     }
 
-    final scanId = postResp.data['scan']['scan_id'];
-
-    final patchResp = await _apiClient.dio.patch(
-      '/grading/bubble/scans/$scanId/',
-      data: <String, dynamic>{
-        if (studentId != null && studentId.isNotEmpty && studentId != 'Unknown')
-          'student_identifier': studentId,
-        'responses': responses,
-        if (isFlagged != null) 'is_flagged': isFlagged,
-        if (flagReason != null && flagReason.isNotEmpty)
-          'flag_reason': flagReason.length > 255
-              ? '${flagReason.substring(0, 254)}…'
-              : flagReason,
-      },
-    );
-    if (patchResp.data['success'] != true) {
-      throw Exception(patchResp.data['detail'] ?? 'Score update failed.');
+    final scanJson = postResp.data['scan'] as Map<String, dynamic>?;
+    if (scanJson == null) {
+      throw Exception('Upload succeeded but scan payload missing.');
     }
 
-    return BubbleScan.fromJson(patchResp.data['scan']);
+    // If the server ignored client_graded (older API), fall back to PATCH.
+    final source = postResp.data['source']?.toString();
+    if (source != 'client_graded') {
+      final scanId = scanJson['scan_id'];
+      final patchResp = await _apiClient.dio.patch(
+        '/grading/bubble/scans/$scanId/',
+        data: <String, dynamic>{
+          if (studentId != null &&
+              studentId.isNotEmpty &&
+              studentId != 'Unknown')
+            'student_identifier': studentId,
+          'responses': responses,
+          if (isFlagged != null) 'is_flagged': isFlagged,
+          if (truncatedReason != null) 'flag_reason': truncatedReason,
+        },
+      );
+      if (patchResp.data['success'] != true) {
+        throw Exception(patchResp.data['detail'] ?? 'Score update failed.');
+      }
+      return BubbleScan.fromJson(patchResp.data['scan']);
+    }
+
+    return BubbleScan.fromJson(scanJson);
   }
 
   /// Batch-upload locally-graded scans when connectivity is available.

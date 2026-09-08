@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart' hide DiagnosticLevel;
 import 'package:flutter/services.dart';
@@ -17,13 +19,15 @@ const Color bgGrey = Color(0xFFF4F6F9);
 class LiveScanningView extends StatelessWidget {
   final CameraController? controller;
   final bool isReady;
-  final String templateName;
+  final String? templateName;
   final bool assessmentIdentified;
+  final String? identifyHint;
   final FiducialLockState fiducialLock;
   final ScannerDiagnostics diagnostics;
   final String? scoreFlashText;
   final Animation<double>? scoreFlashAnimation;
   final bool readyToCapture;
+  final Uint8List? alignedPreviewBytes;
   final VoidCallback? onCapture;
   final VoidCallback onBack;
   final VoidCallback onReviewPapers;
@@ -32,13 +36,15 @@ class LiveScanningView extends StatelessWidget {
     super.key,
     required this.controller,
     required this.isReady,
-    required this.templateName,
+    this.templateName,
     this.assessmentIdentified = false,
+    this.identifyHint,
     required this.fiducialLock,
     required this.diagnostics,
     this.scoreFlashText,
     this.scoreFlashAnimation,
     this.readyToCapture = false,
+    this.alignedPreviewBytes,
     this.onCapture,
     required this.onBack,
     required this.onReviewPapers,
@@ -53,23 +59,66 @@ class LiveScanningView extends StatelessWidget {
       );
     }
 
+    final topTitle = assessmentIdentified && templateName != null
+        ? templateName!
+        : (identifyHint ?? 'Point camera at Assessment QR');
+
+    // Letterbox the preview to the camera's portrait aspect ratio.
+    // Filling the phone screen stretches the feed (bubbles → ovals).
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          Positioned.fill(child: CameraPreview(controller!)),
-          Positioned.fill(child: _FiducialOverlay(
-            lockState: fiducialLock,
-            readyToCapture: readyToCapture,
-          )),
+          Positioned.fill(
+            child: ColoredBox(
+              color: Colors.black,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final cam = controller!;
+                  // previewSize is landscape (w>h); portrait display = 1/aspectRatio
+                  final displayAspect = cam.value.aspectRatio > 0
+                      ? 1.0 / cam.value.aspectRatio
+                      : 9.0 / 16.0;
+
+                  var previewW = constraints.maxWidth;
+                  var previewH = previewW / displayAspect;
+                  if (previewH > constraints.maxHeight) {
+                    previewH = constraints.maxHeight;
+                    previewW = previewH * displayAspect;
+                  }
+
+                  return Center(
+                    child: SizedBox(
+                      width: previewW,
+                      height: previewH,
+                      child: CameraPreview(
+                        cam,
+                        child: _FiducialOverlay(
+                          lockState: fiducialLock,
+                          readyToCapture: readyToCapture,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
           Positioned(
             top: 0, left: 0, right: 0,
             child: _TopBar(
-              templateName: assessmentIdentified ? templateName : 'Identifying Assessment...',
+              templateName: topTitle,
               onBack: onBack,
               onReview: onReviewPapers,
             ),
           ),
+          // Live bird's-eye sheet (aligned) — shown once fiducials lock.
+          if (alignedPreviewBytes != null && fiducialLock.allLocked)
+            Positioned(
+              right: 12,
+              top: 100,
+              child: _AlignedPreviewPip(bytes: alignedPreviewBytes!),
+            ),
           Positioned(
             bottom: 0, left: 0, right: 0,
             child: _DiagnosticBar(diagnostics: diagnostics),
@@ -79,13 +128,58 @@ class LiveScanningView extends StatelessWidget {
               bottom: 120, left: 0, right: 0,
               child: _ScoreFlash(text: scoreFlashText!, animation: scoreFlashAnimation!),
             ),
-          // Shutter button
           Positioned(
             bottom: 48, left: 0, right: 0,
             child: _ShutterButton(
               ready: readyToCapture,
               onTap: onCapture,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Live aligned (bird's-eye) preview pip ─────────────────────────────────
+
+class _AlignedPreviewPip extends StatelessWidget {
+  final Uint8List bytes;
+  const _AlignedPreviewPip({required this.bytes});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 96,
+      decoration: BoxDecoration(
+        color: Colors.black,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.greenAccent, width: 2),
+        boxShadow: const [
+          BoxShadow(color: Colors.black54, blurRadius: 8, offset: Offset(0, 2)),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 4),
+            child: Text(
+              'ALIGNED',
+              style: TextStyle(
+                color: Colors.greenAccent,
+                fontSize: 9,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.6,
+              ),
+            ),
+          ),
+          Image.memory(
+            bytes,
+            width: 96,
+            fit: BoxFit.fitWidth,
+            gaplessPlayback: true,
           ),
         ],
       ),
@@ -118,54 +212,152 @@ class _FiducialPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Dimmed overlay
+    // Paper clear zone (long bond 8.5" × 13") — fills most of the preview.
+    const topMargin = 24.0;
+    const bottomMargin = 24.0;
+    const paperAspectRatio = 13.0 / 8.5; // height / width
+    const pageWmm = 215.9;
+    const pageHmm = 330.2;
+    // Printed fiducials (bubble_sheet_generator.py) — NOT at paper corners.
+    const fidInset = 8.0;
+    const fidW = 10.0;
+    const headerMm = 50.8; // 2" — top fiducials start here
+    const contentBotMm = 294.8; // bottom fiducial top edge
+
+    final availableHeight = size.height - topMargin - bottomMargin;
+    var clearWidth = size.width * 0.94;
+    var clearHeight = clearWidth * paperAspectRatio;
+    if (clearHeight > availableHeight) {
+      clearHeight = availableHeight;
+      clearWidth = clearHeight / paperAspectRatio;
+    }
+
+    final centerY = topMargin + availableHeight / 2;
+    final clearRect = Rect.fromCenter(
+      center: Offset(size.width / 2, centerY),
+      width: clearWidth,
+      height: clearHeight,
+    );
+
+    // Dim outside the paper guide only
     final dimPaint = Paint()
       ..color = Colors.black.withValues(alpha: 0.45)
       ..style = PaintingStyle.fill;
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), dimPaint);
+    final hole = Path()
+      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height))
+      ..addRRect(RRect.fromRectAndRadius(clearRect, const Radius.circular(8)))
+      ..fillType = PathFillType.evenOdd;
+    canvas.drawPath(hole, dimPaint);
 
-    // Margins (based on 160 logical pixels per inch)
-    const double topMargin = 320.0; // 2 inches
-    const double bottomMargin = 160.0; // 1 inch
+    // Paper outline
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(clearRect, const Radius.circular(8)),
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.35)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
 
-    // Paper aspect ratio: 13" x 8.5"
-    const double paperAspectRatio = 13.0 / 8.5;
+    Offset fidTopLeft(double xMm, double yMm) => Offset(
+          clearRect.left + (xMm / pageWmm) * clearRect.width,
+          clearRect.top + (yMm / pageHmm) * clearRect.height,
+        );
 
-    // Calculate clear zone
-    final availableHeight = size.height - topMargin - bottomMargin;
-    final clearWidth = size.width * 0.92; // Use 92% of screen width for clear zone
-    final clearHeight = clearWidth * paperAspectRatio;
+    final fidPx = (fidW / pageWmm) * clearRect.width;
+    // Expected guide positions (ghost) — printed fiducial mm on long-bond sheet.
+    final expectedFidRects = [
+      Rect.fromLTWH(
+        fidTopLeft(fidInset, headerMm).dx,
+        fidTopLeft(fidInset, headerMm).dy,
+        fidPx,
+        fidPx,
+      ),
+      Rect.fromLTWH(
+        fidTopLeft(pageWmm - fidInset - fidW, headerMm).dx,
+        fidTopLeft(pageWmm - fidInset - fidW, headerMm).dy,
+        fidPx,
+        fidPx,
+      ),
+      Rect.fromLTWH(
+        fidTopLeft(fidInset, contentBotMm).dx,
+        fidTopLeft(fidInset, contentBotMm).dy,
+        fidPx,
+        fidPx,
+      ),
+      Rect.fromLTWH(
+        fidTopLeft(pageWmm - fidInset - fidW, contentBotMm).dx,
+        fidTopLeft(pageWmm - fidInset - fidW, contentBotMm).dy,
+        fidPx,
+        fidPx,
+      ),
+    ];
 
-    // Ensure clearHeight doesn't exceed availableHeight
-    double finalClearHeight = clearHeight;
-    double finalClearWidth = clearWidth;
-    if (finalClearHeight > availableHeight) {
-      finalClearHeight = availableHeight;
-      finalClearWidth = finalClearHeight / paperAspectRatio;
+    final corners = lockState.corners;
+    final detectedCount = corners.where((c) {
+      final p = c.position;
+      if (!c.detected || p == null) return false;
+      return clearRect.inflate(fidPx).contains(
+            Offset(p.dx * size.width, p.dy * size.height),
+          );
+    }).length;
+    final allDetected = detectedCount == 4;
+
+    // Ghost guides (where fiducials should be when paper fills the frame)
+    if (!allDetected) {
+      final ghost = Paint()
+        ..color = Colors.white.withValues(alpha: 0.25)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2;
+      for (final r in expectedFidRects) {
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(r.inflate(3), const Radius.circular(4)),
+          ghost,
+        );
+      }
     }
 
-    final centerY = topMargin + (availableHeight / 2);
-    final clearRect = Rect.fromCenter(
-      center: Offset(size.width / 2, centerY),
-      width: finalClearWidth,
-      height: finalClearHeight,
-    );
+    // Tracking boxes: follow last-known detected positions (move + turn green).
+    // Only draw when the hit lies inside the paper guide — never on the floor.
+    for (var i = 0; i < 4; i++) {
+      final c = corners[i];
+      final Offset center;
+      final Color color;
+      final double box = fidPx.clamp(22.0, 40.0);
 
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(clearRect, const Radius.circular(12)),
-      Paint()
-        ..color = const Color(0xFFF4F6F9).withValues(alpha: 0.1)
-        ..style = PaintingStyle.fill,
-    );
+      final pos = c.position;
+      final insideGuide = pos != null &&
+          clearRect.inflate(fidPx).contains(
+                Offset(pos.dx * size.width, pos.dy * size.height),
+              );
 
-    final fiducialSize = 90.0;
-    final expectedPositions =
-        _calcPositions(size, topMargin, bottomMargin, finalClearWidth, finalClearHeight);
+      if (pos != null && insideGuide) {
+        center = Offset(
+          pos.dx.clamp(0.0, 1.0) * size.width,
+          pos.dy.clamp(0.0, 1.0) * size.height,
+        );
+        color = c.locked
+            ? const Color(0xFF00E676)
+            : (c.detected ? Colors.white : Colors.white70);
+      } else {
+        center = expectedFidRects[i].center;
+        color = Colors.white.withValues(alpha: 0.35);
+      }
 
-    // Draw detected page boundary (reference repo: sheet quadrilateral)
-    final corners = lockState.corners;
-    final allDetected = corners.every((c) => c.detected && c.position != null);
+      final rect =
+          Rect.fromCenter(center: center, width: box + 10, height: box + 10);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, const Radius.circular(5)),
+        Paint()
+          ..color = color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = c.locked && insideGuide ? 4.0 : 2.5,
+      );
+      if (pos != null && insideGuide) {
+        canvas.drawCircle(center, 3.5, Paint()..color = color);
+      }
+    }
 
+    // Sheet quadrilateral when all 4 are found
     if (allDetected) {
       Offset ui(int i) => Offset(
             corners[i].position!.dx * size.width,
@@ -178,96 +370,60 @@ class _FiducialPainter extends CustomPainter {
         ..lineTo(ui(2).dx, ui(2).dy)
         ..close();
 
-      final outlineColor = lockState.allLocked ? Colors.green : Colors.orange;
+      final outlineColor = lockState.allLocked ? Colors.greenAccent : Colors.orange;
       canvas.drawPath(
         path,
         Paint()
-          ..color = outlineColor.withValues(alpha: 0.25)
+          ..color = outlineColor.withValues(alpha: 0.12)
           ..style = PaintingStyle.fill,
       );
       canvas.drawPath(
         path,
         Paint()
-          ..color = outlineColor
+          ..color = outlineColor.withValues(alpha: 0.9)
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 4,
+          ..strokeWidth = 2.5,
       );
-
-      for (int i = 0; i < 4; i++) {
-        final p = ui(i);
-        canvas.drawCircle(p, 10, Paint()..color = outlineColor);
-      }
-    } else {
-      // Guide corners when page not yet detected
-      for (int i = 0; i < 4; i++) {
-        final expected = expectedPositions[i];
-        _drawFiducialSquare(
-          canvas,
-          expected.$1,
-          expected.$2,
-          fiducialSize,
-          Colors.white.withValues(alpha: 0.35),
-        );
-      }
     }
 
     // Center status text
-    final pageDetected = lockState.corners.every((c) => c.detected);
     final String msg;
     final Color msgColor;
     if (readyToCapture) {
-      msg = '\u2713 READY \u2014 tap to capture';
-      msgColor = Colors.green;
-    } else if (lockState.allLocked && pageDetected) {
-      msg = 'Page locked \u2014 scan assessment QR';
-      msgColor = Colors.green;
-    } else if (pageDetected) {
-      msg = 'Page detected \u2014 hold steady';
+      msg = '\u2713 ALIGNED \u2014 tap to grade';
+      msgColor = Colors.greenAccent;
+    } else if (lockState.allLocked) {
+      msg = 'Sheet locked \u2014 scan Assessment QR';
+      msgColor = Colors.greenAccent;
+    } else if (detectedCount >= 2) {
+      msg = 'Tracking fiducials ($detectedCount/4) \u2014 hold steady';
       msgColor = Colors.orange;
     } else {
       msg = 'Fit entire sheet in frame';
       msgColor = Colors.white70;
     }
+
     final tp = TextPainter(
-      text: TextSpan(text: msg, style: TextStyle(color: msgColor, fontSize: 16, fontWeight: FontWeight.bold)),
+      text: TextSpan(
+        text: msg,
+        style: TextStyle(
+          color: msgColor,
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+          shadows: const [Shadow(blurRadius: 8, color: Colors.black87)],
+        ),
+      ),
       textDirection: TextDirection.ltr,
-    )..layout();
-    tp.paint(canvas, Offset((size.width - tp.width) / 2, centerY - 40));
-  }
-
-  List<(double, double)> _calcPositions(Size size, double topMargin, double bottomMargin, double clearWidth, double clearHeight) {
-    final availableHeight = size.height - topMargin - bottomMargin;
-    final centerY = topMargin + (availableHeight / 2);
-    
-    final topY = centerY - (clearHeight / 2);
-    final bottomY = centerY + (clearHeight / 2);
-    final leftX = (size.width - clearWidth) / 2;
-    final rightX = (size.width + clearWidth) / 2;
-
-    return [
-      (leftX, topY),
-      (rightX, topY),
-      (leftX, bottomY),
-      (rightX, bottomY),
-    ];
-  }
-
-  void _drawFiducialSquare(Canvas c, double cx, double cy, double sz, Color color) {
-    final rect = Rect.fromCenter(center: Offset(cx, cy), width: sz, height: sz);
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 6.0 // Thick lines as seen in image
-      ..strokeCap = StrokeCap.round;
-
-    c.drawRRect(
-      RRect.fromRectAndRadius(rect, const Radius.circular(20)), // Large rounded corners
-      paint,
+    )..layout(maxWidth: size.width * 0.9);
+    tp.paint(
+      canvas,
+      Offset((size.width - tp.width) / 2, size.height * 0.48),
     );
   }
 
   @override
-  bool shouldRepaint(covariant _FiducialPainter o) => lockState != o.lockState;
+  bool shouldRepaint(covariant _FiducialPainter o) =>
+      lockState != o.lockState || readyToCapture != o.readyToCapture;
 }
 
 // ── Top bar ───────────────────────────────────────────────────────────────
@@ -1510,4 +1666,452 @@ class _SelectionTile extends StatelessWidget {
       ),
     );
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Post-capture: realigned sheet → scan animation → scored overlay → Scan next
+// ═══════════════════════════════════════════════════════════════════════════
+
+class ScanResultView extends StatefulWidget {
+  final Uint8List? previewBytes;
+  final String? fallbackImagePath;
+  final bool isProcessing;
+  final String statusMessage;
+  final OmrResult? result;
+  /// idle | uploading | uploaded | failed | rejected
+  final String uploadStatus;
+  final VoidCallback onScanNext;
+  final VoidCallback? onRetryUpload;
+  final VoidCallback? onClose;
+
+  const ScanResultView({
+    super.key,
+    this.previewBytes,
+    this.fallbackImagePath,
+    required this.isProcessing,
+    required this.statusMessage,
+    this.result,
+    this.uploadStatus = 'idle',
+    required this.onScanNext,
+    this.onRetryUpload,
+    this.onClose,
+  });
+
+  @override
+  State<ScanResultView> createState() => _ScanResultViewState();
+}
+
+class _ScanResultViewState extends State<ScanResultView>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _scanController;
+
+  @override
+  void initState() {
+    super.initState();
+    _scanController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1600),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void didUpdateWidget(covariant ScanResultView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isProcessing && !_scanController.isAnimating) {
+      _scanController.repeat(reverse: true);
+    } else if (!widget.isProcessing && _scanController.isAnimating) {
+      _scanController.stop();
+      _scanController.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _scanController.dispose();
+    super.dispose();
+  }
+
+  Uint8List? get _imageBytes =>
+      widget.result?.alignedImageBytes ?? widget.previewBytes;
+
+  @override
+  Widget build(BuildContext context) {
+    final result = widget.result;
+    final rejected = widget.uploadStatus == 'rejected';
+    final scored = result != null &&
+        !widget.isProcessing &&
+        !rejected &&
+        result.isAlignmentUsable;
+    final pct = result?.scorePercent ?? 0;
+    final raw = result?.correctCount ?? 0;
+    final max = result?.maxScore ?? 0;
+    final studentId = result?.studentIdentifier ?? '—';
+    final showMarkers = scored && result.scoredMarkers.isNotEmpty;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFF0E1116),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 12, 8),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: widget.onClose ?? widget.onScanNext,
+                    icon: const Icon(Icons.close, color: Colors.white70),
+                  ),
+                  const Expanded(
+                    child: Text(
+                      'Scan result',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  if (scored)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: pct >= 60
+                            ? const Color(0xFF00E676).withValues(alpha: 0.15)
+                            : primaryRed.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        '${pct.toStringAsFixed(0)}%',
+                        style: TextStyle(
+                          color: pct >= 60
+                              ? const Color(0xFF00E676)
+                              : const Color(0xFFFF8A80),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    color: Colors.white,
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        // Long-bond warped sheet ≈ 8.5 × 13 — match marker space.
+                        const pageAspect = 8.5 / 13.0;
+                        var boxW = constraints.maxWidth;
+                        var boxH = boxW / pageAspect;
+                        if (boxH > constraints.maxHeight) {
+                          boxH = constraints.maxHeight;
+                          boxW = boxH * pageAspect;
+                        }
+                        return Center(
+                          child: SizedBox(
+                            width: boxW,
+                            height: boxH,
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                _buildSheetImage(boxW, boxH),
+                                if (widget.isProcessing)
+                                  AnimatedBuilder(
+                                    animation: _scanController,
+                                    builder: (context, _) {
+                                      return CustomPaint(
+                                        painter: _ScannerSweepPainter(
+                                          progress: _scanController.value,
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                if (showMarkers)
+                                  CustomPaint(
+                                    painter: _ScoredMarkersPainter(
+                                      markers: result.scoredMarkers,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Column(
+                children: [
+                  if (widget.isProcessing) ...[
+                    Text(
+                      widget.statusMessage,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.4,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ] else if (rejected) ...[
+                    Text(
+                      widget.statusMessage.isNotEmpty
+                          ? widget.statusMessage
+                          : 'Scan rejected — please rescan',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Color(0xFFFFB74D),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Not saved to grading results',
+                      style: TextStyle(
+                        color: Colors.white54,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ] else if (result != null) ...[
+                    Text(
+                      'Student ID  $studentId',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Score  $raw / $max   ·   ${pct.toStringAsFixed(1)}%',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
+                    ),
+                    if (result.isFlagged && result.flagReason != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        result.flagReason!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Color(0xFFFFB74D),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    Text(
+                      switch (widget.uploadStatus) {
+                        'uploading' => 'Uploading to grading results…',
+                        'uploaded' => 'Saved to grading results',
+                        'failed' => widget.statusMessage.isNotEmpty
+                            ? widget.statusMessage
+                            : 'Upload failed — tap retry',
+                        _ => widget.statusMessage,
+                      },
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: switch (widget.uploadStatus) {
+                          'uploaded' => const Color(0xFF81C784),
+                          'failed' => const Color(0xFFFF8A80),
+                          'uploading' => Colors.white70,
+                          _ => Colors.white54,
+                        },
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+              child: Row(
+                children: [
+                  if (widget.uploadStatus == 'failed' &&
+                      widget.onRetryUpload != null) ...[
+                    Expanded(
+                      child: SizedBox(
+                        height: 52,
+                        child: OutlinedButton(
+                          onPressed: widget.onRetryUpload,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            side: const BorderSide(color: Colors.white38),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          child: const Text(
+                            'Retry upload',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                  ],
+                  Expanded(
+                    child: SizedBox(
+                      height: 52,
+                      child: ElevatedButton(
+                        onPressed:
+                            (!widget.isProcessing &&
+                                    widget.uploadStatus != 'uploading')
+                                ? widget.onScanNext
+                                : null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primaryRed,
+                          disabledBackgroundColor: Colors.white12,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          elevation: 0,
+                        ),
+                        child: Text(
+                          widget.isProcessing ||
+                                  widget.uploadStatus == 'uploading'
+                              ? 'Please wait…'
+                              : (rejected
+                                  ? 'Rescan'
+                                  : (scored ? 'Scan next' : 'Try again')),
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSheetImage(double width, double height) {
+    final bytes = _imageBytes;
+    if (bytes != null) {
+      return Image.memory(
+        bytes,
+        fit: BoxFit.fill,
+        width: width,
+        height: height,
+        gaplessPlayback: true,
+      );
+    }
+    final path = widget.fallbackImagePath;
+    if (path != null) {
+      return Image.file(
+        File(path),
+        fit: BoxFit.cover,
+        width: width,
+        height: height,
+        errorBuilder: (_, __, ___) => const Center(
+          child: Text('Capturing…', style: TextStyle(color: grayText)),
+        ),
+      );
+    }
+    return const Center(
+      child: CircularProgressIndicator(color: primaryRed),
+    );
+  }
+}
+
+class _ScannerSweepPainter extends CustomPainter {
+  final double progress;
+  _ScannerSweepPainter({required this.progress});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final y = size.height * progress;
+    final band = Rect.fromLTWH(0, y - 18, size.width, 36);
+    final glow = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          const Color(0x0000E676),
+          const Color(0x6600E676),
+          const Color(0xCC00E676),
+          const Color(0x6600E676),
+          const Color(0x0000E676),
+        ],
+      ).createShader(band);
+    canvas.drawRect(band, glow);
+    canvas.drawLine(
+      Offset(0, y),
+      Offset(size.width, y),
+      Paint()
+        ..color = const Color(0xFF00E676)
+        ..strokeWidth = 2.5,
+    );
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Paint()..color = Colors.black.withValues(alpha: 0.12),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _ScannerSweepPainter old) =>
+      old.progress != progress;
+}
+
+class _ScoredMarkersPainter extends CustomPainter {
+  final List<ScoredBubbleMarker> markers;
+  _ScoredMarkersPainter({required this.markers});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final m in markers) {
+      final c = Offset(m.nx * size.width, m.ny * size.height);
+      final color =
+          m.isCorrect ? const Color(0xFF00C853) : const Color(0xFFE53935);
+      final r = (size.shortestSide * 0.022).clamp(10.0, 18.0);
+      canvas.drawCircle(
+        c,
+        r,
+        Paint()
+          ..color = color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.6,
+      );
+      canvas.drawCircle(
+        c,
+        r,
+        Paint()..color = color.withValues(alpha: 0.14),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ScoredMarkersPainter old) =>
+      old.markers != markers;
 }

@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:ui';
 
 class BubbleReading {
@@ -81,6 +82,14 @@ class OmrResult {
   final String? flagReason;
   final List<int> flaggedItems;
   final Duration processingTime;
+  /// Bird's-eye JPEG of the aligned sheet (for post-capture UI).
+  final Uint8List? alignedImageBytes;
+  /// Per-item markers on the aligned image (normalized 0–1).
+  final List<ScoredBubbleMarker> scoredMarkers;
+  /// Alignment strategy used (`page_contour`, `fiducial`, `direct`).
+  final String alignmentMethod;
+  /// True when warp fell back to unaligned full-frame (`direct`).
+  final bool lowConfidenceAlignment;
 
   OmrResult({
     this.studentIdentifier,
@@ -94,9 +103,33 @@ class OmrResult {
     this.flagReason,
     this.flaggedItems = const [],
     this.processingTime = const Duration(),
+    this.alignedImageBytes,
+    this.scoredMarkers = const [],
+    this.alignmentMethod = 'unknown',
+    this.lowConfidenceAlignment = false,
   });
 
   double get scoreRaw => correctCount.toDouble();
+
+  /// Reject grading/save when the sheet was never properly warped.
+  bool get isAlignmentUsable =>
+      !lowConfidenceAlignment && alignmentMethod != 'direct';
+}
+
+/// Circle on the realigned sheet for a graded item.
+class ScoredBubbleMarker {
+  final int itemNumber;
+  final double nx;
+  final double ny;
+  /// true = correct (green); false = wrong or unanswered (red).
+  final bool isCorrect;
+
+  const ScoredBubbleMarker({
+    required this.itemNumber,
+    required this.nx,
+    required this.ny,
+    required this.isCorrect,
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -169,21 +202,26 @@ class FiducialLockState {
       int consec = old.consecutiveFrames;
       
       if (detections[i]) {
-        // Boost detection strength quickly
-        consec = (consec + 2).clamp(0, lockThresholdFrames * 2);
+        consec = (consec + 3).clamp(0, lockThresholdFrames * 3);
       } else {
-        // Decay detection strength slowly (Grace period for flickers)
-        consec = (consec - 1).clamp(0, lockThresholdFrames * 2);
+        consec = (consec - 1).clamp(0, lockThresholdFrames * 3);
       }
-      
+
+      // Sticky: keep showing as detected while we still have recent confidence.
+      final isDetected = detections[i] || consec > 0;
       final locked = consec >= lockThresholdFrames;
+      // Drop stale positions once confidence is gone (avoids green boxes
+      // stuck on screen corners after a bad lock).
+      final Offset? nextPos = detections[i]
+          ? (positions[i] ?? old.position)
+          : (consec > 0 ? (positions[i] ?? old.position) : null);
 
       newCorners.add(CornerLock(
         id: old.id,
-        detected: detections[i],
+        detected: isDetected,
         locked: locked,
         consecutiveFrames: consec,
-        position: positions[i] ?? old.position,
+        position: nextPos,
       ));
     }
 

@@ -3,7 +3,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 import '../auth/login_screen.dart';
 import '../scanner/scanner_screen.dart';
-import '../scanner/scanner_widgets.dart';
 import '../grading/grading_repository.dart';
 import '../grading/models.dart';
 import '../faculty_dashboard/course_detail_screen.dart';
@@ -173,37 +172,17 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
     });
   }
 
-    void _openSectionSheet(BuildContext context) {
+    void _openScanner(BuildContext context) {
     if (_activeCourse == null) return;
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => SectionSelectionSheet(
-        courseId: _activeCourse!['course_id']!,
-        courseName:
-            '${_activeCourse!['course_code']} - ${_activeCourse!['course_title']}',
-        templates:
-            _activeTemplates.isNotEmpty ? _activeTemplates : _allTemplates.where((t) => t.courseId == _activeCourse!['course_id']).toList(),
-      ),
-    ).then((result) {
-      // 🟢 FIX: Check context.mounted instead of just mounted
-      if (!context.mounted) return;
-
-      if (result != null) {
-        _navigateToScanner(
-          context,
-          _activeCourse!['course_id']!,
-          '${_activeCourse!['course_code']} - ${_activeCourse!['course_title']}',
-          preselectedTemplate: result['template'] as BubbleTemplate?,
-        );
-      }
-    });
+    _navigateToScanner(
+      context,
+      _activeCourse!['course_id']!,
+      '${_activeCourse!['course_code']} - ${_activeCourse!['course_title']}',
+    );
   }
 
   void _navigateToScanner(BuildContext context, String courseId,
-      String courseName,
-      {BubbleTemplate? preselectedTemplate}) async {
+      String courseName) async {
     // Pause inactivity timer while scanning
     _inactivityTimer?.cancel();
     
@@ -214,7 +193,6 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
         builder: (_) => ScannerScreen(
           preSelectedCourseId: effectiveCourseId,
           preSelectedCourseName: courseName,
-          preselectedTemplate: preselectedTemplate,
         ),
       ),
     );
@@ -578,7 +556,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                           const SizedBox(height: 24),
                           ElevatedButton.icon(
                             onPressed:
-                                _activeCourse != null ? () => _openSectionSheet(context) : null,
+                                _activeCourse != null ? () => _openScanner(context) : null,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.white,
                               foregroundColor: primaryRed,

@@ -1086,8 +1086,9 @@ class OmrImaging {
     return detectFiducials(src, layout);
   }
 
-  /// Try fiducial, page-contour, and direct alignment; pick the best scoring warp.
+  /// Align sheet: page contour → fiducials → direct full-frame (no scoring).
   static ({
+    img.Image color,
     img.Image gray,
     img.Image binary,
     double dpi,
@@ -1100,57 +1101,6 @@ class OmrImaging {
     final targetDpi = (layout['dpi'] as num?)?.toDouble() ?? 150.0;
     final pageWpt = ((layout['page_width_pt'] as num?) ?? 612.0).toDouble();
     final pageHpt = ((layout['page_height_pt'] as num?) ?? 936.0).toDouble();
-    final numChoices =
-        (layout['answer_grid'] as Map?)?['num_choices'] as num? ?? 4;
-
-    ({
-      img.Image gray,
-      img.Image binary,
-      double dpi,
-      String method,
-      bool lowConfidence,
-    })? best;
-    var bestScore = -1;
-
-    void consider(
-      img.Image warped,
-      double dpi,
-      String method,
-      bool lowConfidence,
-    ) {
-      final gray = img.grayscale(warped);
-      final binary = otsuBinarize(blurOnly(gray, kernel: 5));
-      final score = _scoreAlignmentQuality(
-        gray,
-        binary,
-        layout,
-        dpi,
-        numChoices.toInt(),
-      );
-      if (score > bestScore) {
-        bestScore = score;
-        best = (
-          gray: gray,
-          binary: binary,
-          dpi: dpi,
-          method: method,
-          lowConfidence: lowConfidence,
-        );
-      }
-    }
-
-    // ATLAS sheets have corner fiducials — prefer when detected.
-    final fids = detectFiducials(src, layout);
-    if (fids.length >= 4) {
-      final wf = warpToPage(
-        fids,
-        src,
-        layout,
-        fromPageEdges: false,
-        targetDpi: targetDpi,
-      );
-      consider(wf.$1, wf.$2, 'fiducial', false);
-    }
 
     final pageCorners = _detectPageWithResizeFallback(src);
     if (pageCorners != null && pageCorners.length == 4) {
@@ -1161,15 +1111,49 @@ class OmrImaging {
         fromPageEdges: true,
         targetDpi: targetDpi,
       );
-      consider(wf.$1, wf.$2, 'page_contour', false);
+      final gray = img.grayscale(wf.$1);
+      return (
+        color: wf.$1,
+        gray: gray,
+        binary: otsuBinarize(blurOnly(gray, kernel: 5)),
+        dpi: wf.$2,
+        method: 'page_contour',
+        lowConfidence: false,
+      );
+    }
+
+    final fids = detectFiducials(src, layout);
+    if (fids.length >= 4) {
+      final wf = warpToPage(
+        fids,
+        src,
+        layout,
+        fromPageEdges: false,
+        targetDpi: targetDpi,
+      );
+      final gray = img.grayscale(wf.$1);
+      return (
+        color: wf.$1,
+        gray: gray,
+        binary: otsuBinarize(blurOnly(gray, kernel: 5)),
+        dpi: wf.$2,
+        method: 'fiducial',
+        lowConfidence: false,
+      );
     }
 
     final dpiX = src.width * 72.0 / pageWpt;
     final dpiY = src.height * 72.0 / pageHpt;
-    final directDpi = (dpiX + dpiY) / 2;
-    consider(src, directDpi, 'direct', true);
-
-    return best!;
+    final dpi = (dpiX + dpiY) / 2;
+    final gray = img.grayscale(src);
+    return (
+      color: src,
+      gray: gray,
+      binary: otsuBinarize(blurOnly(gray, kernel: 5)),
+      dpi: dpi,
+      method: 'direct',
+      lowConfidence: true,
+    );
   }
 
   /// Warp the sheet onto a full page canvas at fixed [targetDpi].
@@ -1341,6 +1325,7 @@ class OmrImaging {
   }) {
     final probeR = max(2, (r * 0.7).round());
     final base = maskFillRatio(binary, cx, cy, probeR);
+    if (base < 0.12) return (cx, cy);
 
     double bestScore = base;
     int bestX = cx, bestY = cy;
@@ -1355,62 +1340,11 @@ class OmrImaging {
         }
       }
     }
-    // Apply shift when empty (misaligned) or clearly better local peak (ring).
-    if (base < 0.12 || bestScore > base + 0.04) return (bestX, bestY);
+    if (bestScore > base + 0.05) return (bestX, bestY);
     return (cx, cy);
   }
 
   static int mmToPx(double mm, double dpi) => (mm * dpi / 25.4).round();
-
-  /// Score how well template bubble positions line up with visible marks.
-  /// Higher = better alignment hypothesis.
-  static int _scoreAlignmentQuality(
-    img.Image gray,
-    img.Image binary,
-    Map<String, dynamic> layout,
-    double dpi,
-    int numChoices,
-  ) {
-    final items = layout['items'] as Map<String, dynamic>? ?? {};
-    if (items.isEmpty) return 0;
-
-    final grid = layout['answer_grid'] as Map<String, dynamic>? ?? {};
-    final bubbleRMm = (grid['bubble_r_mm'] as num?)?.toDouble() ?? 2.0;
-    final rPx = max(3, (bubbleRMm * dpi / 25.4 * 0.90).round());
-    final choices =
-        List.generate(numChoices, (i) => String.fromCharCode(65 + i));
-
-    final keys = items.keys.map((k) => int.tryParse(k) ?? 0).where((k) => k > 0).toList()
-      ..sort();
-    if (keys.isEmpty) return 0;
-
-    // Sample ~15 items spread across the sheet (both columns).
-    final step = max(1, keys.length ~/ 15);
-    var score = 0;
-    for (var i = 0; i < keys.length; i += step) {
-      final itemData = items[keys[i].toString()] as Map<String, dynamic>?;
-      if (itemData == null) continue;
-
-      final fills = <double>[];
-      for (final ch in choices) {
-        final coord = itemData[ch] as Map<String, dynamic>?;
-        if (coord == null) continue;
-        final cx = mmToPx((coord['cx_mm'] as num).toDouble(), dpi);
-        final cy = mmToPx((coord['cy_spec_mm'] as num).toDouble(), dpi);
-        fills.add(max(
-          sampleCircle(gray, cx, cy, rPx),
-          maskFillRatio(binary, cx, cy, rPx),
-        ));
-      }
-      if (fills.isEmpty) continue;
-      fills.sort((a, b) => b.compareTo(a));
-      final top = fills.first;
-      final second = fills.length >= 2 ? fills[1] : 0.0;
-      if (top >= 0.35 && top - second >= 0.06) score += 2;
-      if (top >= 0.20) score += 1;
-    }
-    return score;
-  }
 
   /// Parse assessment ID from QR payload (`id` or `id|...`).
   static String? parseAssessmentId(String? qrRaw) {
@@ -1559,20 +1493,41 @@ class OmrImaging {
     return out;
   }
 
-  /// Live page detection — same pipeline as ShreenidhiBodas/OMR (Canny contours).
-  /// Returns page corners in portrait-UI normalised coordinates (0–1).
-  static ({bool tl, bool tr, bool bl, bool br,
-           double? tlx, double? tly,
-           double? trx, double? tryv,
-           double? blx, double? bly,
-           double? brx, double? bry}) detectPageCornersFast(
+  /// Live page detection — Canny sheet boundary + optional bird's-eye preview.
+  /// Corner positions are portrait-UI normalised (0–1).
+  static ({
+    bool tl,
+    bool tr,
+    bool bl,
+    bool br,
+    double? tlx,
+    double? tly,
+    double? trx,
+    double? tryv,
+    double? blx,
+    double? bly,
+    double? brx,
+    double? bry,
+    Uint8List? alignedPreview,
+  }) detectPageCornersFast(
     CameraImage frame, {
-    int targetWidth = 480,
+    int targetWidth = 400,
+    bool buildAlignedPreview = false,
   }) {
     const fail = (
-      tl: false, tr: false, bl: false, br: false,
-      tlx: null, tly: null, trx: null, tryv: null,
-      blx: null, bly: null, brx: null, bry: null,
+      tl: false,
+      tr: false,
+      bl: false,
+      br: false,
+      tlx: null,
+      tly: null,
+      trx: null,
+      tryv: null,
+      blx: null,
+      bly: null,
+      brx: null,
+      bry: null,
+      alignedPreview: null,
     );
 
     try {
@@ -1584,7 +1539,7 @@ class OmrImaging {
       final corners = detectPageEdges(small);
       if (corners == null || corners.length < 4) return fail;
 
-      final ordered = _orderPoints(corners);
+      final ordered = _orderPoints(corners); // TL, TR, BL, BR in small-image space
       final sw = small.width.toDouble();
       final sh = small.height.toDouble();
       final landscape = sw > sh;
@@ -1603,69 +1558,449 @@ class OmrImaging {
       final blUi = toUi(ordered[2]);
       final brUi = toUi(ordered[3]);
 
+      Uint8List? preview;
+      if (buildAlignedPreview) {
+        // Bird's-eye at low res for live PiP (long-bond aspect ~8.5:13).
+        const outW = 140;
+        final outH = (outW * 13.0 / 8.5).round();
+        final dst = [
+          _FPoint(0, 0),
+          _FPoint((outW - 1).toDouble(), 0),
+          _FPoint((outW - 1).toDouble(), (outH - 1).toDouble()),
+          _FPoint(0, (outH - 1).toDouble()),
+        ];
+        // Homography src order: TL, TR, BR, BL
+        final srcPts = [ordered[0], ordered[1], ordered[3], ordered[2]];
+        final dstPts = [dst[0], dst[1], dst[3], dst[2]];
+        final mat = _computeHomography(srcPts, dstPts);
+        if (mat != null) {
+          final inv = _invert3x3(mat);
+          final out = img.Image(width: outW, height: outH);
+          for (var y = 0; y < outH; y++) {
+            for (var x = 0; x < outW; x++) {
+              final srcXY = _applyHomography(inv, x.toDouble(), y.toDouble());
+              final sx = srcXY.x.round();
+              final sy = srcXY.y.round();
+              if (sx >= 0 && sy >= 0 && sx < small.width && sy < small.height) {
+                out.setPixel(x, y, small.getPixel(sx, sy));
+              } else {
+                out.setPixel(x, y, img.ColorInt8.rgb(255, 255, 255));
+              }
+            }
+          }
+          preview = Uint8List.fromList(img.encodeJpg(out, quality: 55));
+        }
+      }
+
       return (
-        tl: true, tlx: tlUi.dx, tly: tlUi.dy,
-        tr: true, trx: trUi.dx, tryv: trUi.dy,
-        bl: true, blx: blUi.dx, bly: blUi.dy,
-        br: true, brx: brUi.dx, bry: brUi.dy,
+        tl: true,
+        tlx: tlUi.dx,
+        tly: tlUi.dy,
+        tr: true,
+        trx: trUi.dx,
+        tryv: trUi.dy,
+        bl: true,
+        blx: blUi.dx,
+        bly: blUi.dy,
+        br: true,
+        brx: brUi.dx,
+        bry: brUi.dy,
+        alignedPreview: preview,
       );
     } catch (_) {
       return fail;
     }
   }
 
-  /// @deprecated Use [detectPageCornersFast] — fiducial blobs are not used.
-  static ({bool tl, bool tr, bool bl, bool br,
-           double? tlx, double? tly,
-           double? trx, double? tryv,
-           double? blx, double? bly,
-           double? brx, double? bry}) detectFiducialsFast(
+  /// Live fiducial tracking — finds dark square markers in the four corner
+  /// regions of the camera frame (fast Y-plane downsample). Falls back to
+  /// page-contour detection when blobs are missing.
+  static ({
+    bool tl,
+    bool tr,
+    bool bl,
+    bool br,
+    double? tlx,
+    double? tly,
+    double? trx,
+    double? tryv,
+    double? blx,
+    double? bly,
+    double? brx,
+    double? bry,
+    Uint8List? alignedPreview,
+  }) detectFiducialsLive(
+    CameraImage frame, {
+    bool buildAlignedPreview = false,
+  }) {
+    const fail = (
+      tl: false,
+      tr: false,
+      bl: false,
+      br: false,
+      tlx: null,
+      tly: null,
+      trx: null,
+      tryv: null,
+      blx: null,
+      bly: null,
+      brx: null,
+      bry: null,
+      alignedPreview: null,
+    );
+
+    try {
+      final yPlane = frame.planes[0];
+      final fw = frame.width;
+      final fh = frame.height;
+      final stride = yPlane.bytesPerRow;
+      final pixStride = yPlane.bytesPerPixel ?? 1;
+      const scale = 4;
+      final w = max(40, fw ~/ scale);
+      final h = max(40, fh ~/ scale);
+
+      // Downsampled luminance grid
+      final grid = List.generate(h, (yy) {
+        return List<int>.generate(w, (xx) {
+          final sx = (xx * scale).clamp(0, fw - 1);
+          final sy = (yy * scale).clamp(0, fh - 1);
+          final idx = sy * stride + sx * pixStride;
+          if (idx < 0 || idx >= yPlane.bytes.length) return 255;
+          return yPlane.bytes[idx];
+        });
+      });
+
+      final landscape = w > h;
+      Offset toUi(double ix, double iy) {
+        final sx = ix / w;
+        final sy = iy / h;
+        if (landscape) return Offset(sy, 1.0 - sx);
+        return Offset(sx, sy);
+      }
+
+      Offset fromUi(Offset ui) {
+        if (landscape) {
+          // Inverse of toUi: ui=(sy, 1-sx)
+          return Offset((1.0 - ui.dy) * w, ui.dx * h);
+        }
+        return Offset(ui.dx * w, ui.dy * h);
+      }
+
+      // ── 1) Predict fiducials inside the PAPER, not screen corners ──
+      // Page contour → inset fiducial UV from printed layout mm.
+      // Fallback: same ghost-guide positions used by the overlay painter.
+      final page = detectPageCornersFast(
+        frame,
+        targetWidth: 260,
+        buildAlignedPreview: false,
+      );
+
+      late final List<Offset> predictedUi;
+      late final Rect paperBoundsUi;
+
+      if (page.tl &&
+          page.tr &&
+          page.bl &&
+          page.br &&
+          page.tlx != null &&
+          page.tly != null &&
+          page.trx != null &&
+          page.tryv != null &&
+          page.blx != null &&
+          page.bly != null &&
+          page.brx != null &&
+          page.bry != null) {
+        final tl = Offset(page.tlx!, page.tly!);
+        final tr = Offset(page.trx!, page.tryv!);
+        final bl = Offset(page.blx!, page.bly!);
+        final br = Offset(page.brx!, page.bry!);
+        paperBoundsUi = Rect.fromPoints(tl, br)
+            .expandToInclude(Rect.fromPoints(tr, bl))
+            .inflate(0.02);
+
+        // Printed fiducial centres (mm) → UV on long-bond page.
+        const pageWmm = 215.9;
+        const pageHmm = 330.2;
+        const fidInset = 8.0;
+        const fidW = 10.0;
+        const headerMm = 50.8;
+        const contentBotMm = 294.8;
+        final uvs = <Offset>[
+          Offset((fidInset + fidW / 2) / pageWmm,
+              (headerMm + fidW / 2) / pageHmm),
+          Offset((pageWmm - fidInset - fidW / 2) / pageWmm,
+              (headerMm + fidW / 2) / pageHmm),
+          Offset((fidInset + fidW / 2) / pageWmm,
+              (contentBotMm + fidW / 2) / pageHmm),
+          Offset((pageWmm - fidInset - fidW / 2) / pageWmm,
+              (contentBotMm + fidW / 2) / pageHmm),
+        ];
+        Offset bilinear(Offset uv) {
+          final u = uv.dx, v = uv.dy;
+          return Offset(
+            (1 - u) * (1 - v) * tl.dx +
+                u * (1 - v) * tr.dx +
+                (1 - u) * v * bl.dx +
+                u * v * br.dx,
+            (1 - u) * (1 - v) * tl.dy +
+                u * (1 - v) * tr.dy +
+                (1 - u) * v * bl.dy +
+                u * v * br.dy,
+          );
+        }
+
+        predictedUi = uvs.map(bilinear).toList();
+      } else {
+        // Paper not found — search near the on-screen alignment ghosts.
+        predictedUi = _expectedFiducialUiNorm();
+        paperBoundsUi = _paperGuideUiNorm();
+      }
+
+      // ── 2) Small local search around each prediction (image space) ──
+      final searchR = (min(w, h) * 0.08).round().clamp(10, 28);
+      final found = <Offset?>[];
+      for (final pred in predictedUi) {
+        final img = fromUi(pred);
+        final cx = img.dx.round().clamp(0, w - 1);
+        final cy = img.dy.round().clamp(0, h - 1);
+        final region = _CornerRegion(
+          rx: (cx - searchR).clamp(0, w - 1),
+          ry: (cy - searchR).clamp(0, h - 1),
+          rw: (searchR * 2).clamp(1, w),
+          rh: (searchR * 2).clamp(1, h),
+          ax: cx,
+          ay: cy,
+        );
+        // Clip rw/rh to stay in bounds
+        final rw = min(region.rw, w - region.rx);
+        final rh = min(region.rh, h - region.ry);
+        final clipped = _CornerRegion(
+          rx: region.rx,
+          ry: region.ry,
+          rw: rw,
+          rh: rh,
+          ax: cx,
+          ay: cy,
+        );
+        final blob = _findDarkBlobInRegion(grid, w, h, clipped);
+        if (!blob.detected) {
+          found.add(null);
+          continue;
+        }
+        final ui = toUi(blob.x, blob.y);
+        // Must stay on the paper / inside the alignment frame — never floor.
+        if (!paperBoundsUi.inflate(0.04).contains(ui)) {
+          found.add(null);
+          continue;
+        }
+        // Stay near the prediction (reject random dark spots).
+        if ((ui - pred).distance > 0.14) {
+          found.add(null);
+          continue;
+        }
+        found.add(ui);
+      }
+
+      var uiTl = found.isNotEmpty ? found[0] : null;
+      var uiTr = found.length > 1 ? found[1] : null;
+      var uiBl = found.length > 2 ? found[2] : null;
+      var uiBr = found.length > 3 ? found[3] : null;
+
+      // Complete one missing corner from the other three (parallelogram).
+      Offset? completeFourth(Offset? a, Offset? b, Offset? c) {
+        if (a == null || b == null || c == null) return null;
+        final p = Offset(a.dx + c.dx - b.dx, a.dy + c.dy - b.dy);
+        if (!paperBoundsUi.inflate(0.06).contains(p)) {
+          return null;
+        }
+        return p;
+      }
+
+      final hits = [uiTl, uiTr, uiBl, uiBr].whereType<Offset>().length;
+      if (hits == 3) {
+        final oTl = uiTl, oTr = uiTr, oBl = uiBl, oBr = uiBr;
+        if (oTl == null) {
+          uiTl = completeFourth(oTr, oBr, oBl);
+        } else if (oTr == null) {
+          uiTr = completeFourth(oTl, oBl, oBr);
+        } else if (oBl == null) {
+          uiBl = completeFourth(oTl, oTr, oBr);
+        } else if (oBr == null) {
+          uiBr = completeFourth(oTr, oTl, oBl);
+        }
+      }
+
+      final tl = uiTl != null;
+      final tr = uiTr != null;
+      final bl = uiBl != null;
+      final br = uiBr != null;
+
+      Uint8List? preview;
+      if (buildAlignedPreview && tl && tr && bl && br) {
+        final aligned = detectPageCornersFast(
+          frame,
+          targetWidth: 280,
+          buildAlignedPreview: true,
+        );
+        preview = aligned.alignedPreview;
+      }
+
+      return (
+        tl: tl,
+        tr: tr,
+        bl: bl,
+        br: br,
+        tlx: uiTl?.dx,
+        tly: uiTl?.dy,
+        trx: uiTr?.dx,
+        tryv: uiTr?.dy,
+        blx: uiBl?.dx,
+        bly: uiBl?.dy,
+        brx: uiBr?.dx,
+        bry: uiBr?.dy,
+        alignedPreview: preview,
+      );
+    } catch (e) {
+      debugPrint('detectFiducialsLive error: $e');
+      return fail;
+    }
+  }
+
+  /// Paper guide rectangle in normalised preview coords (matches overlay).
+  static Rect _paperGuideUiNorm() {
+    const topMargin = 0.03;
+    const bottomMargin = 0.03;
+    const paperAspectHw = 13.0 / 8.5; // height / width of long bond
+    const previewAspectWh = 9.0 / 16.0; // typical portrait preview width/height
+    final availableH = 1.0 - topMargin - bottomMargin;
+    var clearW = 0.94;
+    // height_norm = clearW * previewAspectWh * paperAspectHw
+    // because clearW_px = 0.94*W, clearH_px = clearW_px * paperAspectHw,
+    // clearH_norm = clearH_px/H = 0.94*(W/H)*paperAspectHw
+    var clearH = clearW * previewAspectWh * paperAspectHw;
+    if (clearH > availableH) {
+      clearH = availableH;
+      clearW = clearH / (previewAspectWh * paperAspectHw);
+    }
+    final centerY = topMargin + availableH / 2;
+    return Rect.fromCenter(
+      center: Offset(0.5, centerY),
+      width: clearW,
+      height: clearH,
+    );
+  }
+
+  /// Ghost fiducial centres in normalised UI — same mm layout as the painter.
+  static List<Offset> _expectedFiducialUiNorm() {
+    const pageWmm = 215.9;
+    const pageHmm = 330.2;
+    const fidInset = 8.0;
+    const fidW = 10.0;
+    const headerMm = 50.8;
+    const contentBotMm = 294.8;
+    final guide = _paperGuideUiNorm();
+    Offset at(double xMm, double yMm) => Offset(
+          guide.left + (xMm / pageWmm) * guide.width,
+          guide.top + (yMm / pageHmm) * guide.height,
+        );
+    return [
+      at(fidInset + fidW / 2, headerMm + fidW / 2),
+      at(pageWmm - fidInset - fidW / 2, headerMm + fidW / 2),
+      at(fidInset + fidW / 2, contentBotMm + fidW / 2),
+      at(pageWmm - fidInset - fidW / 2, contentBotMm + fidW / 2),
+    ];
+  }
+
+  /// @deprecated Use [detectFiducialsLive].
+  static ({
+    bool tl,
+    bool tr,
+    bool bl,
+    bool br,
+    double? tlx,
+    double? tly,
+    double? trx,
+    double? tryv,
+    double? blx,
+    double? bly,
+    double? brx,
+    double? bry,
+    Uint8List? alignedPreview,
+  }) detectFiducialsFast(
     CameraImage frame, {
     int scaleDown = 4,
     Rect? roi,
   }) =>
-      detectPageCornersFast(frame, targetWidth: 480);
+      detectFiducialsLive(frame);
 
-  /// Finds the centroid of the darkest contiguous blob within a corner region.
+  /// Finds a solid black square fiducial in a corner band.
+  /// Prefers dark, dense, roughly-square blobs near the outer corner —
+  /// rejects filled answer-bubble clusters farther inward.
   static ({bool detected, double x, double y}) _findDarkBlobInRegion(
-    List<List<int>> grid, int w, int h, _CornerRegion region,
+    List<List<int>> grid,
+    int w,
+    int h,
+    _CornerRegion region,
   ) {
     final visited = <int>{};
-    int bestCx = 0, bestCy = 0, bestSize = 0;
-    final darkThreshold = 85;
 
     final rx = region.rx.clamp(0, w - 1);
     final ry = region.ry.clamp(0, h - 1);
-    final rw = region.rw;
-    final rh = region.rh;
+    final rw = region.rw.clamp(1, w - rx);
+    final rh = region.rh.clamp(1, h - ry);
 
-    for (int y = ry; y < (ry + rh).clamp(0, h); y++) {
-      for (int x = rx; x < (rx + rw).clamp(0, w); x++) {
+    // Adaptive threshold from local luminance (helps wrinkled / shadowed bottoms).
+    var sum = 0;
+    var count = 0;
+    var minL = 255;
+    for (int y = ry; y < ry + rh; y += 2) {
+      for (int x = rx; x < rx + rw; x += 2) {
+        final v = grid[y][x];
+        sum += v;
+        count++;
+        if (v < minL) minL = v;
+      }
+    }
+    final localMean = count > 0 ? sum / count : 180.0;
+    // Fiducials are much darker than paper; keep threshold near true black.
+    final darkThreshold =
+        ((localMean * 0.45) + (minL * 0.55)).round().clamp(40, 100);
+
+    // Fiducial ≈ 10mm on ~216mm page → ~4–6% of framed width.
+    final minDim = (w * 0.012).round().clamp(3, 10);
+    final maxDim = (w * 0.09).round().clamp(10, 36);
+    final regionDiag =
+        sqrt(rw * rw + rh * rh).clamp(1.0, double.infinity);
+
+    double bestScore = -1;
+    int bestCx = 0, bestCy = 0;
+
+    for (int y = ry; y < ry + rh; y++) {
+      for (int x = rx; x < rx + rw; x++) {
         final key = y * w + x;
         if (visited.contains(key)) continue;
         if (grid[y][x] > darkThreshold) continue;
 
-        // BFS/flood fill to find blob
         final q = <_Pix>[_Pix(x, y)];
         visited.add(key);
         int blobSize = 0;
-        int sumX = 0, sumY = 0;
+        int sumX = 0, sumY = 0, sumLum = 0;
         int minX = x, maxX = x, minY = y, maxY = y;
 
         while (q.isNotEmpty) {
           final p = q.removeAt(0);
           blobSize++;
-          // Weighted moments: darker pixels contribute more to centroid
-          // (mirrors OpenCV's moment-based centroid for sub-pixel precision)
-          final darkness = (darkThreshold - grid[p.y][p.x]).clamp(1, darkThreshold);
+          final lum = grid[p.y][p.x];
+          final darkness = (darkThreshold - lum).clamp(1, darkThreshold);
           sumX += p.x * darkness;
           sumY += p.y * darkness;
+          sumLum += lum;
           if (p.x < minX) minX = p.x;
           if (p.x > maxX) maxX = p.x;
           if (p.y < minY) minY = p.y;
           if (p.y > maxY) maxY = p.y;
 
-          for (final d in [(1, 0), (-1, 0), (0, 1), (0, -1)]) {
+          for (final d in const [(1, 0), (-1, 0), (0, 1), (0, -1)]) {
             final nx = p.x + d.$1;
             final ny = p.y + d.$2;
             if (nx < rx || ny < ry || nx >= rx + rw || ny >= ry + rh) continue;
@@ -1678,36 +2013,54 @@ class OmrImaging {
           }
         }
 
-        // Validate blob: must be roughly square-ish within size bounds
         final bw = maxX - minX + 1;
         final bh = maxY - minY + 1;
-        final minDim = (w * 0.012).round().clamp(4, 24);
-        final maxDim = (w * 0.20).round().clamp(16, 80);
-        final aspect = bw > 0 && bh > 0 ? bw / bh : 0.0;
-        final aspectOk = aspect >= 0.65 && aspect <= 1.5;
+        if (bw < minDim ||
+            bh < minDim ||
+            bw > maxDim ||
+            bh > maxDim ||
+            blobSize < 6) {
+          continue;
+        }
 
-        // Total darkness weight for normalising weighted centroid
-        final totalDarkness = (() {
-          int td = 0;
-          for (int yy = minY; yy <= maxY; yy++) {
-            for (int xx = minX; xx <= maxX; xx++) {
-              if (grid[yy][xx] <= darkThreshold) {
-                td += (darkThreshold - grid[yy][xx]).clamp(1, darkThreshold);
-              }
-            }
-          }
-          return td;
-        })();
+        final aspect = bw / bh;
+        if (aspect < 0.6 || aspect > 1.65) continue;
 
-        if (bw >= minDim && bh >= minDim && bw <= maxDim && bh <= maxDim && aspectOk && blobSize > bestSize) {
-          bestSize = blobSize;
-          bestCx = totalDarkness > 0 ? (sumX / totalDarkness).round() : (sumX ~/ blobSize);
-          bestCy = totalDarkness > 0 ? (sumY / totalDarkness).round() : (sumY ~/ blobSize);
+        final bboxArea = bw * bh;
+        final fillRatio = blobSize / bboxArea;
+        // Solid printed square ≈ high fill; bubble clusters are sparser.
+        if (fillRatio < 0.50) continue;
+
+        final meanLum = sumLum / blobSize;
+        if (meanLum > 75) continue;
+
+        final darknessW = max(1.0, (darkThreshold - meanLum) * blobSize);
+        final wcx = sumX / darknessW;
+        final wcy = sumY / darknessW;
+
+        final dist = sqrt(
+            (wcx - region.ax) * (wcx - region.ax) +
+                (wcy - region.ay) * (wcy - region.ay));
+        // Reject blobs sitting too far inward (answer grid / ID bubbles).
+        if (dist > regionDiag * 0.72) continue;
+        final cornerBias = 1.0 / (1.0 + dist / regionDiag);
+
+        // Score: dark + solid + near outer corner. Size secondary.
+        final score = (90 - meanLum) *
+            fillRatio *
+            fillRatio *
+            cornerBias *
+            (1.0 + blobSize / 80.0);
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestCx = wcx.round().clamp(minX, maxX);
+          bestCy = wcy.round().clamp(minY, maxY);
         }
       }
     }
 
-    if (bestSize >= 8) {
+    if (bestScore > 0) {
       return (detected: true, x: bestCx.toDouble(), y: bestCy.toDouble());
     }
     return (detected: false, x: 0.0, y: 0.0);
@@ -1911,6 +2264,18 @@ class OmrImaging {
 // Internal types
 class _FPoint { final double x, y; _FPoint(this.x, this.y); }
 class _Blob { final double cx, cy; _Blob({required this.cx, required this.cy}); }
-class _CornerRegion { final int rx, ry, rw, rh; _CornerRegion({required this.rx, required this.ry, required this.rw, required this.rh}); }
+class _CornerRegion {
+  final int rx, ry, rw, rh;
+  /// Outer corner tip this ROI belongs to (image coords) — used for scoring.
+  final int ax, ay;
+  _CornerRegion({
+    required this.rx,
+    required this.ry,
+    required this.rw,
+    required this.rh,
+    required this.ax,
+    required this.ay,
+  });
+}
 class _Pix { final int x, y; _Pix(this.x, this.y); }
 class _PointDist { final _FPoint point; final double dist; _PointDist(this.point, this.dist); }

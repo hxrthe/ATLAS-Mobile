@@ -67,76 +67,10 @@ class OmrReferenceGrader {
   static const int minAnswerBubblePx = 14;
   static const int minIdBubblePx = 10;
 
-  static const double _fillThreshold = 0.38;
-  static const double _confidenceFloor = 0.22;
-  static const double _marginFill = 0.06;
-
-  /// Estimate systematic (dx, dy) offset by matching template coords to
-  /// nearest bubble-ring contours on the warped binary image.
-  static (double dx, double dy) estimateCalibrationOffset(
-    img.Image binary,
-    Map<String, dynamic> layout,
-    double dpi,
-  ) {
-    final items = layout['items'] as Map<String, dynamic>? ?? {};
-    if (items.isEmpty) return (0, 0);
-
-    final grid = layout['answer_grid'] as Map<String, dynamic>? ?? {};
-    final bubbleRMm = (grid['bubble_r_mm'] as num?)?.toDouble() ?? 2.0;
-    final rPx = max(3, (bubbleRMm * dpi / 25.4).round());
-    final searchPx = max(12.0, rPx * 4.0);
-
-    final rings = findBubbleContours(binary, minSize: 10);
-    if (rings.length < 8) return (0, 0);
-
-    final dxs = <double>[];
-    final dys = <double>[];
-
-    final keys = items.keys.map((k) => int.tryParse(k) ?? 0).where((k) => k > 0).toList()
-      ..sort();
-    final step = max(1, keys.length ~/ 20);
-
-    for (var i = 0; i < keys.length; i += step) {
-      final itemData = items[keys[i].toString()] as Map<String, dynamic>?;
-      if (itemData == null) continue;
-      for (final coord in itemData.values) {
-        if (coord is! Map<String, dynamic>) continue;
-        final tcx = OmrImaging.mmToPx(
-          (coord['cx_mm'] as num?)?.toDouble() ?? 0,
-          dpi,
-        ).toDouble();
-        final tcy = OmrImaging.mmToPx(
-          (coord['cy_spec_mm'] as num?)?.toDouble() ?? 0,
-          dpi,
-        ).toDouble();
-
-        DetectedBubble? nearest;
-        var bestD = searchPx * searchPx;
-        for (final b in rings) {
-          final d2 = (b.cx - tcx) * (b.cx - tcx) + (b.cy - tcy) * (b.cy - tcy);
-          if (d2 < bestD) {
-            bestD = d2;
-            nearest = b;
-          }
-        }
-        if (nearest != null) {
-          dxs.add(nearest.cx - tcx);
-          dys.add(nearest.cy - tcy);
-        }
-      }
-    }
-
-    if (dxs.length < 6) return (0, 0);
-
-    dxs.sort();
-    dys.sort();
-    final dx = dxs[dxs.length ~/ 2];
-    final dy = dys[dys.length ~/ 2];
-
-    // Ignore wild corrections (bad contour matches).
-    if (dx.abs() > searchPx || dy.abs() > searchPx) return (0, 0);
-    return (dx, dy);
-  }
+  // Match Django bubble_sheet_scanner thresholds.
+  static const double _fillThreshold = 0.42;
+  static const double _confidenceFloor = 0.28;
+  static const double _marginFill = 0.08;
 
   // ── Template-coordinate reading (primary — uses layout items mm positions) ─
 
@@ -145,10 +79,8 @@ class OmrReferenceGrader {
     img.Image gray,
     Map<String, dynamic> layout,
     double dpi,
-    int numChoices, {
-    double offsetDx = 0,
-    double offsetDy = 0,
-  }) {
+    int numChoices,
+  ) {
     final items = layout['items'] as Map<String, dynamic>? ?? {};
     if (items.isEmpty) return [];
 
@@ -174,22 +106,11 @@ class OmrReferenceGrader {
         if (coord == null) continue;
         final cxMm = (coord['cx_mm'] as num?)?.toDouble() ?? 0;
         final cyMm = (coord['cy_spec_mm'] as num?)?.toDouble() ?? 0;
-        var cx = OmrImaging.mmToPx(cxMm, dpi) + offsetDx.round();
-        var cy = OmrImaging.mmToPx(cyMm, dpi) + offsetDy.round();
-        final refined = OmrImaging.refineBubbleCenter(
-          binary,
-          cx,
-          cy,
-          rPx,
-          searchRadius: 10,
-        );
-        cx = refined.$1;
-        cy = refined.$2;
+        final cx = OmrImaging.mmToPx(cxMm, dpi);
+        final cy = OmrImaging.mmToPx(cyMm, dpi);
 
-        // Grayscale fill (matches Django bubble_sheet_scanner) + mask tie-break.
-        final grayFill = OmrImaging.sampleCircle(gray, cx, cy, rPx);
-        final maskFill = OmrImaging.maskFillRatio(binary, cx, cy, rPx);
-        final fill = max(grayFill, maskFill);
+        // Grayscale only (Django-style) — no refine/offset that latch onto rings.
+        final fill = OmrImaging.sampleCircle(gray, cx, cy, rPx);
         fills.add((choice: ch, fill: fill));
       }
 

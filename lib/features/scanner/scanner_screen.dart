@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -15,52 +16,63 @@ import 'template_cache.dart';
 class ScannerScreen extends StatefulWidget {
   final String? preSelectedCourseId;
   final String? preSelectedCourseName;
-  final BubbleTemplate? preselectedTemplate;
 
   const ScannerScreen({
     super.key,
     this.preSelectedCourseId,
     this.preSelectedCourseName,
-    this.preselectedTemplate,
   });
 
   @override
   State<ScannerScreen> createState() => _ScannerScreenState();
 }
 
-enum _ScreenMode { scanning, review, detail }
+enum _ScreenMode { scanning, result, review, detail }
 
 class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateMixin {
   CameraController? _controller;
   bool _isCameraReady = false;
   bool _isStreaming = false;
   int _frameCount = 0;
-  static const int _frameSkip = 3;
+  static const int _frameSkip = 2;
 
   final GradingRepository _repository = GradingRepository();
   List<BubbleTemplate> _templates = [];
   BubbleTemplate? _selectedTemplate;
-  bool _isLoadingTemplates = false;
-  String? _templatesError;
 
   FiducialLockState _fiducialLock = FiducialLockState.initial();
   ScannerDiagnostics _diagnostics = ScannerDiagnostics.ok();
-  // List<BubbleOverlayData> _liveBubbles = []; // Removed
   bool _assessmentIdentified = false;
   bool _isCapturing = false;
-  static const int _lockThresholdFrames = 10;
+  bool _isIdentifying = false;
+  bool _frameBusy = false;
+  String? _identifyError;
+  Uint8List? _alignedPreviewBytes;
+  static const int _lockThresholdFrames = 5;
 
   AnimationController? _scoreFlashController;
   Animation<double>? _scoreFlashAnimation;
   String? _scoreFlashText;
 
   Timer? _torchTimer;
+  Timer? _resultStatusTimer;
 
   List<ScanRecord> _scanRecords = [];
   bool _isLoadingRecords = false;
 
   _ScreenMode _mode = _ScreenMode.scanning;
   ScanRecord? _detailRecord;
+
+  // Post-capture result screen state
+  String? _resultCapturePath;
+  Uint8List? _resultPreviewBytes;
+  bool _resultProcessing = false;
+  String _resultStatus = '';
+  OmrResult? _lastOmrResult;
+  int _resultStatusStep = 0;
+  /// idle | uploading | uploaded | failed | rejected
+  String _uploadStatus = 'idle';
+  ScanRecord? _pendingUploadRecord;
 
   Rect? _roi;
   Size? _lastScreenSize;
@@ -107,14 +119,17 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
   }
 
   Future<void> _initScanner() async {
-    await _loadTemplates();
+    // Camera first — assessment is chosen by QR on the sheet, not by UI.
     await _setupCamera();
     _loadScanRecords();
+    // Background cache of course templates (faster QR match when already known).
+    _loadTemplates();
   }
 
   @override
   void dispose() {
     _torchTimer?.cancel();
+    _resultStatusTimer?.cancel();
     _stopImageStream();
     _controller?.dispose();
     _scoreFlashController?.dispose();
@@ -123,23 +138,15 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
   }
 
   Future<void> _loadTemplates() async {
-    setState(() { _isLoadingTemplates = true; _templatesError = null; });
     try {
       final cached = await TemplateCache.load();
-      if (cached != null && cached.isNotEmpty) {
-        setState(() { _templates = cached; _isLoadingTemplates = false; });
-        _autoSelectTemplate();
-        _refreshTemplatesFromNetwork();
-        return;
+      if (cached != null && cached.isNotEmpty && mounted) {
+        setState(() => _templates = cached);
       }
       await _fetchFromNetwork();
     } catch (e) {
-      setState(() { _isLoadingTemplates = false; _templatesError = e.toString().replaceAll('Exception: ', ''); });
+      debugPrint('Template cache load failed: $e');
     }
-  }
-
-  Future<void> _refreshTemplatesFromNetwork() async {
-    try { await _fetchFromNetwork(); } catch (_) {}
   }
 
   Future<void> _fetchFromNetwork() async {
@@ -147,63 +154,50 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     if (courseId != null && courseId.isNotEmpty) {
       final templates = await _repository.fetchTemplates(courseId);
       await TemplateCache.store(templates);
-      if (mounted) {
-        setState(() { _templates = templates; _isLoadingTemplates = false; });
-        _autoSelectTemplate();
+      if (mounted) setState(() => _templates = templates);
+      return;
+    }
+    final courses = await _repository.fetchFacultyCourses();
+    if (courses.isNotEmpty) {
+      final templates =
+          await _repository.fetchTemplates(courses.first['course_id']!);
+      await TemplateCache.store(templates);
+      if (mounted) setState(() => _templates = templates);
+    }
+  }
+
+  /// Bind the live template from assessment QR: layout + answer key.
+  Future<void> _bindTemplateFromQr(BubbleTemplate seed) async {
+    BubbleTemplate bound = seed;
+    try {
+      // Always pull full detail so layout_metadata.items is present.
+      bound = await _repository.fetchTemplateDetail(seed.templateId);
+    } catch (e) {
+      debugPrint('Template detail fetch failed: $e');
+    }
+
+    if (bound.answerKey.isEmpty && bound.assessmentId != null) {
+      try {
+        bound = await _repository.syncKeyFromAssessment(bound.templateId);
+      } catch (e) {
+        debugPrint('Answer key sync failed: $e');
       }
-    } else {
-      final courses = await _repository.fetchFacultyCourses();
-      if (courses.isNotEmpty) {
-        final templates = await _repository.fetchTemplates(courses.first['course_id']!);
-        await TemplateCache.store(templates);
-        if (mounted) {
-          setState(() { _templates = templates; _isLoadingTemplates = false; });
-          _autoSelectTemplate();
-        }
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _selectedTemplate = bound;
+      _assessmentIdentified = true;
+      _identifyError = null;
+      if (!_templates.any((t) => t.templateId == bound.templateId)) {
+        _templates.add(bound);
       } else {
-        setState(() { _templates = []; _isLoadingTemplates = false; _templatesError = 'No courses found.'; });
+        final idx =
+            _templates.indexWhere((t) => t.templateId == bound.templateId);
+        if (idx >= 0) _templates[idx] = bound;
       }
-    }
-  }
-
-  void _autoSelectTemplate() {
-    if (widget.preselectedTemplate != null) {
-      final match = _templates.where(
-        (t) => t.templateId == widget.preselectedTemplate!.templateId,
-      );
-      if (match.isNotEmpty) {
-        _onTemplateSelected(match.first);
-        return;
-      }
-    }
-    if (_templates.length == 1) _onTemplateSelected(_templates.first);
-  }
-
-  Future<void> _onTemplateSelected(BubbleTemplate t) async {
-    setState(() { _selectedTemplate = t; _templatesError = null; });
-    final needsDetail = !t.hasLayoutItems ||
-        (t.answerKey.isEmpty && t.hasAnswerKey);
-    if (needsDetail) {
-      setState(() => _isLoadingTemplates = true);
-      try {
-        final detail = await _repository.fetchTemplateDetail(t.templateId);
-        if (mounted) {
-          setState(() {
-            _selectedTemplate = detail;
-            _isLoadingTemplates = false;
-          });
-          _updateCachedTemplate(detail);
-        }
-      } catch (_) {
-        if (mounted) setState(() => _isLoadingTemplates = false);
-      }
-    } else if (t.answerKey.isEmpty && t.assessmentId != null) {
-      setState(() => _isLoadingTemplates = true);
-      try {
-        final synced = await _repository.syncKeyFromAssessment(t.templateId);
-        if (mounted) { setState(() { _selectedTemplate = synced; _isLoadingTemplates = false; }); _updateCachedTemplate(synced); }
-      } catch (_) { if (mounted) setState(() => _isLoadingTemplates = false); }
-    }
+    });
+    _updateCachedTemplate(bound);
   }
 
   void _updateCachedTemplate(BubbleTemplate updated) {
@@ -266,63 +260,92 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
   void _onFrame(CameraImage frame) async {
     _frameCount++;
     if (_frameCount % _frameSkip != 0) return;
-    if (_isCapturing) return;
+    if (_isCapturing || _frameBusy) return;
+    _frameBusy = true;
 
-    // 1. QR Detection (every 3 frames for near-instant identification)
-    if (_frameCount % 3 == 0) {
-      final qr = await OmrImaging.decodeQRFromFrame(frame);
-      if (qr != null && qr.isNotEmpty) {
-        final parts = qr.split('|');
-        if (parts.isNotEmpty) {
-          final assessmentId = parts[0].trim();
+    try {
+      // Corner / fiducial tracking first (must stay snappy for moving guides).
+      final det = OmrImaging.detectFiducialsLive(
+        frame,
+        buildAlignedPreview: _frameCount % 12 == 0,
+      );
 
-          // Only switch if it's a different assessment
-          if (_selectedTemplate?.assessmentId != assessmentId) {
-            final match = _templates.where((t) => t.assessmentId == assessmentId);
-            if (match.isNotEmpty) {
-              _onTemplateSelected(match.first);
-              if (mounted) setState(() => _assessmentIdentified = true);
-            } else {
-              // Not in current course templates? Try fetching specifically by assessment ID
-              _identifyNewAssessment(assessmentId);
+      final next = _fiducialLock.update(
+        tl: det.tl,
+        tr: det.tr,
+        bl: det.bl,
+        br: det.br,
+        tlPos: det.tlx != null && det.tly != null
+            ? Offset(det.tlx!, det.tly!)
+            : null,
+        trPos: det.trx != null && det.tryv != null
+            ? Offset(det.trx!, det.tryv!)
+            : null,
+        blPos: det.blx != null && det.bly != null
+            ? Offset(det.blx!, det.bly!)
+            : null,
+        brPos: det.brx != null && det.bry != null
+            ? Offset(det.brx!, det.bry!)
+            : null,
+        lockThresholdFrames: _lockThresholdFrames,
+      );
+
+      if (mounted) {
+        setState(() {
+          _fiducialLock = next;
+          if (det.alignedPreview != null) {
+            _alignedPreviewBytes = det.alignedPreview;
+          } else if (!next.corners.any((c) => c.position != null)) {
+            _alignedPreviewBytes = null;
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Live frame error: $e');
+    } finally {
+      // Release before QR/diagnostics so guides keep updating.
+      _frameBusy = false;
+    }
+
+    // QR identification — never blocks fiducial tracking above.
+    if (_frameCount % 12 == 0 && !_isIdentifying && !_isCapturing) {
+      try {
+        final qr = await OmrImaging.decodeQRFromFrame(frame);
+        if (qr != null && qr.isNotEmpty) {
+          final assessmentId = OmrImaging.parseAssessmentId(qr);
+          if (assessmentId != null && assessmentId.isNotEmpty) {
+            if (_selectedTemplate?.assessmentId != assessmentId) {
+              await _identifyAssessmentFromQr(assessmentId);
+            } else if (!_assessmentIdentified && mounted) {
+              setState(() => _assessmentIdentified = true);
             }
-          } else {
-             // Already using this assessment, just mark as identified if it wasn't
-             if (!_assessmentIdentified && mounted) {
-               setState(() => _assessmentIdentified = true);
-             }
           }
         }
+      } catch (e) {
+        debugPrint('QR frame error: $e');
       }
     }
 
-    if (_selectedTemplate == null) return;
-
-    // 2. Diagnostics (every 30 frames)
-    if (_frameCount % 30 == 0) {
-      final diag = OmrImaging.runDiagnostics(frame, lockedCorners: _fiducialLock.corners.where((c) => c.detected).length);
-      if (mounted) setState(() => _diagnostics = diag);
+    if (_frameCount % 45 == 0 && !_isCapturing) {
+      try {
+        final diag = OmrImaging.runDiagnostics(
+          frame,
+          lockedCorners:
+              _fiducialLock.corners.where((c) => c.locked).length,
+        );
+        if (mounted) setState(() => _diagnostics = diag);
+      } catch (_) {}
     }
-
-    // 3. Page contour detection (ShreenidhiBodas/OMR — Canny sheet boundary)
-    if (_frameCount % 6 == 0) {
-      final det = OmrImaging.detectPageCornersFast(frame, targetWidth: 400);
-
-      _fiducialLock = _fiducialLock.update(
-        tl: det.tl, tr: det.tr, bl: det.bl, br: det.br,
-        tlPos: det.tlx != null && det.tly != null ? Offset(det.tlx!, det.tly!) : null,
-        trPos: det.trx != null && det.tryv != null ? Offset(det.trx!, det.tryv!) : null,
-        blPos: det.blx != null && det.bly != null ? Offset(det.blx!, det.bly!) : null,
-        brPos: det.brx != null && det.bry != null ? Offset(det.brx!, det.bry!) : null,
-        lockThresholdFrames: _lockThresholdFrames,
-      );
-    }
-
-    if (mounted) setState(() {});
   }
 
   bool get _readyToCapture =>
-      _assessmentIdentified && !_isCapturing;
+      _assessmentIdentified &&
+      _selectedTemplate != null &&
+      _selectedTemplate!.hasLayoutItems &&
+      _fiducialLock.allLocked &&
+      _fiducialLock.lockDuration >= 2 &&
+      !_isCapturing &&
+      !_isIdentifying;
 
   Future<void> _manualCapture() async {
     if (_isCapturing) return;
@@ -331,13 +354,73 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     try {
       HapticFeedback.mediumImpact();
       final image = await _controller!.takePicture();
+      await _stopImageStream();
+
+      if (!mounted) return;
+      setState(() {
+        _resultCapturePath = image.path;
+        _resultPreviewBytes = _alignedPreviewBytes;
+        _resultProcessing = true;
+        _resultStatus = 'Realigning sheet…';
+        _resultStatusStep = 0;
+        _lastOmrResult = null;
+        _mode = _ScreenMode.result;
+      });
+      _startResultStatusCycle();
       _processScanInBackground(image.path);
-      // Re-apply torch after capture (takePicture kills flash on Android)
       _syncTorch();
     } catch (e) {
       debugPrint("Capture error: $e");
       _isCapturing = false;
+      if (mounted) {
+        setState(() {
+          _mode = _ScreenMode.scanning;
+          _resultProcessing = false;
+        });
+        _startImageStream();
+      }
     }
+  }
+
+  static const _resultStatusMessages = [
+    'Realigning sheet…',
+    'Reading student ID…',
+    'Extracting answers…',
+    'Checking against answer key…',
+    'Preparing scored sheet…',
+  ];
+
+  void _startResultStatusCycle() {
+    _resultStatusTimer?.cancel();
+    _resultStatusTimer = Timer.periodic(const Duration(milliseconds: 900), (_) {
+      if (!mounted || !_resultProcessing) {
+        _resultStatusTimer?.cancel();
+        return;
+      }
+      setState(() {
+        if (_resultStatusStep < _resultStatusMessages.length - 1) {
+          _resultStatusStep++;
+          _resultStatus = _resultStatusMessages[_resultStatusStep];
+        }
+      });
+    });
+  }
+
+  void _scanNext() {
+    _resultStatusTimer?.cancel();
+    setState(() {
+      _mode = _ScreenMode.scanning;
+      _isCapturing = false;
+      _resultProcessing = false;
+      _lastOmrResult = null;
+      _resultCapturePath = null;
+      _resultPreviewBytes = null;
+      _resultStatus = '';
+      _uploadStatus = 'idle';
+      _pendingUploadRecord = null;
+      _fiducialLock = FiducialLockState.initial();
+    });
+    _startImageStream();
   }
 
   Future<void> _processScanInBackground(String imagePath) async {
@@ -345,49 +428,110 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       final selected = _selectedTemplate;
       if (selected == null) {
         _isCapturing = false;
+        if (mounted) {
+          setState(() {
+            _resultProcessing = false;
+            _resultStatus = 'No assessment loaded';
+            _uploadStatus = 'rejected';
+          });
+        }
         return;
       }
 
       BubbleTemplate scanTemplate = selected;
 
-      // Ensure layout bubble coordinates are loaded (required for OMR).
-      if (!scanTemplate.hasLayoutItems) {
+      if (!scanTemplate.hasLayoutItems || scanTemplate.answerKey.isEmpty) {
         try {
-          scanTemplate = await _repository.fetchTemplateDetail(scanTemplate.templateId);
+          if (!scanTemplate.hasLayoutItems) {
+            scanTemplate =
+                await _repository.fetchTemplateDetail(scanTemplate.templateId);
+          }
+          if (scanTemplate.answerKey.isEmpty &&
+              scanTemplate.assessmentId != null) {
+            scanTemplate =
+                await _repository.syncKeyFromAssessment(scanTemplate.templateId);
+          }
           if (mounted) {
             setState(() => _selectedTemplate = scanTemplate);
             _updateCachedTemplate(scanTemplate);
           }
         } catch (e) {
-          debugPrint('Failed to load template layout: $e');
+          debugPrint('Failed to load template layout/key: $e');
         }
       }
 
       if (!scanTemplate.hasLayoutItems) {
         _isCapturing = false;
         if (mounted) {
-          _showScoreFlash('Regenerate PDF first');
+          setState(() {
+            _resultProcessing = false;
+            _resultStatus = 'Regenerate PDF first';
+            _uploadStatus = 'rejected';
+          });
         }
         return;
       }
 
-      // Primary: on-device OMR (multi-strategy alignment + template coordinates).
+      if (scanTemplate.answerKey.isEmpty) {
+        _isCapturing = false;
+        if (mounted) {
+          setState(() {
+            _resultProcessing = false;
+            _resultStatus = 'No answer key for this assessment';
+            _uploadStatus = 'rejected';
+          });
+        }
+        return;
+      }
+
+      if (mounted) {
+        setState(() => _resultStatus = 'Extracting answers…');
+      }
+
       final omrService = OmrService();
       final result = await omrService.scanImage(imagePath, scanTemplate);
+
+      // Hard gate: never save/upload unaligned (direct) captures.
+      if (!result.isAlignmentUsable) {
+        _resultStatusTimer?.cancel();
+        if (mounted) {
+          setState(() {
+            _lastOmrResult = result;
+            _isCapturing = false;
+            _resultProcessing = false;
+            _uploadStatus = 'rejected';
+            _resultStatus =
+                'Sheet not aligned — fit all 4 black squares in frame and rescan';
+          });
+        }
+        return;
+      }
+
       final finalStudentId = result.studentIdentifier ?? 'Unknown';
+
+      if (mounted) {
+        setState(() {
+          _lastOmrResult = result;
+          _resultStatus = 'Saving to database…';
+          _uploadStatus = 'uploading';
+        });
+      }
 
       // Check for duplicate scan (same student + same assessment)
       final allRecords = await ScanHistory.getAll();
       final duplicate = allRecords.where(
-        (r) => r.studentIdentifier == finalStudentId && r.templateId == scanTemplate.templateId,
+        (r) =>
+            r.studentIdentifier == finalStudentId &&
+            r.templateId == scanTemplate.templateId,
       );
       if (duplicate.isNotEmpty && mounted) {
-        _isCapturing = false;
         final confirmed = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Text('Already Recorded', style: TextStyle(fontWeight: FontWeight.bold)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Text('Already Recorded',
+                style: TextStyle(fontWeight: FontWeight.bold)),
             content: Text(
               '$finalStudentId has already been scanned for this assessment.\n\nContinuing will overwrite the previous record.',
             ),
@@ -398,20 +542,31 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
               ),
               TextButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Rescan', style: TextStyle(color: primaryRed, fontWeight: FontWeight.bold)),
+                child: const Text('Rescan',
+                    style:
+                        TextStyle(color: primaryRed, fontWeight: FontWeight.bold)),
               ),
             ],
           ),
         );
-        if (confirmed != true) return;
-        // Remove the old duplicate record
+        if (confirmed != true) {
+          if (mounted) {
+            setState(() {
+              _resultProcessing = false;
+              _isCapturing = false;
+              _uploadStatus = 'rejected';
+            });
+          }
+          return;
+        }
         for (final old in duplicate) {
           await ScanHistory.removeRecord(old.id);
           if (mounted) {
-            setState(() { _scanRecords.removeWhere((r) => r.id == old.id); });
+            setState(() {
+              _scanRecords.removeWhere((r) => r.id == old.id);
+            });
           }
         }
-        _isCapturing = true;
       }
 
       final record = ScanRecord(
@@ -431,36 +586,60 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       );
 
       await ScanHistory.addRecord(record);
-      final scoreStr = result.scorePercent.toStringAsFixed(0);
-      _showScoreFlash('$finalStudentId: $scoreStr%');
+      _pendingUploadRecord = record;
 
       HapticFeedback.heavyImpact();
       SystemSound.play(SystemSoundType.click);
 
+      _resultStatusTimer?.cancel();
       if (mounted) {
-        setState(() { _scanRecords.insert(0, record); _isCapturing = false; });
+        setState(() {
+          _scanRecords.insert(0, record);
+          _isCapturing = false;
+          _resultProcessing = false;
+          _lastOmrResult = result;
+          _resultStatus = 'Uploading to grading results…';
+          _uploadStatus = 'uploading';
+        });
       }
-      _attemptBackgroundUpload(record);
+      await _attemptBackgroundUpload(record);
     } catch (e) {
       debugPrint("OMR processing error: $e");
-      if (mounted) { setState(() => _isCapturing = false); _showScoreFlash('Scan error'); }
+      _resultStatusTimer?.cancel();
+      if (mounted) {
+        setState(() {
+          _isCapturing = false;
+          _resultProcessing = false;
+          _resultStatus = 'Scan error — try again';
+          _uploadStatus = 'rejected';
+        });
+      }
     }
   }
 
-  void _showScoreFlash(String text) {
-    if (!mounted) return;
-    setState(() => _scoreFlashText = text);
-    _scoreFlashController?.forward(from: 0.0);
-    Future.delayed(const Duration(milliseconds: 1600), () {
-      if (mounted) setState(() => _scoreFlashText = null);
-    });
-  }
-
   Future<void> _attemptBackgroundUpload(ScanRecord record) async {
+    final path = record.imagePath;
+    if (path == null || path.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _uploadStatus = 'failed';
+          _resultStatus = 'Upload failed — missing image';
+        });
+      }
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _uploadStatus = 'uploading';
+        _resultStatus = 'Uploading to grading results…';
+      });
+    }
+
     try {
       final scan = await _repository.uploadGradedScan(
         templateId: record.templateId,
-        imagePath: record.imagePath!,
+        imagePath: path,
         studentId: record.studentIdentifier,
         responses: record.responses,
         isFlagged: record.isFlagged,
@@ -470,10 +649,32 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       if (mounted) {
         setState(() {
           final idx = _scanRecords.indexWhere((r) => r.id == record.id);
-          if (idx >= 0) { _scanRecords[idx] = _scanRecords[idx].copyWith(serverScanId: scan.scanId); }
+          if (idx >= 0) {
+            _scanRecords[idx] =
+                _scanRecords[idx].copyWith(serverScanId: scan.scanId);
+          }
+          _pendingUploadRecord =
+              record.copyWith(serverScanId: scan.scanId);
+          _uploadStatus = 'uploaded';
+          _resultStatus = 'Saved to grading results';
         });
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Upload graded scan failed: $e');
+      if (mounted) {
+        setState(() {
+          _uploadStatus = 'failed';
+          _resultStatus =
+              'Saved on device — upload failed. Tap retry to sync.';
+        });
+      }
+    }
+  }
+
+  Future<void> _retryUpload() async {
+    final record = _pendingUploadRecord;
+    if (record == null) return;
+    await _attemptBackgroundUpload(record);
   }
 
   Future<void> _loadScanRecords() async {
@@ -487,21 +688,30 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
   void _openReview() { _stopImageStream(); setState(() => _mode = _ScreenMode.review); }
   void _closeReview() { setState(() => _mode = _ScreenMode.scanning); _startImageStream(); }
 
-  Future<void> _identifyNewAssessment(String assessmentId) async {
+  Future<void> _identifyAssessmentFromQr(String assessmentId) async {
+    if (_isIdentifying) return;
+    _isIdentifying = true;
+    if (mounted) setState(() => _identifyError = null);
+
     try {
-      final template = await _repository.fetchTemplateByAssessment(assessmentId);
+      BubbleTemplate? seed;
+      final cached = _templates.where((t) => t.assessmentId == assessmentId);
+      if (cached.isNotEmpty) {
+        seed = cached.first;
+      } else {
+        seed = await _repository.fetchTemplateByAssessment(assessmentId);
+      }
+      await _bindTemplateFromQr(seed);
+    } catch (e) {
+      debugPrint('Failed to identify assessment via QR: $e');
       if (mounted) {
         setState(() {
-          // Add to local list if not there
-          if (!_templates.any((t) => t.templateId == template.templateId)) {
-            _templates.add(template);
-          }
-          _onTemplateSelected(template);
-          _assessmentIdentified = true;
+          _identifyError = 'Assessment QR not found in system';
+          _assessmentIdentified = false;
         });
       }
-    } catch (e) {
-      debugPrint("Failed to identify assessment via QR: $e");
+    } finally {
+      _isIdentifying = false;
     }
   }
 
@@ -582,27 +792,6 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       _updateROI(MediaQuery.of(context).size);
     }
 
-    if (_templates.isEmpty || _selectedTemplate == null) {
-      return TemplateSelectionView(
-        templates: _templates,
-        selectedTemplate: _selectedTemplate,
-        isLoading: _isLoadingTemplates,
-        isLoadingDetail: false,
-        error: _templatesError,
-        courseName: widget.preSelectedCourseName,
-        onTemplateSelected: _onTemplateSelected,
-        onRetry: _loadTemplates,
-        onRefresh: _loadTemplates,
-        onStartScan: () { if (_selectedTemplate != null) _setupCamera(); },
-        onBack: () => Navigator.pop(context),
-        primaryRed: primaryRed,
-        darkText: darkText,
-        grayText: grayText,
-        borderColor: borderColor,
-        bgGrey: bgGrey,
-      );
-    }
-
     if (_mode == _ScreenMode.detail && _detailRecord != null) {
       return PaperDetailView(
         record: _detailRecord!,
@@ -611,6 +800,20 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
         onEditAnswers: () => _editAnswers(_detailRecord!),
         onReScan: () => _reScanPaper(_detailRecord!),
         onUpload: () => _uploadRecord(_detailRecord!),
+      );
+    }
+
+    if (_mode == _ScreenMode.result) {
+      return ScanResultView(
+        previewBytes: _resultPreviewBytes,
+        fallbackImagePath: _resultCapturePath,
+        isProcessing: _resultProcessing,
+        statusMessage: _resultStatus,
+        result: _lastOmrResult,
+        uploadStatus: _uploadStatus,
+        onScanNext: _scanNext,
+        onRetryUpload: _uploadStatus == 'failed' ? _retryUpload : null,
+        onClose: _scanNext,
       );
     }
 
@@ -627,16 +830,22 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       );
     }
 
+    // Live camera always — assessment comes from the sheet QR.
     return LiveScanningView(
       controller: _controller,
       isReady: _isCameraReady,
-      templateName: _selectedTemplate!.name,
+      templateName: _selectedTemplate?.name,
       assessmentIdentified: _assessmentIdentified,
+      identifyHint: _identifyError ??
+          (_isIdentifying
+              ? 'Loading answer key…'
+              : 'Point camera at Assessment QR'),
       fiducialLock: _fiducialLock,
       diagnostics: _diagnostics,
       scoreFlashText: _scoreFlashText,
       scoreFlashAnimation: _scoreFlashAnimation,
       readyToCapture: _readyToCapture,
+      alignedPreviewBytes: _alignedPreviewBytes,
       onCapture: _manualCapture,
       onBack: () => Navigator.pop(context),
       onReviewPapers: _openReview,
