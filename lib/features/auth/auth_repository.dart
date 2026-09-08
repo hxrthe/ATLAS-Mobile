@@ -1,13 +1,19 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/network/api_client.dart';
 
 class AuthRepository {
   final ApiClient _apiClient = ApiClient();
-  final SupabaseClient _supabase = Supabase.instance.client;
+
+  /// Web OAuth client ID — required as [GoogleSignIn.initialize] `serverClientId`
+  /// so Android can mint an ID token the backend can verify.
+  static const String _googleWebClientId =
+      '140618226788-lt31psljafm1en4n3aajo054thn5kfin.apps.googleusercontent.com';
+
+  static Future<void>? _googleInit;
 
   /// Logs in against POST /api/auth/token/ and returns the user role.
   Future<String> login({
@@ -160,46 +166,61 @@ class AuthRepository {
     }
   }
 
+  Future<void> _ensureGoogleInitialized() async {
+    final existing = _googleInit;
+    if (existing != null) {
+      await existing;
+      return;
+    }
+    final future = GoogleSignIn.instance.initialize(
+      serverClientId: _googleWebClientId,
+    );
+    _googleInit = future;
+    try {
+      await future;
+    } catch (_) {
+      _googleInit = null;
+      rethrow;
+    }
+  }
+
+  static const String androidPackage = 'com.example.atlas_mobile';
+  static const String debugSha1 =
+      '77:1B:4E:E6:52:80:AB:4E:CD:BC:E0:2A:F8:04:9D:1B:BF:BB:E8:8B';
+
+  String _googleSignInError(GoogleSignInException e) {
+    debugPrint(
+      'GoogleSignInException code=${e.code} description=${e.description} details=${e.details}',
+    );
+    switch (e.code) {
+      case GoogleSignInExceptionCode.canceled:
+        // Credential Manager reports "canceled" for SHA-1 / package mismatches.
+        return 'GOOGLE_OAUTH_CONFIG: Android Credential Manager rejected sign-in. '
+            'Create an Android OAuth client for package $androidPackage with SHA-1 $debugSha1 '
+            'in Google Cloud Console (project 140618226788), then wait a few minutes and try again.';
+      case GoogleSignInExceptionCode.clientConfigurationError:
+      case GoogleSignInExceptionCode.providerConfigurationError:
+        return 'GOOGLE_OAUTH_CONFIG: Google Sign-In is not configured for this app. '
+            'Register package $androidPackage with SHA-1 $debugSha1 in Google Cloud Console.';
+      default:
+        return e.description?.isNotEmpty == true
+            ? e.description!
+            : 'Google Sign-In failed. Please try again.';
+    }
+  }
+
   Future<Map<String, dynamic>> loginWithGoogle() async {
     try {
-      // Your Web Client ID serves as the server client ID for Android
-      const String webClientId = '140618226788-lt31psljafm1en4n3aajo054thn5kfin.apps.googleusercontent.com';
+      await _ensureGoogleInitialized();
 
-      // Use the singleton instance and initialize it
-      final googleSignIn = GoogleSignIn.instance;
-      await googleSignIn.initialize(
-        serverClientId: webClientId,
-      );
+      final GoogleSignInAccount googleUser =
+          await GoogleSignIn.instance.authenticate();
+      final String? idToken = googleUser.authentication.idToken;
 
-      final GoogleSignInAccount googleUser = await googleSignIn.authenticate();
-      
-      final GoogleSignInAuthentication googleAuth = googleUser.authentication;
-      final String? idToken = googleAuth.idToken;
-      
-      // Access token is now obtained via the authorization client in 7.2.0
-      // FIX: Scopes cannot be null or empty
-      final authz = await googleUser.authorizationClient.authorizationForScopes(['email', 'profile']);
-      final String? accessToken = authz?.accessToken;
-
-      if (idToken == null) {
-        throw Exception('Native Google Sign-In failed: Missing ID Token.');
+      if (idToken == null || idToken.isEmpty) {
+        throw Exception('Google Sign-In failed: missing ID token.');
       }
 
-      final AuthResponse response = await _supabase.auth.signInWithIdToken(
-        provider: OAuthProvider.google,
-        idToken: idToken,
-        accessToken: accessToken,
-      );
-
-      final session = response.session;
-      final supabaseUser = response.user;
-
-      if (session == null || supabaseUser == null) {
-        throw Exception('Supabase Sign-In failed.');
-      }
-
-      // --- NEW STEP: Sync with custom backend to get the correct role and backend tokens ---
-      // This prevents the instant logout and ensures "faculty" role is respected.
       final backendResp = await _apiClient.dio.post(
         'auth/google/',
         data: {'id_token': idToken},
@@ -210,12 +231,11 @@ class AuthRepository {
         throw Exception('Unexpected server response. Please try again.');
       }
 
-      // Backend indicates no user with this email exists in your DB
       if (data['user_exists'] == false) {
         return {
           'user_exists': false,
-          'email': data['email']?.toString() ?? supabaseUser.email ?? '',
-          'name': data['name']?.toString() ?? supabaseUser.userMetadata?['full_name'] ?? '',
+          'email': data['email']?.toString() ?? googleUser.email,
+          'name': data['name']?.toString() ?? googleUser.displayName ?? '',
         };
       }
 
@@ -227,21 +247,19 @@ class AuthRepository {
         throw Exception('Backend synchronization failed — no access token returned.');
       }
 
-      // Persist BACKEND session to SharedPreferences (NOT Supabase session)
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('access_token', backendAccessToken);
       if (backendRefreshToken != null) {
         await prefs.setString('refresh_token', backendRefreshToken);
       }
 
-      // Map backend User data to app expectations
-      final String name = user?['name']?.toString() ?? supabaseUser.userMetadata?['full_name'] ?? 'User';
+      final String name = user?['name']?.toString() ?? googleUser.displayName ?? 'User';
       final String role = user?['role']?.toString() ?? 'student';
 
       await prefs.setString('user_name', name);
-      await prefs.setString('user_email', user?['email']?.toString() ?? supabaseUser.email ?? '');
+      await prefs.setString('user_email', user?['email']?.toString() ?? googleUser.email);
       await prefs.setString('user_role', role);
-      await prefs.setString('user_id', user?['user_id']?.toString() ?? supabaseUser.id);
+      await prefs.setString('user_id', user?['user_id']?.toString() ?? '');
 
       if (user?['student_details'] != null) {
         await prefs.setString('student_details', jsonEncode(user?['student_details']));
@@ -251,6 +269,10 @@ class AuthRepository {
         'user_exists': true,
         'role': role,
       };
+    } on GoogleSignInException catch (e) {
+      throw Exception(_googleSignInError(e));
+    } on DioException catch (e) {
+      throw Exception(_parseError(e, 'Google sign-in failed.'));
     } catch (e) {
       throw Exception(e.toString().replaceAll('Exception: ', ''));
     }

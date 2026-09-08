@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 // STRICT RELATIVE IMPORTS
 import 'core/network/api_client.dart';
@@ -8,14 +7,8 @@ import 'features/auth/auth_repository.dart';
 import 'features/auth/bloc/auth_bloc.dart';
 import 'features/auth/login_screen.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-
-  await Supabase.initialize(
-    url: 'https://dnkpupegpijryhaffgbc.supabase.co',
-    publishableKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRua3B1cGVncGlqcnloYWZmZ2JjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQzNzgwMjIsImV4cCI6MjA5OTk1NDAyMn0.cmkMyRLeWr6boIci9ztpN5AKuYhgXXnivYn5f2hkndw',
-  );
-
   runApp(const AtlasMobileApp());
 }
 

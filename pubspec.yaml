@@ -32,8 +32,6 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # Supabase fo Google Sign-in
-  supabase_flutter: ^2.7.0
   # State Management (App Logic Control)
   flutter_bloc: ^9.1.1
   equatable: ^2.0.5 # Helps with BLoC state comparisons

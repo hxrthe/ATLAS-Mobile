@@ -33,7 +33,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           emit(AuthSuccess(role: result['role'] as String));
         }
       } catch (e) {
-        emit(AuthFailure(error: e.toString()));
+        emit(AuthFailure(error: e.toString().replaceAll('Exception: ', '')));
       }
     });
 

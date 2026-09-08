@@ -49,8 +49,7 @@ class _LoginScreenState extends State<LoginScreen> {
         });
       });
     _loadCredentials();
-    // _initGoogleSignIn();
-    
+
     if (widget.autoLogout && !_logoutMessageShown) {
       _logoutMessageShown = true; // Mark as shown
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -68,13 +67,6 @@ class _LoginScreenState extends State<LoginScreen> {
       });
     }
   }
-
-  // Future<void> _initGoogleSignIn() async {
-  //   final GoogleSignIn googleSignIn = GoogleSignIn(
-  //     serverClientId: '140618226788-r55pqlat0o2vvlsc1on3j22e668a1hpq.apps.googleusercontent.com',
-  //     scopes: const <String>['email', 'profile'],
-  //   );
-  // }
 
   Future<void> _loadCredentials() async {
     final email = await _secureStorage.read(key: 'saved_email');
@@ -144,13 +136,36 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             );
           } else if (state is AuthFailure) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(state.error),
-                backgroundColor: Colors.red.shade800,
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
+            if (state.error.startsWith('GOOGLE_OAUTH_CONFIG:')) {
+              final detail = state.error.replaceFirst('GOOGLE_OAUTH_CONFIG: ', '');
+              showDialog<void>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('Google Sign-In setup needed'),
+                  content: SingleChildScrollView(
+                    child: SelectableText(
+                      '$detail\n\n'
+                      'This is not you tapping Cancel. Android reports "cancelled" when '
+                      'the debug SHA-1 is missing from the Google Cloud Android OAuth client.',
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      child: const Text('OK'),
+                    ),
+                  ],
+                ),
+              );
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(state.error),
+                  backgroundColor: Colors.red.shade800,
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            }
           }
         },
         builder: (context, state) {
@@ -394,7 +409,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 24),
                       
                       OutlinedButton(
-                        onPressed: _handleGoogleSignIn,
+                        onPressed: state is AuthLoading ? null : _handleGoogleSignIn,
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           side: BorderSide(color: borderColor, width: 1.5),
@@ -402,24 +417,30 @@ class _LoginScreenState extends State<LoginScreen> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Image.asset(
-                              'assets/images/google_g_logo.png',
-                              width: 20,
-                              height: 20,
-                            ),
-                            const SizedBox(width: 12),
-                            const Text(
-                              'Continue with Google',
-                              style: TextStyle(
-                                color: Colors.black,
-                                fontWeight: FontWeight.bold,
+                        child: state is AuthLoading
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Image.asset(
+                                    'assets/images/google_g_logo.png',
+                                    width: 20,
+                                    height: 20,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  const Text(
+                                    'Continue with Google',
+                                    style: TextStyle(
+                                      color: Colors.black,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
-                          ],
-                        ),
                       ),
                       const SizedBox(height: 12),
                       
