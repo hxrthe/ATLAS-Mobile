@@ -3,6 +3,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../auth/forgot_password_screen.dart';
 import '../../core/widgets/user_avatar.dart';
+import '../../core/widgets/atlas_loading_view.dart';
 
 class AccountSecurityScreen extends StatefulWidget {
   const AccountSecurityScreen({super.key});
@@ -34,7 +35,7 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
   Future<void> _loadData() async {
     final prefs = await SharedPreferences.getInstance();
     final savedEmail = await _secureStorage.read(key: 'saved_email');
-    
+
     if (mounted) {
       setState(() {
         _userName = prefs.getString('user_name') ?? 'User';
@@ -64,7 +65,11 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
       // We don't have the password, so we just inform the user
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Sign in with "Keep active" checked on your next login.')),
+          const SnackBar(
+            content: Text(
+              'Sign in with "Keep active" checked on your next login.',
+            ),
+          ),
         );
       }
     }
@@ -88,7 +93,7 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
         centerTitle: true,
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const AtlasLoadingView(layout: AtlasLoadingLayout.list)
           : SingleChildScrollView(
               padding: const EdgeInsets.all(24.0),
               child: Column(
@@ -172,14 +177,18 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => ForgotPasswordScreen(initialEmail: _userEmail),
+                          builder: (context) =>
+                              ForgotPasswordScreen(initialEmail: _userEmail),
                         ),
                       );
                     },
                   ),
                   const SizedBox(height: 12),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(12),

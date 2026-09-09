@@ -155,6 +155,12 @@ class _LoginScreenState extends State<LoginScreen> {
           }
         },
         builder: (context, state) {
+          final loadingSource =
+              state is AuthLoading ? state.source : null;
+          final emailLoading = loadingSource == AuthLoadingSource.email;
+          final googleLoading = loadingSource == AuthLoadingSource.google;
+          final isBusy = state is AuthLoading;
+
           return Stack(
             children: [
               // 1. BACKGROUND LAYER: The Video Mascot
@@ -345,7 +351,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 24),
                       
                       ElevatedButton(
-                        onPressed: state is AuthLoading ? null : () {
+                        onPressed: isBusy ? null : () {
                           context.read<AuthBloc>().add(LoginRequested(
                             email: _usernameController.text,
                             password: _passwordController.text,
@@ -362,7 +368,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           elevation: 0,
                           disabledBackgroundColor: primaryRed.withValues(alpha: 0.5),
                         ),
-                        child: state is AuthLoading
+                        child: emailLoading
                             ? const SizedBox(
                                 height: 20,
                                 width: 20,
@@ -395,7 +401,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 24),
                       
                       OutlinedButton(
-                        onPressed: state is AuthLoading ? null : _handleGoogleSignIn,
+                        onPressed: isBusy ? null : _handleGoogleSignIn,
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           side: BorderSide(color: borderColor, width: 1.5),
@@ -403,11 +409,14 @@ class _LoginScreenState extends State<LoginScreen> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        child: state is AuthLoading
-                            ? const SizedBox(
+                        child: googleLoading
+                            ? SizedBox(
                                 height: 20,
                                 width: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: primaryRed,
+                                ),
                               )
                             : Row(
                                 mainAxisAlignment: MainAxisAlignment.center,

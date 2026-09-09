@@ -8,6 +8,7 @@ import '../../auth/auth_repository.dart';
 import '../../settings/account_security_screen.dart';
 import '../../settings/help_support_screen.dart';
 import '../../../core/widgets/user_avatar.dart';
+import '../../../core/widgets/atlas_pull_to_refresh.dart';
 
 class SettingsTab extends StatefulWidget {
   const SettingsTab({super.key});
@@ -41,9 +42,10 @@ class _SettingsTabState extends State<SettingsTab> {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: RefreshIndicator(
+      child: AtlasPullToRefresh(
         onRefresh: _loadUser,
         child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(24.0),
         children: [
           const Text(

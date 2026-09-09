@@ -9,7 +9,16 @@ abstract class AuthState extends Equatable {
 
 class AuthInitial extends AuthState {}
 
-class AuthLoading extends AuthState {}
+enum AuthLoadingSource { email, google, other }
+
+class AuthLoading extends AuthState {
+  final AuthLoadingSource source;
+
+  const AuthLoading({this.source = AuthLoadingSource.other});
+
+  @override
+  List<Object?> get props => [source];
+}
 
 class AuthSuccess extends AuthState {
   final String role;

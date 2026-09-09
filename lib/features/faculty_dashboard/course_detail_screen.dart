@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import '../grading/grading_repository.dart';
+import '../../core/widgets/atlas_loading_view.dart';
 
 class CourseDetailScreen extends StatefulWidget {
   final String courseId;
@@ -67,7 +68,9 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
 
   void _onTabChanged() {
     if (!mounted) return;
-    debugPrint('Tab changed to: ${_tabController.index}, selectedAssessment: $_selectedAssessmentId, scoreRows: ${_scoreRows.length}');
+    debugPrint(
+      'Tab changed to: ${_tabController.index}, selectedAssessment: $_selectedAssessmentId, scoreRows: ${_scoreRows.length}',
+    );
     if (_tabController.index == 1 &&
         _scoreRows.isEmpty &&
         !_loadingScores &&
@@ -84,7 +87,8 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     });
     try {
       final ws = await _repo.fetchCourseWorkspace(widget.courseId);
-      final rawAssessments = (ws['assessments'] as List<dynamic>?)
+      final rawAssessments =
+          (ws['assessments'] as List<dynamic>?)
               ?.map((a) => a as Map<String, dynamic>)
               .toList() ??
           [];
@@ -93,7 +97,8 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
       final enrolled = await _repo.fetchCourseStudents(widget.courseId);
 
       String? selId;
-      if (rawAssessments.isNotEmpty) selId = rawAssessments.first['assessment_id']?.toString();
+      if (rawAssessments.isNotEmpty)
+        selId = rawAssessments.first['assessment_id']?.toString();
 
       if (mounted) {
         setState(() {
@@ -120,7 +125,8 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   Future<void> _loadAssessmentItems(String assessmentId) async {
     try {
       final detail = await _repo.fetchAssessmentDetail(assessmentId);
-      final rawItems = (detail['items'] as List<dynamic>?)
+      final rawItems =
+          (detail['items'] as List<dynamic>?)
               ?.map((i) => i as Map<String, dynamic>)
               .toList() ??
           [];
@@ -171,9 +177,12 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
       _scoresError = null;
     });
     try {
-      final data =
-          await _repo.fetchStudentScores(widget.courseId, _selectedAssessmentId!);
-      final rows = (data['rows'] as List<dynamic>?)
+      final data = await _repo.fetchStudentScores(
+        widget.courseId,
+        _selectedAssessmentId!,
+      );
+      final rows =
+          (data['rows'] as List<dynamic>?)
               ?.map((r) => r as Map<String, dynamic>)
               .toList() ??
           [];
@@ -208,17 +217,18 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
         }
       }
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Answer key saved'),
-          backgroundColor: Color(0xFF198754),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Answer key saved'),
+            backgroundColor: Color(0xFF198754),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Failed: $e'),
-          backgroundColor: primaryRed,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed: $e'), backgroundColor: primaryRed),
+        );
       }
     }
   }
@@ -318,8 +328,14 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
               children: [
                 Icon(Icons.arrow_back_ios, size: 16, color: primaryRed),
                 SizedBox(width: 4),
-                Text('Courses',
-                    style: TextStyle(fontSize: 14, color: primaryRed, fontWeight: FontWeight.w600)),
+                Text(
+                  'Courses',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: primaryRed,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ],
             ),
           ),
@@ -330,7 +346,11 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
           Expanded(
             child: Text(
               '${widget.courseCode} / ${_tabController.index == 0 ? 'Evaluation Materials' : 'Students & Scores'}',
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: darkText),
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: darkText,
+              ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -352,17 +372,33 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
         ),
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
-          BoxShadow(color: primaryRed.withValues(alpha: 0.25), blurRadius: 12, offset: const Offset(0, 6)),
+          BoxShadow(
+            color: primaryRed.withValues(alpha: 0.25),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(widget.courseCode,
-              style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Colors.white)),
+          Text(
+            widget.courseCode,
+            style: const TextStyle(
+              fontSize: 26,
+              fontWeight: FontWeight.w900,
+              color: Colors.white,
+            ),
+          ),
           const SizedBox(height: 4),
-          Text(widget.courseTitle,
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: Colors.white70)),
+          Text(
+            widget.courseTitle,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w500,
+              color: Colors.white70,
+            ),
+          ),
           const SizedBox(height: 10),
           Row(
             children: [
@@ -409,7 +445,9 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   // ═══ EM Tab ══════════════════════════════════════════════════════════
 
   Widget _buildEMTab() {
-    if (_loadingEM) return const Center(child: CircularProgressIndicator());
+    if (_loadingEM) {
+      return const AtlasLoadingView(layout: AtlasLoadingLayout.list);
+    }
     if (_emError != null) {
       return Center(
         child: Column(
@@ -417,13 +455,21 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
           children: [
             Text(_emError!, style: const TextStyle(color: primaryRed)),
             const SizedBox(height: 12),
-            ElevatedButton(onPressed: _loadWorkspace, child: const Text('Retry')),
+            ElevatedButton(
+              onPressed: _loadWorkspace,
+              child: const Text('Retry'),
+            ),
           ],
         ),
       );
     }
     if (_items.isEmpty) {
-      return const Center(child: Text('No items for this assessment', style: TextStyle(color: textGrey)));
+      return const Center(
+        child: Text(
+          'No items for this assessment',
+          style: TextStyle(color: textGrey),
+        ),
+      );
     }
 
     return Column(
@@ -462,16 +508,25 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     return GestureDetector(
       onTap: () {
         setState(() => _emSubTab = index);
-        if (index == 2 && _passingScore == null && !_loadingPassingScore) _loadPassingScore();
+        if (index == 2 && _passingScore == null && !_loadingPassingScore)
+          _loadPassingScore();
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
-          color: active ? primaryRed.withValues(alpha: 0.08) : Colors.transparent,
+          color: active
+              ? primaryRed.withValues(alpha: 0.08)
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(20),
         ),
-        child: Text(label,
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: active ? primaryRed : textGrey)),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: active ? primaryRed : textGrey,
+          ),
+        ),
       ),
     );
   }
@@ -480,7 +535,12 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     List<Map<String, dynamic>> filtered = _items;
 
     if (filtered.isEmpty) {
-      return const Center(child: Text('No questions for this assessment', style: TextStyle(color: textGrey)));
+      return const Center(
+        child: Text(
+          'No questions for this assessment',
+          style: TextStyle(color: textGrey),
+        ),
+      );
     }
 
     return ListView.builder(
@@ -492,7 +552,8 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
         final qNum = (item['item_number'] ?? (i + 1)).toString();
         final answer = _localAnswerKey[itemId] ?? '';
         final section = (item['section_title'] ?? '').toString().trim();
-        final choices = (item['choices'] as List<dynamic>?)
+        final choices =
+            (item['choices'] as List<dynamic>?)
                 ?.map((c) => c.toString())
                 .toList() ??
             [];
@@ -512,12 +573,19 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                 width: 32,
                 height: 32,
                 decoration: BoxDecoration(
-                    color: primaryRed.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8)),
+                  color: primaryRed.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
                 child: Center(
-                    child: Text(qNum,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold, color: primaryRed, fontSize: 13))),
+                  child: Text(
+                    qNum,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: primaryRed,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -525,29 +593,46 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (section.isNotEmpty)
-                      Text(section,
-                          style: const TextStyle(
-                              fontSize: 11, fontWeight: FontWeight.w600, color: textGrey)),
+                      Text(
+                        section,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: textGrey,
+                        ),
+                      ),
                     const SizedBox(height: 2),
-                    Text(item['question_text'] ?? 'Item $qNum',
-                        style: const TextStyle(fontSize: 14, color: darkText),
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis),
+                    Text(
+                      item['question_text'] ?? 'Item $qNum',
+                      style: const TextStyle(fontSize: 14, color: darkText),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                     if (choices.isNotEmpty) ...[
                       const SizedBox(height: 6),
                       Wrap(
                         spacing: 6,
                         runSpacing: 2,
                         children: choices
-                            .map((c) => Text(c,
-                                style: const TextStyle(fontSize: 11, color: textGrey)))
+                            .map(
+                              (c) => Text(
+                                c,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: textGrey,
+                                ),
+                              ),
+                            )
                             .toList(),
                       ),
                     ],
                   ],
                 ),
               ),
-              if (answer.isNotEmpty) ...[const SizedBox(width: 8), _answerBadge(answer)],
+              if (answer.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                _answerBadge(answer),
+              ],
             ],
           ),
         );
@@ -559,16 +644,31 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     return Container(
       width: 30,
       height: 30,
-      decoration: const BoxDecoration(shape: BoxShape.circle, color: primaryRed),
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        color: primaryRed,
+      ),
       child: Center(
-          child: Text(letter,
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white))),
+        child: Text(
+          letter,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+      ),
     );
   }
 
   Widget _buildAnswerKeyPanel() {
     if (_items.isEmpty) {
-      return const Center(child: Text('No items in assessment', style: TextStyle(color: textGrey)));
+      return const Center(
+        child: Text(
+          'No items in assessment',
+          style: TextStyle(color: textGrey),
+        ),
+      );
     }
 
     return Column(
@@ -592,24 +692,37 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                 onTap: () => _cycleAnswer(itemId),
                 child: Container(
                   decoration: BoxDecoration(
-                    color: answer.isNotEmpty ? primaryRed.withValues(alpha: 0.08) : Colors.white,
+                    color: answer.isNotEmpty
+                        ? primaryRed.withValues(alpha: 0.08)
+                        : Colors.white,
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
-                        color: answer.isNotEmpty ? primaryRed : const Color(0xFFE8ECF4),
-                        width: answer.isNotEmpty ? 2 : 1),
+                      color: answer.isNotEmpty
+                          ? primaryRed
+                          : const Color(0xFFE8ECF4),
+                      width: answer.isNotEmpty ? 2 : 1,
+                    ),
                   ),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(itemNum,
-                          style: const TextStyle(
-                              fontSize: 13, fontWeight: FontWeight.w600, color: darkText)),
+                      Text(
+                        itemNum,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: darkText,
+                        ),
+                      ),
                       const SizedBox(height: 6),
-                      Text(answer.isNotEmpty ? answer : '?',
-                          style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w900,
-                              color: answer.isNotEmpty ? primaryRed : textGrey)),
+                      Text(
+                        answer.isNotEmpty ? answer : '?',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          color: answer.isNotEmpty ? primaryRed : textGrey,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -624,14 +737,18 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
             child: ElevatedButton.icon(
               onPressed: _saveAnswerKey,
               icon: const Icon(Icons.save, size: 18),
-              label: const Text('Save Answer Key',
-                  style: TextStyle(fontWeight: FontWeight.bold)),
+              label: const Text(
+                'Save Answer Key',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
               style: ElevatedButton.styleFrom(
-                  backgroundColor: primaryRed,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12))),
+                backgroundColor: primaryRed,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
             ),
           ),
         ),
@@ -645,7 +762,9 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     if (_selectedAssessmentId == null) return;
     setState(() => _loadingPassingScore = true);
     try {
-      final template = await _repo.fetchTemplateByAssessment(_selectedAssessmentId!);
+      final template = await _repo.fetchTemplateByAssessment(
+        _selectedAssessmentId!,
+      );
       if (mounted) {
         setState(() {
           _passingScore = template.passingScore ?? 50;
@@ -668,24 +787,36 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     setState(() => _savingPassingScore = true);
     try {
       // Always fetch template to guarantee a valid course_id
-      final template =
-          await _repo.fetchTemplateByAssessment(_selectedAssessmentId!);
+      final template = await _repo.fetchTemplateByAssessment(
+        _selectedAssessmentId!,
+      );
       final templateId = template.templateId;
-      final courseId = template.courseId.isNotEmpty ? template.courseId : widget.courseId;
+      final courseId = template.courseId.isNotEmpty
+          ? template.courseId
+          : widget.courseId;
       if (courseId.isEmpty) throw Exception('course_id is required');
-      await _repo.updateTemplatePassingScore(templateId, _passingScore!, courseId);
+      await _repo.updateTemplatePassingScore(
+        templateId,
+        _passingScore!,
+        courseId,
+      );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Passing score saved: ${_passingScore!.toStringAsFixed(0)}%'),
-          backgroundColor: const Color(0xFF198754),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Passing score saved: ${_passingScore!.toStringAsFixed(0)}%',
+            ),
+            backgroundColor: const Color(0xFF198754),
+          ),
+        );
       }
     } catch (e) {
       String msg;
       if (e is DioException) {
         final body = e.response?.data;
         if (body is Map) {
-          msg = body['detail']?.toString() ??
+          msg =
+              body['detail']?.toString() ??
               body['passing_score']?.toString() ??
               body.values.first?.toString() ??
               'Failed to save';
@@ -696,10 +827,9 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
         msg = e.toString().replaceAll('Exception: ', '');
       }
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(msg),
-          backgroundColor: primaryRed,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg), backgroundColor: primaryRed),
+        );
       }
     } finally {
       if (mounted) setState(() => _savingPassingScore = false);
@@ -727,29 +857,34 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.02),
-                      blurRadius: 10)
+                    color: Colors.black.withValues(alpha: 0.02),
+                    blurRadius: 10,
+                  ),
                 ],
               ),
               child: Column(
                 children: [
                   const Icon(Icons.grading, size: 48, color: primaryRed),
                   const SizedBox(height: 12),
-                  const Text('Passing Score Threshold',
-                      style: TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 16)),
+                  const Text(
+                    'Passing Score Threshold',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
                   const SizedBox(height: 4),
                   const Text(
-                      'Students scoring at or above this percentage\nwill be marked as passed.',
-                      textAlign: TextAlign.center,
-                      style:
-                          TextStyle(fontSize: 12, color: textGrey)),
+                    'Students scoring at or above this percentage\nwill be marked as passed.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12, color: textGrey),
+                  ),
                   const SizedBox(height: 24),
-                  Text('${current.toStringAsFixed(0)}%',
-                      style: const TextStyle(
-                          fontSize: 48,
-                          fontWeight: FontWeight.w900,
-                          color: primaryRed)),
+                  Text(
+                    '${current.toStringAsFixed(0)}%',
+                    style: const TextStyle(
+                      fontSize: 48,
+                      fontWeight: FontWeight.w900,
+                      color: primaryRed,
+                    ),
+                  ),
                   const SizedBox(height: 16),
                   SliderTheme(
                     data: SliderThemeData(
@@ -759,27 +894,29 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                       overlayColor: primaryRed.withValues(alpha: 0.12),
                       trackHeight: 6,
                       thumbShape: const RoundSliderThumbShape(
-                          enabledThumbRadius: 14),
+                        enabledThumbRadius: 14,
+                      ),
                     ),
                     child: Slider(
                       value: current,
                       min: 0,
                       max: 100,
                       divisions: 100,
-                      onChanged: (v) =>
-                          setState(() => _passingScore = v),
+                      onChanged: (v) => setState(() => _passingScore = v),
                     ),
                   ),
                   const SizedBox(height: 4),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('0%',
-                          style: const TextStyle(
-                              fontSize: 11, color: textGrey)),
-                      Text('100%',
-                          style: const TextStyle(
-                              fontSize: 11, color: textGrey)),
+                      Text(
+                        '0%',
+                        style: const TextStyle(fontSize: 11, color: textGrey),
+                      ),
+                      Text(
+                        '100%',
+                        style: const TextStyle(fontSize: 11, color: textGrey),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 16),
@@ -788,14 +925,15 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [50, 60, 70, 75].map((v) {
                       return Padding(
-                        padding:
-                            const EdgeInsets.symmetric(horizontal: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
                         child: GestureDetector(
                           onTap: () =>
                               setState(() => _passingScore = v.toDouble()),
                           child: Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 8),
+                              horizontal: 14,
+                              vertical: 8,
+                            ),
                             decoration: BoxDecoration(
                               color: current == v
                                   ? primaryRed
@@ -807,9 +945,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                               style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w700,
-                                color: current == v
-                                    ? Colors.white
-                                    : primaryRed,
+                                color: current == v ? Colors.white : primaryRed,
                               ),
                             ),
                           ),
@@ -830,16 +966,23 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white))
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
                     : const Icon(Icons.save, size: 18),
-                label: Text(_savingPassingScore ? 'Saving...' : 'Save Passing Score',
-                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                label: Text(
+                  _savingPassingScore ? 'Saving...' : 'Save Passing Score',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
                 style: ElevatedButton.styleFrom(
-                    backgroundColor: primaryRed,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12))),
+                  backgroundColor: primaryRed,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
               ),
             ),
           ],
@@ -851,7 +994,9 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   // ═══ Scores Tab ══════════════════════════════════════════════════════
 
   Widget _buildScoresTab() {
-    if (_loadingScores) return const Center(child: CircularProgressIndicator());
+    if (_loadingScores) {
+      return const AtlasLoadingView(layout: AtlasLoadingLayout.list);
+    }
     if (_scoresError != null) {
       return Center(
         child: Column(
@@ -877,40 +1022,44 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
       debugPrint('First enrolled student keys: ${first.keys.toList()}');
       debugPrint('First enrolled student user_id: ${_studentUserId(first)}');
       debugPrint('First enrolled student sr_code: ${first['sr_code']}');
-      debugPrint('First enrolled student section: "${_sectionForCourse(first)}"');
+      debugPrint(
+        'First enrolled student section: "${_sectionForCourse(first)}"',
+      );
     }
     if (_scoreRows.isNotEmpty) {
       debugPrint('First score row keys: ${_scoreRows.first.keys.toList()}');
       debugPrint('First score row: ${_scoreRows.first}');
     }
     debugPrint('========================');
-    
+
     // Filter enrolled students by section if applicable
     List<Map<String, dynamic>> filteredStudents = _enrolledStudents;
     if (_scoreSectionFilter != null && _scoreSectionFilter!.isNotEmpty) {
-      filteredStudents = filteredStudents.where((s) =>
-        _sectionForCourse(s) == _scoreSectionFilter
-      ).toList();
+      filteredStudents = filteredStudents
+          .where((s) => _sectionForCourse(s) == _scoreSectionFilter)
+          .toList();
     }
 
     for (final student in filteredStudents) {
       final userId = _studentUserId(student);
-      final srCode = (student['sr_code'] ?? student['sr-code'] ?? userId).toString();
+      final srCode = (student['sr_code'] ?? student['sr-code'] ?? userId)
+          .toString();
       final section = _sectionForCourse(student);
-      
+
       // Match score row by user_id (the student_identifier in bubble_sheet_scans)
-      final scoreMatch = _scoreRows.firstWhere(
-        (r) {
-          final sid = (r['student_id'] ?? r['user_id'] ?? r['student_identifier'] ?? '').toString();
-          return sid == userId;
-        },
-        orElse: () => {},
-      );
+      final scoreMatch = _scoreRows.firstWhere((r) {
+        final sid =
+            (r['student_id'] ?? r['user_id'] ?? r['student_identifier'] ?? '')
+                .toString();
+        return sid == userId;
+      }, orElse: () => {});
 
       if (scoreMatch.isNotEmpty) {
-        displayRows.add(Map<String, dynamic>.from(scoreMatch)
-          ..['section'] = section
-          ..['sr_code'] = srCode);
+        displayRows.add(
+          Map<String, dynamic>.from(scoreMatch)
+            ..['section'] = section
+            ..['sr_code'] = srCode,
+        );
       } else {
         displayRows.add({
           'student_id': userId,
@@ -918,17 +1067,22 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
           'section': section,
           'score': null,
           'percent': null,
-          'assessment_title': _assessments.firstWhere(
-            (a) => (a['assessment_id'] ?? '').toString() == _selectedAssessmentId,
-            orElse: () => {},
-          )['title'] ?? 'Score',
+          'assessment_title':
+              _assessments.firstWhere(
+                (a) =>
+                    (a['assessment_id'] ?? '').toString() ==
+                    _selectedAssessmentId,
+                orElse: () => {},
+              )['title'] ??
+              'Score',
         });
       }
     }
 
     if (displayRows.isEmpty) {
       return const Center(
-          child: Text('No students found', style: TextStyle(color: textGrey)));
+        child: Text('No students found', style: TextStyle(color: textGrey)),
+      );
     }
 
     return SingleChildScrollView(
@@ -936,36 +1090,49 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: DataTable(
-          headingRowColor:
-              WidgetStateProperty.all(primaryRed.withValues(alpha: 0.06)),
+          headingRowColor: WidgetStateProperty.all(
+            primaryRed.withValues(alpha: 0.06),
+          ),
           border: TableBorder.all(
-              color: const Color(0xFFE8ECF4),
-              borderRadius: BorderRadius.circular(8)),
+            color: const Color(0xFFE8ECF4),
+            borderRadius: BorderRadius.circular(8),
+          ),
           columns: [
             const DataColumn(
-                label: Text('SR Code',
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                        color: darkText))),
+              label: Text(
+                'SR Code',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: darkText,
+                ),
+              ),
+            ),
             const DataColumn(
-                label: Text('Section',
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                        color: darkText))),
+              label: Text(
+                'Section',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: darkText,
+                ),
+              ),
+            ),
             DataColumn(
-                label: Text(
-                    (displayRows.isNotEmpty &&
-                            (displayRows.first['assessment_title'] ?? '')
-                                .toString()
-                                .isNotEmpty)
-                        ? displayRows.first['assessment_title'].toString()
-                        : 'Score',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                        color: darkText))),
+              label: Text(
+                (displayRows.isNotEmpty &&
+                        (displayRows.first['assessment_title'] ?? '')
+                            .toString()
+                            .isNotEmpty)
+                    ? displayRows.first['assessment_title'].toString()
+                    : 'Score',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: darkText,
+                ),
+              ),
+            ),
           ],
           rows: displayRows.map((r) {
             final sid = (r['sr_code'] ?? r['student_id'] ?? '').toString();
@@ -975,21 +1142,39 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
             final display = pct != null
                 ? '${(pct as num).toStringAsFixed(0)}%'
                 : score != null
-                    ? (score as num).toStringAsFixed(1)
-                    : '-';
-            return DataRow(cells: [
-              DataCell(Text(sid,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w600, fontSize: 13))),
-              DataCell(Text(sec,
-                  style: const TextStyle(fontSize: 13, color: textGrey))),
-              DataCell(Center(
-                  child: Text(display,
+                ? (score as num).toStringAsFixed(1)
+                : '-';
+            return DataRow(
+              cells: [
+                DataCell(
+                  Text(
+                    sid,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                DataCell(
+                  Text(
+                    sec,
+                    style: const TextStyle(fontSize: 13, color: textGrey),
+                  ),
+                ),
+                DataCell(
+                  Center(
+                    child: Text(
+                      display,
                       style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          color: darkText)))),
-            ]);
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: darkText,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
           }).toList(),
         ),
       ),
@@ -1013,24 +1198,29 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                 initialValue: _selectedAssessmentId,
                 decoration: InputDecoration(
                   labelText: 'Assessment',
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
                   border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Color(0xFFE8ECF4))),
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Color(0xFFE8ECF4)),
+                  ),
                   filled: true,
                   fillColor: const Color(0xFFF4F6F9),
                 ),
                 isExpanded: true,
                 style: const TextStyle(fontSize: 13, color: darkText),
                 items: _assessments
-                    .map((a) => DropdownMenuItem<String>(
-                          value: (a['assessment_id'] ?? '').toString(),
-                          child: Text(
-                            a['title']?.toString() ?? 'Untitled',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ))
+                    .map(
+                      (a) => DropdownMenuItem<String>(
+                        value: (a['assessment_id'] ?? '').toString(),
+                        child: Text(
+                          a['title']?.toString() ?? 'Untitled',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    )
                     .toList(),
                 onChanged: _onAssessmentChanged,
               ),
@@ -1056,24 +1246,29 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                 initialValue: _selectedAssessmentId,
                 decoration: InputDecoration(
                   labelText: 'Assessment',
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
                   border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Color(0xFFE8ECF4))),
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Color(0xFFE8ECF4)),
+                  ),
                   filled: true,
                   fillColor: const Color(0xFFF4F6F9),
                 ),
                 isExpanded: true,
                 style: const TextStyle(fontSize: 13, color: darkText),
                 items: _assessments
-                    .map((a) => DropdownMenuItem<String>(
-                          value: (a['assessment_id'] ?? '').toString(),
-                          child: Text(
-                            a['title']?.toString() ?? 'Untitled',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ))
+                    .map(
+                      (a) => DropdownMenuItem<String>(
+                        value: (a['assessment_id'] ?? '').toString(),
+                        child: Text(
+                          a['title']?.toString() ?? 'Untitled',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    )
                     .toList(),
                 onChanged: _onAssessmentChanged,
               ),
@@ -1084,11 +1279,14 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                 initialValue: _scoreSectionFilter,
                 decoration: InputDecoration(
                   labelText: 'Section',
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
                   border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Color(0xFFE8ECF4))),
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Color(0xFFE8ECF4)),
+                  ),
                   filled: true,
                   fillColor: const Color(0xFFF4F6F9),
                 ),
@@ -1096,11 +1294,15 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                 style: const TextStyle(fontSize: 13, color: darkText),
                 items: [
                   const DropdownMenuItem<String>(
-                      value: null, child: Text('All Sections')),
-                  ..._uniqueStudentSections().map((s) => DropdownMenuItem<String>(
-                        value: s,
-                        child: Text(s, overflow: TextOverflow.ellipsis),
-                      )),
+                    value: null,
+                    child: Text('All Sections'),
+                  ),
+                  ..._uniqueStudentSections().map(
+                    (s) => DropdownMenuItem<String>(
+                      value: s,
+                      child: Text(s, overflow: TextOverflow.ellipsis),
+                    ),
+                  ),
                 ],
                 onChanged: (v) => setState(() => _scoreSectionFilter = v),
               ),

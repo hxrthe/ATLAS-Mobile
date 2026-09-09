@@ -3,6 +3,8 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../../grading/grading_repository.dart';
 import '../../grading/models.dart';
+import '../../../core/widgets/atlas_loading_view.dart';
+import '../../../core/widgets/atlas_pull_to_refresh.dart';
 
 class ReportsTab extends StatefulWidget {
   const ReportsTab({super.key});
@@ -180,25 +182,37 @@ class _ReportsTabState extends State<ReportsTab> {
 
     _bloomDetails = {};
     _perStudent = [];
-    final studentIds = filtered.map((s) => s.studentIdentifier).toSet().take(30);
+    final studentIds = filtered
+        .map((s) => s.studentIdentifier)
+        .toSet()
+        .take(30);
     for (final sid in studentIds) {
       final row = <String, dynamic>{'student_id': sid};
       for (final level in _bloomLabels.keys) {
         row[level] = double.parse(
-            ((_bloomAverages[level]! * (0.5 + rng.nextDouble())).clamp(0, 100))
-                .toStringAsFixed(1));
+          ((_bloomAverages[level]! * (0.5 + rng.nextDouble())).clamp(
+            0,
+            100,
+          )).toStringAsFixed(1),
+        );
       }
       _perStudent.add(row);
     }
 
     for (final level in _bloomLabels.keys) {
-      _bloomDetails[level] = _perStudent
-          .map((r) => {
-                'student_id': r['student_id'],
-                'mastery': r[level] as double,
-              })
-          .toList()
-        ..sort((a, b) => (b['mastery'] as double).compareTo(a['mastery'] as double));
+      _bloomDetails[level] =
+          _perStudent
+              .map(
+                (r) => {
+                  'student_id': r['student_id'],
+                  'mastery': r[level] as double,
+                },
+              )
+              .toList()
+            ..sort(
+              (a, b) =>
+                  (b['mastery'] as double).compareTo(a['mastery'] as double),
+            );
     }
   }
 
@@ -213,30 +227,40 @@ class _ReportsTabState extends State<ReportsTab> {
     setState(() => _savingPassingScore = true);
     try {
       final updated = await _repo.updateTemplatePassingScore(
-          template.templateId, newScore, _filterCourseId ?? '');
+        template.templateId,
+        newScore,
+        _filterCourseId ?? '',
+      );
 
       if (mounted) {
         setState(() {
-          final idx =
-              _templates.indexWhere((t) => t.templateId == template.templateId);
+          final idx = _templates.indexWhere(
+            (t) => t.templateId == template.templateId,
+          );
           if (idx != -1) {
             _templates[idx] = updated;
           }
           _savingPassingScore = false;
         });
         _recalculate();
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Passing score saved: ${newScore.toStringAsFixed(0)}%'),
-          backgroundColor: const Color(0xFF198754),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Passing score saved: ${newScore.toStringAsFixed(0)}%',
+            ),
+            backgroundColor: const Color(0xFF198754),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
         setState(() => _savingPassingScore = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(e.toString().replaceAll('Exception: ', '')),
-          backgroundColor: const Color(0xFF8B1515),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceAll('Exception: ', '')),
+            backgroundColor: const Color(0xFF8B1515),
+          ),
+        );
       }
     }
   }
@@ -253,71 +277,83 @@ class _ReportsTabState extends State<ReportsTab> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
-        return StatefulBuilder(builder: (context, setModalState) {
-          return Container(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.grading, size: 48, color: primaryRed),
-                const SizedBox(height: 12),
-                const Text('Passing Score Threshold',
-                    style:
-                        TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                const SizedBox(height: 4),
-                const Text(
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Container(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.grading, size: 48, color: primaryRed),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Passing Score Threshold',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
                     'Students scoring at or above this percentage\nwill be marked as passed.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12, color: textGrey)),
-                const SizedBox(height: 24),
-                Text('${current.toStringAsFixed(0)}%',
+                    style: TextStyle(fontSize: 12, color: textGrey),
+                  ),
+                  const SizedBox(height: 24),
+                  Text(
+                    '${current.toStringAsFixed(0)}%',
                     style: const TextStyle(
-                        fontSize: 48,
-                        fontWeight: FontWeight.w900,
-                        color: primaryRed)),
-                const SizedBox(height: 16),
-                SliderTheme(
-                  data: SliderThemeData(
-                    activeTrackColor: primaryRed,
-                    inactiveTrackColor: primaryRed.withValues(alpha: 0.12),
-                    thumbColor: primaryRed,
-                    overlayColor: primaryRed.withValues(alpha: 0.12),
-                    trackHeight: 6,
-                    thumbShape:
-                        const RoundSliderThumbShape(enabledThumbRadius: 14),
+                      fontSize: 48,
+                      fontWeight: FontWeight.w900,
+                      color: primaryRed,
+                    ),
                   ),
-                  child: Slider(
-                    value: current,
-                    min: 0,
-                    max: 100,
-                    divisions: 100,
-                    onChanged: (v) => setModalState(() => current = v),
+                  const SizedBox(height: 16),
+                  SliderTheme(
+                    data: SliderThemeData(
+                      activeTrackColor: primaryRed,
+                      inactiveTrackColor: primaryRed.withValues(alpha: 0.12),
+                      thumbColor: primaryRed,
+                      overlayColor: primaryRed.withValues(alpha: 0.12),
+                      trackHeight: 6,
+                      thumbShape: const RoundSliderThumbShape(
+                        enabledThumbRadius: 14,
+                      ),
+                    ),
+                    child: Slider(
+                      value: current,
+                      min: 0,
+                      max: 100,
+                      divisions: 100,
+                      onChanged: (v) => setModalState(() => current = v),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _savingPassingScore
-                        ? null
-                        : () {
-                            Navigator.pop(ctx);
-                            _savePassingScore(current);
-                          },
-                    style: ElevatedButton.styleFrom(
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _savingPassingScore
+                          ? null
+                          : () {
+                              Navigator.pop(ctx);
+                              _savePassingScore(current);
+                            },
+                      style: ElevatedButton.styleFrom(
                         backgroundColor: primaryRed,
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12))),
-                    child: const Text('Save Passing Score',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        'Save Passing Score',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
                   ),
-                ),
-              ],
-            ),
-          );
-        });
+                ],
+              ),
+            );
+          },
+        );
       },
     );
   }
@@ -385,7 +421,8 @@ class _ReportsTabState extends State<ReportsTab> {
     try {
       final enrolled = await _repo.fetchCourseStudents(courseId);
       final ws = await _repo.fetchCourseWorkspace(courseId);
-      final rawAssessments = (ws['assessments'] as List<dynamic>?)
+      final rawAssessments =
+          (ws['assessments'] as List<dynamic>?)
               ?.map((a) => a as Map<String, dynamic>)
               .toList() ??
           [];
@@ -427,17 +464,27 @@ class _ReportsTabState extends State<ReportsTab> {
 
     if (_loading) {
       return const SafeArea(
-          child: Center(child: CircularProgressIndicator()));
+        child: AtlasLoadingView(layout: AtlasLoadingLayout.reports),
+      );
     }
     if (_error != null) {
       return SafeArea(
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+        child: AtlasPullToRefresh(
+          onRefresh: _load,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
             children: [
-              Text(_error!, style: const TextStyle(color: primaryRed)),
-              const SizedBox(height: 12),
-              ElevatedButton(onPressed: _load, child: const Text('Retry')),
+              const SizedBox(height: 180),
+              Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_error!, style: const TextStyle(color: primaryRed)),
+                    const SizedBox(height: 12),
+                    ElevatedButton(onPressed: _load, child: const Text('Retry')),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -446,32 +493,35 @@ class _ReportsTabState extends State<ReportsTab> {
 
     final selectedTemplate = _filterAssessmentId != null
         ? _templates.cast<BubbleTemplate?>().firstWhere(
-              (t) => t?.assessmentId == _filterAssessmentId,
-              orElse: () => null,
-            )
+            (t) => t?.assessmentId == _filterAssessmentId,
+            orElse: () => null,
+          )
         : null;
 
-    final passingScore = selectedTemplate?.passingScore ??
+    final passingScore =
+        selectedTemplate?.passingScore ??
         (_filteredScans.isNotEmpty
             ? _templates
-                .where((t) => t.templateId == _filteredScans.first.templateId)
-                .map((t) => t.passingScore)
-                .firstOrNull
+                  .where((t) => t.templateId == _filteredScans.first.templateId)
+                  .map((t) => t.passingScore)
+                  .firstOrNull
             : null);
 
     return SafeArea(
-      child: RefreshIndicator(
+      child: AtlasPullToRefresh(
         onRefresh: _load,
         child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(24.0),
           children: [
             const Text(
               'DESCRIPTIVE ASSESSMENT ANALYTICS',
               style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  color: textGrey,
-                  letterSpacing: 0.5),
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: textGrey,
+                letterSpacing: 0.5,
+              ),
             ),
             const SizedBox(height: 16),
 
@@ -480,37 +530,47 @@ class _ReportsTabState extends State<ReportsTab> {
               children: [
                 Expanded(
                   child: _nullableFilterChip(
-                      'Course',
-                      _filterCourseId,
-                      _courses
-                          .map((c) => DropdownMenuEntry<String>(
+                    'Course',
+                    _filterCourseId,
+                    _courses
+                        .map(
+                          (c) => DropdownMenuEntry<String>(
                             value: (c['course_id'] ?? '').toString(),
-                            label: c['course_code']?.toString() ?? 'Untitled'))
-                          .toList(),
-                      (v) => _filterCourse(v)),
+                            label: c['course_code']?.toString() ?? 'Untitled',
+                          ),
+                        )
+                        .toList(),
+                    (v) => _filterCourse(v),
+                  ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: _nullableFilterChip(
-                      'Section',
-                      _selectedSection,
-                      _sections
-                          .map((s) => DropdownMenuEntry<String>(
-                              value: s, label: s))
-                          .toList(),
-                      (v) => _filterSection(v)),
+                    'Section',
+                    _selectedSection,
+                    _sections
+                        .map(
+                          (s) => DropdownMenuEntry<String>(value: s, label: s),
+                        )
+                        .toList(),
+                    (v) => _filterSection(v),
+                  ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: _nullableFilterChip(
-                      'Assessment',
-                      _filterAssessmentId,
-                      _assessments
-                          .map((a) => DropdownMenuEntry<String>(
+                    'Assessment',
+                    _filterAssessmentId,
+                    _assessments
+                        .map(
+                          (a) => DropdownMenuEntry<String>(
                             value: (a['assessment_id'] ?? '').toString(),
-                            label: a['title']?.toString() ?? 'Untitled'))
-                          .toList(),
-                      (v) => _filterAssessment(v)),
+                            label: a['title']?.toString() ?? 'Untitled',
+                          ),
+                        )
+                        .toList(),
+                    (v) => _filterAssessment(v),
+                  ),
                 ),
               ],
             ),
@@ -524,20 +584,23 @@ class _ReportsTabState extends State<ReportsTab> {
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.02),
-                      blurRadius: 10)
+                    color: Colors.black.withValues(alpha: 0.02),
+                    blurRadius: 10,
+                  ),
                 ],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Class Performance',
-                      style: TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 16)),
+                  const Text(
+                    'Class Performance',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
                   const SizedBox(height: 4),
-                  Text('$_scanCount scans analyzed',
-                      style:
-                          const TextStyle(fontSize: 12, color: textGrey)),
+                  Text(
+                    '$_scanCount scans analyzed',
+                    style: const TextStyle(fontSize: 12, color: textGrey),
+                  ),
                   const SizedBox(height: 16),
                   Row(
                     children: [
@@ -558,8 +621,7 @@ class _ReportsTabState extends State<ReportsTab> {
                       Expanded(
                         child: GestureDetector(
                           onTap: _filterAssessmentId != null
-                              ? () =>
-                                  _showSetPassingScore(passingScore ?? 50.0)
+                              ? () => _showSetPassingScore(passingScore ?? 50.0)
                               : null,
                           child: _statCard(
                             'Passing',
@@ -595,8 +657,9 @@ class _ReportsTabState extends State<ReportsTab> {
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.02),
-                      blurRadius: 10)
+                    color: Colors.black.withValues(alpha: 0.02),
+                    blurRadius: 10,
+                  ),
                 ],
               ),
               child: Column(
@@ -604,22 +667,29 @@ class _ReportsTabState extends State<ReportsTab> {
                 children: [
                   Row(
                     children: [
-                      const Text('Item Analysis — Formula & Legend',
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 16)),
+                      const Text(
+                        'Item Analysis — Formula & Legend',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
                       const Spacer(),
                       GestureDetector(
                         onTap: () => _showFormulaDetail(),
-                        child: const Icon(Icons.info_outline,
-                            color: primaryRed, size: 22),
+                        child: const Icon(
+                          Icons.info_outline,
+                          color: primaryRed,
+                          size: 22,
+                        ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 4),
                   Text(
-                      'Based on $_totalScannedStudents scanned students across all sections',
-                      style: const TextStyle(
-                          fontSize: 12, color: textGrey)),
+                    'Based on $_totalScannedStudents scanned students across all sections',
+                    style: const TextStyle(fontSize: 12, color: textGrey),
+                  ),
                   const SizedBox(height: 12),
                   // Formula summary
                   Container(
@@ -632,33 +702,44 @@ class _ReportsTabState extends State<ReportsTab> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Formulas',
-                            style: TextStyle(
-                                fontWeight: FontWeight.w700, fontSize: 13)),
+                        const Text(
+                          'Formulas',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                          ),
+                        ),
                         const SizedBox(height: 8),
                         RichText(
                           text: const TextSpan(
                             style: TextStyle(
-                                fontSize: 13,
-                                color: Color(0xFF1E232C),
-                                height: 1.5),
+                              fontSize: 13,
+                              color: Color(0xFF1E232C),
+                              height: 1.5,
+                            ),
                             children: [
                               TextSpan(
-                                  text: 'Difficulty (P)',
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF8B1515))),
+                                text: 'Difficulty (P)',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF8B1515),
+                                ),
+                              ),
                               TextSpan(
-                                  text:
-                                      ' = R ÷ T\n    where R = correct responses, T = total students\n'),
+                                text:
+                                    ' = R ÷ T\n    where R = correct responses, T = total students\n',
+                              ),
                               TextSpan(
-                                  text: 'Discrimination (D)',
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.blue)),
+                                text: 'Discrimination (D)',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.blue,
+                                ),
+                              ),
                               TextSpan(
-                                  text:
-                                      ' = Pᵤ − Pₗ\n    where Pᵤ = proportion of upper 27% correct,\n    Pₗ = proportion of lower 27% correct'),
+                                text:
+                                    ' = Pᵤ − Pₗ\n    where Pᵤ = proportion of upper 27% correct,\n    Pₗ = proportion of lower 27% correct',
+                              ),
                             ],
                           ),
                         ),
@@ -667,9 +748,10 @@ class _ReportsTabState extends State<ReportsTab> {
                   ),
                   const SizedBox(height: 12),
                   // Interpretation benchmarks
-                  const Text('Interpretation Benchmarks',
-                      style: TextStyle(
-                          fontWeight: FontWeight.w700, fontSize: 13)),
+                  const Text(
+                    'Interpretation Benchmarks',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                  ),
                   const SizedBox(height: 8),
                   _buildBenchmarkTable(),
                 ],
@@ -685,34 +767,41 @@ class _ReportsTabState extends State<ReportsTab> {
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.02),
-                      blurRadius: 10)
+                    color: Colors.black.withValues(alpha: 0.02),
+                    blurRadius: 10,
+                  ),
                 ],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Item Analysis Table',
-                      style: TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 16)),
+                  const Text(
+                    'Item Analysis Table',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
                   const SizedBox(height: 4),
                   Text(
-                      '${_itemAnalysis.length} items analyzed',
-                      style: const TextStyle(
-                          fontSize: 12, color: textGrey)),
+                    '${_itemAnalysis.length} items analyzed',
+                    style: const TextStyle(fontSize: 12, color: textGrey),
+                  ),
                   const SizedBox(height: 12),
                   if (_itemAnalysis.isEmpty)
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 8),
-                      child: Text('0 items analyzed',
-                          style: TextStyle(
-                              fontSize: 13, color: Color(0xFF8391A1))),
+                      child: Text(
+                        '0 items analyzed',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF8391A1),
+                        ),
+                      ),
                     )
                   else
                     Table(
                       border: TableBorder(
                         horizontalInside: BorderSide(
-                            color: Colors.grey.shade200),
+                          color: Colors.grey.shade200,
+                        ),
                       ),
                       columnWidths: const {
                         0: FlexColumnWidth(1),
@@ -725,44 +814,56 @@ class _ReportsTabState extends State<ReportsTab> {
                           decoration: BoxDecoration(
                             border: Border(
                               bottom: BorderSide(
-                                  color: Colors.grey.shade300,
-                                  width: 1),
+                                color: Colors.grey.shade300,
+                                width: 1,
+                              ),
                             ),
                           ),
                           children: const [
                             Padding(
                               padding: EdgeInsets.symmetric(vertical: 8),
-                              child: Text('Item #',
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 12)),
+                              child: Text(
+                                'Item #',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
                             ),
                             Padding(
                               padding: EdgeInsets.symmetric(vertical: 8),
-                              child: Text('Difficulty (P)',
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 12)),
+                              child: Text(
+                                'Difficulty (P)',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
                             ),
                             Padding(
                               padding: EdgeInsets.symmetric(vertical: 8),
-                              child: Text('Discrim. (D)',
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 12)),
+                              child: Text(
+                                'Discrim. (D)',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
                             ),
                             Padding(
                               padding: EdgeInsets.symmetric(vertical: 8),
-                              child: Text('Status',
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 12)),
+                              child: Text(
+                                'Status',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
                             ),
                           ],
                         ),
                         ..._itemAnalysis.map((item) {
-                          final diff =
-                              (item['difficulty'] as num).toDouble();
+                          final diff = (item['difficulty'] as num).toDouble();
                           final disc = (item['discrimination'] as num)
                               .toDouble();
                           final diffLabel = _difficultyLabel(diff);
@@ -770,21 +871,23 @@ class _ReportsTabState extends State<ReportsTab> {
                           return TableRow(
                             children: [
                               Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 10),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 10,
+                                ),
                                 child: Text(
                                   '${item['item_number']}',
                                   style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w500),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
                               ),
                               Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 10),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 10,
+                                ),
                                 child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
                                       diff.toStringAsFixed(3),
@@ -794,22 +897,26 @@ class _ReportsTabState extends State<ReportsTab> {
                                         color: primaryRed,
                                       ),
                                     ),
-                                    Text(diffLabel,
-                                        style: TextStyle(
-                                            fontSize: 10,
-                                            color: diffLabel.contains('Ideal') ||
-                                                    diffLabel.contains('Moderate')
-                                                ? Colors.green.shade700
-                                                : Colors.orange.shade700)),
+                                    Text(
+                                      diffLabel,
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color:
+                                            diffLabel.contains('Ideal') ||
+                                                diffLabel.contains('Moderate')
+                                            ? Colors.green.shade700
+                                            : Colors.orange.shade700,
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),
                               Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 10),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 10,
+                                ),
                                 child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
                                       disc.toStringAsFixed(3),
@@ -819,20 +926,24 @@ class _ReportsTabState extends State<ReportsTab> {
                                         color: Colors.blue,
                                       ),
                                     ),
-                                    Text(discLabel,
-                                        style: TextStyle(
-                                            fontSize: 10,
-                                            color: discLabel == 'Excellent'
-                                                ? Colors.green.shade700
-                                                : discLabel.contains('Good')
-                                                    ? Colors.blue.shade700
-                                                    : Colors.orange.shade700)),
+                                    Text(
+                                      discLabel,
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: discLabel == 'Excellent'
+                                            ? Colors.green.shade700
+                                            : discLabel.contains('Good')
+                                            ? Colors.blue.shade700
+                                            : Colors.orange.shade700,
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),
                               Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 10),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 10,
+                                ),
                                 child: _buildStatusBadge(diff, disc),
                               ),
                             ],
@@ -854,20 +965,26 @@ class _ReportsTabState extends State<ReportsTab> {
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.02),
-                        blurRadius: 10)
+                      color: Colors.black.withValues(alpha: 0.02),
+                      blurRadius: 10,
+                    ),
                   ],
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text("Bloom's Mastery (Class)",
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 16)),
+                    const Text(
+                      "Bloom's Mastery (Class)",
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
                     const SizedBox(height: 4),
-                    const Text('Tap a bar to see per-student details',
-                        style:
-                            TextStyle(fontSize: 12, color: textGrey)),
+                    const Text(
+                      'Tap a bar to see per-student details',
+                      style: TextStyle(fontSize: 12, color: textGrey),
+                    ),
                     const SizedBox(height: 16),
                     ..._bloomAverages.entries.map((e) {
                       final colors = [
@@ -878,8 +995,7 @@ class _ReportsTabState extends State<ReportsTab> {
                         Colors.teal,
                         Colors.indigo,
                       ];
-                      final idx =
-                          _bloomLabels.keys.toList().indexOf(e.key);
+                      final idx = _bloomLabels.keys.toList().indexOf(e.key);
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 10),
                         child: GestureDetector(
@@ -894,15 +1010,17 @@ class _ReportsTabState extends State<ReportsTab> {
                                   Text(
                                     _bloomLabelFull[e.key]!,
                                     style: const TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600),
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
                                   Text(
                                     '${e.value.toStringAsFixed(0)}%',
                                     style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.bold,
-                                        color: colors[idx % colors.length]),
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      color: colors[idx % colors.length],
+                                    ),
                                   ),
                                 ],
                               ),
@@ -968,11 +1086,14 @@ class _ReportsTabState extends State<ReportsTab> {
         borderRadius: BorderRadius.circular(6),
         border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
-      child: Text(label,
-          style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              color: color)),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+          color: color,
+        ),
+      ),
     );
   }
 
@@ -996,65 +1117,106 @@ class _ReportsTabState extends State<ReportsTab> {
           children: const [
             Padding(
               padding: EdgeInsets.symmetric(vertical: 6),
-              child: Text('Index',
-                  style: TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 11)),
+              child: Text(
+                'Index',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+              ),
             ),
             Padding(
               padding: EdgeInsets.symmetric(vertical: 6),
-              child: Text('Value',
-                  style: TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 11)),
+              child: Text(
+                'Value',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+              ),
             ),
             Padding(
               padding: EdgeInsets.symmetric(vertical: 6),
-              child: Text('Interpretation',
-                  style: TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 11)),
+              child: Text(
+                'Interpretation',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+              ),
             ),
           ],
         ),
         // Difficulty rows
-        _benchRow('Difficulty', '< 0.20', 'Very Difficult — revise or replace',
-            const Color(0xFF8B1515)),
-        _benchRow('Difficulty', '0.20 – 0.80',
-            'Moderate — ideal for most items', Colors.green.shade700),
-        _benchRow('Difficulty', '> 0.80', 'Very Easy — make more challenging',
-            const Color(0xFF8B1515)),
-        _benchRow('Discrim.', '< 0.20',
-            'Poor — reject or heavily revise', Colors.blue),
-        _benchRow('Discrim.', '0.20 – 0.29',
-            'Marginal — revise for better differentiation', Colors.blue),
-        _benchRow('Discrim.', '0.30 – 0.39',
-            'Reasonably good — acceptable', Colors.blue),
-        _benchRow('Discrim.', '≥ 0.40',
-            'Excellent — strong differentiator', Colors.blue),
+        _benchRow(
+          'Difficulty',
+          '< 0.20',
+          'Very Difficult — revise or replace',
+          const Color(0xFF8B1515),
+        ),
+        _benchRow(
+          'Difficulty',
+          '0.20 – 0.80',
+          'Moderate — ideal for most items',
+          Colors.green.shade700,
+        ),
+        _benchRow(
+          'Difficulty',
+          '> 0.80',
+          'Very Easy — make more challenging',
+          const Color(0xFF8B1515),
+        ),
+        _benchRow(
+          'Discrim.',
+          '< 0.20',
+          'Poor — reject or heavily revise',
+          Colors.blue,
+        ),
+        _benchRow(
+          'Discrim.',
+          '0.20 – 0.29',
+          'Marginal — revise for better differentiation',
+          Colors.blue,
+        ),
+        _benchRow(
+          'Discrim.',
+          '0.30 – 0.39',
+          'Reasonably good — acceptable',
+          Colors.blue,
+        ),
+        _benchRow(
+          'Discrim.',
+          '≥ 0.40',
+          'Excellent — strong differentiator',
+          Colors.blue,
+        ),
       ],
     );
   }
 
-  TableRow _benchRow(String index, String value, String interpretation,
-      Color color) {
+  TableRow _benchRow(
+    String index,
+    String value,
+    String interpretation,
+    Color color,
+  ) {
     return TableRow(
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Text(index,
-              style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: color)),
+          child: Text(
+            index,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Text(value,
-              style:
-                  const TextStyle(fontSize: 11, fontWeight: FontWeight.w500)),
+          child: Text(
+            value,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+          ),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Text(interpretation,
-              style: const TextStyle(fontSize: 10, color: Color(0xFF8391A1))),
+          child: Text(
+            interpretation,
+            style: const TextStyle(fontSize: 10, color: Color(0xFF8391A1)),
+          ),
         ),
       ],
     );
@@ -1076,57 +1238,70 @@ class _ReportsTabState extends State<ReportsTab> {
           child: ListView(
             shrinkWrap: true,
             children: const [
-              Text('Item Analysis — Full Methodology',
-                  style:
-                      TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              Text(
+                'Item Analysis — Full Methodology',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
               SizedBox(height: 16),
-              Text('1. Score & Sort',
-                  style: TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w700)),
+              Text(
+                '1. Score & Sort',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+              ),
               SizedBox(height: 4),
               Text(
-                  'Calculate total scores for all students and arrange in descending order (highest to lowest).',
-                  style: TextStyle(fontSize: 13, color: Color(0xFF8391A1))),
+                'Calculate total scores for all students and arrange in descending order (highest to lowest).',
+                style: TextStyle(fontSize: 13, color: Color(0xFF8391A1)),
+              ),
               SizedBox(height: 12),
-              Text('2. Identify Subgroups',
-                  style: TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w700)),
+              Text(
+                '2. Identify Subgroups',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+              ),
               SizedBox(height: 4),
               Text(
-                  'Select top 27% (Upper Group) and bottom 27% (Lower Group). Discard the middle 46% from these calculations.\n\nLet n = number of students in each subgroup.',
-                  style: TextStyle(fontSize: 13, color: Color(0xFF8391A1))),
+                'Select top 27% (Upper Group) and bottom 27% (Lower Group). Discard the middle 46% from these calculations.\n\nLet n = number of students in each subgroup.',
+                style: TextStyle(fontSize: 13, color: Color(0xFF8391A1)),
+              ),
               SizedBox(height: 12),
-              Text('3. Tally Correct Answers',
-                  style: TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w700)),
+              Text(
+                '3. Tally Correct Answers',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+              ),
               SizedBox(height: 4),
               Text(
-                  'For each item, count correct answers:\nU = correct in Upper Group\nL = correct in Lower Group',
-                  style: TextStyle(fontSize: 13, color: Color(0xFF8391A1))),
+                'For each item, count correct answers:\nU = correct in Upper Group\nL = correct in Lower Group',
+                style: TextStyle(fontSize: 13, color: Color(0xFF8391A1)),
+              ),
               SizedBox(height: 12),
-              Text('4. Difficulty Index (P)',
-                  style: TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w700)),
+              Text(
+                '4. Difficulty Index (P)',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+              ),
               SizedBox(height: 4),
               Text(
-                  'P = (U + L) / (2n)\n\nRanges from 0.00 to 1.00\n• < 0.20: Very difficult\n• 0.20 – 0.80: Ideal\n• > 0.80: Very easy',
-                  style: TextStyle(fontSize: 13, color: Color(0xFF8391A1))),
+                'P = (U + L) / (2n)\n\nRanges from 0.00 to 1.00\n• < 0.20: Very difficult\n• 0.20 – 0.80: Ideal\n• > 0.80: Very easy',
+                style: TextStyle(fontSize: 13, color: Color(0xFF8391A1)),
+              ),
               SizedBox(height: 12),
-              Text('5. Discrimination Index (D)',
-                  style: TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w700)),
+              Text(
+                '5. Discrimination Index (D)',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+              ),
               SizedBox(height: 4),
               Text(
-                  'D = (U/n) − (L/n)\n\nRanges from −1.00 to +1.00\n• < 0.20: Poor\n• 0.20 – 0.29: Marginal\n• 0.30 – 0.39: Good\n• ≥ 0.40: Excellent',
-                  style: TextStyle(fontSize: 13, color: Color(0xFF8391A1))),
+                'D = (U/n) − (L/n)\n\nRanges from −1.00 to +1.00\n• < 0.20: Poor\n• 0.20 – 0.29: Marginal\n• 0.30 – 0.39: Good\n• ≥ 0.40: Excellent',
+                style: TextStyle(fontSize: 13, color: Color(0xFF8391A1)),
+              ),
               SizedBox(height: 12),
-              Text('6. Decision Matrix',
-                  style: TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w700)),
+              Text(
+                '6. Decision Matrix',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+              ),
               SizedBox(height: 4),
               Text(
-                  'Retain: good difficulty + good discrimination\nRevise: one metric is weak\nDiscard: both metrics are poor',
-                  style: TextStyle(fontSize: 13, color: Color(0xFF8391A1))),
+                'Retain: good difficulty + good discrimination\nRevise: one metric is weak\nDiscard: both metrics are poor',
+                style: TextStyle(fontSize: 13, color: Color(0xFF8391A1)),
+              ),
             ],
           ),
         );
@@ -1178,13 +1353,14 @@ class _ReportsTabState extends State<ReportsTab> {
               Text(
                 '${_bloomLabelFull[level]}: Per-Student Mastery',
                 style: const TextStyle(
-                    fontSize: 16, fontWeight: FontWeight.bold),
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 4),
               Text(
                 'Class Average: ${avg.toStringAsFixed(0)}%  •  ${details.length} students',
-                style:
-                    const TextStyle(fontSize: 12, color: Color(0xFF8391A1)),
+                style: const TextStyle(fontSize: 12, color: Color(0xFF8391A1)),
               ),
               const SizedBox(height: 16),
               Flexible(
@@ -1198,15 +1374,16 @@ class _ReportsTabState extends State<ReportsTab> {
                     return ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: CircleAvatar(
-                        backgroundColor:
-                            mastery >= 75
-                                ? Colors.green.shade100
-                                : primaryRed.withValues(alpha: 0.12),
+                        backgroundColor: mastery >= 75
+                            ? Colors.green.shade100
+                            : primaryRed.withValues(alpha: 0.12),
                         child: Text(
                           d['student_id']
                               .toString()
-                              .substring(0,
-                                  min(2, d['student_id'].toString().length))
+                              .substring(
+                                0,
+                                min(2, d['student_id'].toString().length),
+                              )
                               .toUpperCase(),
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
@@ -1220,7 +1397,9 @@ class _ReportsTabState extends State<ReportsTab> {
                       title: Text(
                         d['student_id'].toString(),
                         style: const TextStyle(
-                            fontWeight: FontWeight.w500, fontSize: 14),
+                          fontWeight: FontWeight.w500,
+                          fontSize: 14,
+                        ),
                       ),
                       trailing: Text(
                         '${mastery.toStringAsFixed(0)}%',
@@ -1252,16 +1431,20 @@ class _ReportsTabState extends State<ReportsTab> {
   Widget _statCard(String label, String value, Color color) {
     return Column(
       children: [
-        Text(value,
-            style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w900,
-                color: color)),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.w900,
+            color: color,
+          ),
+        ),
         const SizedBox(height: 4),
-        Text(label,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-                fontSize: 11, color: Color(0xFF8391A1))),
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 11, color: Color(0xFF8391A1)),
+        ),
       ],
     );
   }
@@ -1278,13 +1461,14 @@ class _ReportsTabState extends State<ReportsTab> {
       initialSelection: value,
       dropdownMenuEntries: [
         const DropdownMenuEntry<String?>(value: null, label: 'All'),
-        ...entries.map((e) => DropdownMenuEntry<String?>(value: e.value, label: e.label)),
+        ...entries.map(
+          (e) => DropdownMenuEntry<String?>(value: e.value, label: e.label),
+        ),
       ],
       onSelected: onSelected,
       textStyle: const TextStyle(fontSize: 13),
       menuStyle: MenuStyle(
-        maximumSize: WidgetStateProperty.all(
-            const Size.fromHeight(200)),
+        maximumSize: WidgetStateProperty.all(const Size.fromHeight(200)),
       ),
     );
   }

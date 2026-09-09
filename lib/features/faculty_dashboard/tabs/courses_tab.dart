@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import '../../grading/grading_repository.dart';
+import '../../../core/widgets/atlas_loading_view.dart';
+import '../../../core/widgets/atlas_pull_to_refresh.dart';
 
 class CoursesTab extends StatefulWidget {
-  final void Function(String courseId, String courseCode, String courseTitle) onCourseSelected;
+  final void Function(String courseId, String courseCode, String courseTitle)
+  onCourseSelected;
 
   const CoursesTab({super.key, required this.onCourseSelected});
 
@@ -48,46 +51,65 @@ class _CoursesTabState extends State<CoursesTab> {
     const textGrey = Color(0xFF8391A1);
 
     return SafeArea(
-      child: RefreshIndicator(
+      child: AtlasPullToRefresh(
         onRefresh: _loadCourses,
-        child: ListView(
-          padding: const EdgeInsets.all(24.0),
-          children: [
-            const Text('COURSE MANAGEMENT',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: textGrey, letterSpacing: 0.5)),
-            const SizedBox(height: 16),
-            if (_loading)
-              const Padding(padding: EdgeInsets.all(48), child: Center(child: CircularProgressIndicator())),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.all(24),
-                child: Center(
-                  child: Column(
-                    children: [
-                      Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: primaryRed)),
-                      const SizedBox(height: 12),
-                      ElevatedButton(onPressed: _loadCourses, child: const Text('Retry')),
-                    ],
+        enabled: !_loading,
+        child: _loading
+            ? const AtlasLoadingView(layout: AtlasLoadingLayout.courses)
+            : ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(24.0),
+                children: [
+                  const Text(
+                    'COURSE MANAGEMENT',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: textGrey,
+                      letterSpacing: 0.5,
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 16),
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Center(
+                        child: Column(
+                          children: [
+                            Text(
+                              _error!,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: primaryRed),
+                            ),
+                            const SizedBox(height: 12),
+                            ElevatedButton(
+                              onPressed: _loadCourses,
+                              child: const Text('Retry'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  if (!_loading && _error == null)
+                    for (int i = 0; i < _courses.length; i++) ...[
+                      if (i > 0) const SizedBox(height: 12),
+                      _buildCourseCard(
+                        _courses[i]['course_code'] ?? '',
+                        _courses[i]['course_title'] ?? '',
+                        _courses[i]['course_id'] ?? '',
+                      ),
+                    ],
+                  if (!_loading && _error == null && _courses.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text(
+                        'No courses found in your teaching load.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: textGrey),
+                      ),
+                    ),
+                ],
               ),
-            if (!_loading && _error == null)
-              for (int i = 0; i < _courses.length; i++) ...[
-                if (i > 0) const SizedBox(height: 12),
-                _buildCourseCard(
-                  _courses[i]['course_code'] ?? '',
-                  _courses[i]['course_title'] ?? '',
-                  _courses[i]['course_id'] ?? '',
-                ),
-              ],
-            if (!_loading && _error == null && _courses.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Text('No courses found in your teaching load.',
-                    textAlign: TextAlign.center, style: TextStyle(color: textGrey)),
-              ),
-          ],
-        ),
       ),
     );
   }
@@ -102,9 +124,10 @@ class _CoursesTabState extends State<CoursesTab> {
           border: Border.all(color: const Color(0xFF8B1515), width: 2),
           boxShadow: [
             BoxShadow(
-                color: Colors.black.withValues(alpha: 0.02),
-                blurRadius: 10,
-                offset: const Offset(0, 4))
+              color: Colors.black.withValues(alpha: 0.02),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
           ],
         ),
         child: Padding(
@@ -120,16 +143,28 @@ class _CoursesTabState extends State<CoursesTab> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(code,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 16)),
-                    Text(title,
-                        style: const TextStyle(
-                            fontSize: 13, color: Color(0xFF8391A1))),
+                    Text(
+                      code,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF8391A1),
+                      ),
+                    ),
                   ],
                 ),
               ),
-              Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey.shade400),
+              Icon(
+                Icons.arrow_forward_ios,
+                size: 16,
+                color: Colors.grey.shade400,
+              ),
             ],
           ),
         ),

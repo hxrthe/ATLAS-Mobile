@@ -7,6 +7,8 @@ import '../grading/grading_repository.dart';
 import '../grading/models.dart';
 import '../faculty_dashboard/course_detail_screen.dart';
 import '../../core/widgets/user_avatar.dart';
+import '../../core/widgets/atlas_loading_view.dart';
+import '../../core/widgets/atlas_pull_to_refresh.dart';
 import 'tabs/courses_tab.dart';
 import 'tabs/reports_tab.dart';
 import 'tabs/settings_tab.dart';
@@ -52,13 +54,10 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
       duration: const Duration(milliseconds: 300),
       vsync: this,
     );
-    _navSlideAnimation = Tween<Offset>(
-      begin: Offset.zero,
-      end: const Offset(0, 1.5),
-    ).animate(CurvedAnimation(
-      parent: _navSlideController,
-      curve: Curves.easeInOut,
-    ));
+    _navSlideAnimation =
+        Tween<Offset>(begin: Offset.zero, end: const Offset(0, 1.5)).animate(
+          CurvedAnimation(parent: _navSlideController, curve: Curves.easeInOut),
+        );
     _initLoad();
     _resetInactivityTimer();
   }
@@ -78,7 +77,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
 
   void _handleInactivity() {
     if (!mounted) return;
-    
+
     // Perform logout
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
@@ -99,7 +98,10 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
 
     await _loadAll();
     // Refresh events periodically
-    _eventsTimer = Timer.periodic(const Duration(seconds: 30), (_) => _loadEvents());
+    _eventsTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _loadEvents(),
+    );
   }
 
   Future<void> _loadAll() async {
@@ -118,7 +120,9 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
       Map<String, dynamic>? activeCourse;
       List<BubbleTemplate> activeTemplates = [];
       for (final c in courses) {
-        final ct = allTemplates.where((t) => t.courseId == c['course_id']).toList();
+        final ct = allTemplates
+            .where((t) => t.courseId == c['course_id'])
+            .toList();
         if (ct.any((t) => t.hasAnswerKey || t.assessmentId != null)) {
           activeCourse = c;
           activeTemplates = ct;
@@ -133,7 +137,9 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
       String? assessmentType;
       if (activeCourse != null) {
         try {
-          final assessments = await _repo.fetchAssessments(activeCourse['course_id']!);
+          final assessments = await _repo.fetchAssessments(
+            activeCourse['course_id']!,
+          );
           if (assessments.isNotEmpty) {
             assessmentType = assessments.first['assessment_type'] as String?;
           }
@@ -170,15 +176,16 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
 
   void _switchActive(String courseId) {
     final course = _courses.firstWhere((c) => c['course_id'] == courseId);
-    final templates =
-        _allTemplates.where((t) => t.courseId == courseId).toList();
+    final templates = _allTemplates
+        .where((t) => t.courseId == courseId)
+        .toList();
     setState(() {
       _activeCourse = course;
       _activeTemplates = templates;
     });
   }
 
-    void _openScanner(BuildContext context) {
+  void _openScanner(BuildContext context) {
     if (_activeCourse == null) return;
     _navigateToScanner(
       context,
@@ -187,11 +194,14 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
     );
   }
 
-  void _navigateToScanner(BuildContext context, String courseId,
-      String courseName) async {
+  void _navigateToScanner(
+    BuildContext context,
+    String courseId,
+    String courseName,
+  ) async {
     // Pause inactivity timer while scanning
     _inactivityTimer?.cancel();
-    
+
     final effectiveCourseId = courseId.isEmpty ? null : courseId;
     await Navigator.push(
       context,
@@ -202,13 +212,16 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
         ),
       ),
     );
-    
+
     // Resume timer when returning
     _resetInactivityTimer();
   }
 
-  void _navigateToCourseDetail(String courseId, String courseCode,
-      String courseTitle) async {
+  void _navigateToCourseDetail(
+    String courseId,
+    String courseCode,
+    String courseTitle,
+  ) async {
     await _navSlideController.forward();
     if (!mounted) return;
     await Navigator.push(
@@ -261,12 +274,10 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
         key: ValueKey('courses_$_loading'),
         onCourseSelected:
             (String courseId, String courseCode, String courseTitle) {
-          _navigateToCourseDetail(courseId, courseCode, courseTitle);
-        },
+              _navigateToCourseDetail(courseId, courseCode, courseTitle);
+            },
       ),
-      ReportsTab(
-        key: ValueKey('reports_$_loading'),
-      ),
+      ReportsTab(key: ValueKey('reports_$_loading')),
       const SettingsTab(),
     ];
 
@@ -276,86 +287,90 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
         backgroundColor: backgroundGrey,
         extendBody: true,
         bottomNavigationBar: SlideTransition(
-        position: _navSlideAnimation,
-        child: BottomAppBar(
-        height: 75,
-        shape: const AutomaticNotchedShape(
-          RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          CircleBorder(),
-        ),
-        notchMargin: 10.0,
-        color: Colors.white,
-        elevation: 20,
-        shadowColor: Colors.black.withValues(alpha: 0.5),
-        clipBehavior: Clip.antiAlias,
-        padding: EdgeInsets.zero,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Expanded(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _buildNavItem(0, Icons.home, 'Home'),
-                  _buildNavItem(1, Icons.menu_book, 'Courses'),
-                ],
+          position: _navSlideAnimation,
+          child: BottomAppBar(
+            height: 75,
+            shape: const AutomaticNotchedShape(
+              RoundedRectangleBorder(
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
               ),
+              CircleBorder(),
             ),
-            // Central part for FAB and label
-            SizedBox(
-              width: 100,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 6.0),
-                    child: Text(
-                      'Scanner',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: textGrey,
-                      ),
-                    ),
+            notchMargin: 10.0,
+            color: Colors.white,
+            elevation: 20,
+            shadowColor: Colors.black.withValues(alpha: 0.5),
+            clipBehavior: Clip.antiAlias,
+            padding: EdgeInsets.zero,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _buildNavItem(0, Icons.home, 'Home'),
+                      _buildNavItem(1, Icons.menu_book, 'Courses'),
+                    ],
                   ),
-                ],
+                ),
+                // Central part for FAB and label
+                SizedBox(
+                  width: 100,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 6.0),
+                        child: Text(
+                          'Scanner',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: textGrey,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _buildNavItem(2, Icons.show_chart, 'Reports'),
+                      _buildNavItem(3, Icons.manage_accounts, 'Settings'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        floatingActionButton: SlideTransition(
+          position: _navSlideAnimation,
+          child: SizedBox(
+            height: 72,
+            width: 72,
+            child: FloatingActionButton(
+              onPressed: () {
+                _resetInactivityTimer();
+                _navigateToScanner(context, "", "Scanner");
+              },
+              backgroundColor: primaryRed,
+              shape: const CircleBorder(),
+              elevation: 10,
+              child: const Icon(
+                Icons.qr_code_scanner,
+                color: Colors.white,
+                size: 36,
               ),
             ),
-            Expanded(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _buildNavItem(2, Icons.show_chart, 'Reports'),
-                  _buildNavItem(3, Icons.manage_accounts, 'Settings'),
-                ],
-              ),
-            ),
-          ],
+          ),
         ),
+        floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+        body: tabs[_selectedIndex],
       ),
-      ),
-      floatingActionButton: SlideTransition(
-        position: _navSlideAnimation,
-        child: SizedBox(
-        height: 72,
-        width: 72,
-        child: FloatingActionButton(
-          onPressed: () {
-            _resetInactivityTimer();
-            _navigateToScanner(context, "", "Scanner");
-          },
-          backgroundColor: primaryRed,
-          shape: const CircleBorder(),
-          elevation: 10,
-          child: const Icon(Icons.qr_code_scanner, color: Colors.white, size: 36),
-        ),
-      ),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-      body: tabs[_selectedIndex],
-    ),
     );
   }
 
@@ -367,11 +382,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
         mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            icon,
-            color: isSelected ? primaryRed : textGrey,
-            size: 28,
-          ),
+          Icon(icon, color: isSelected ? primaryRed : textGrey, size: 28),
           const SizedBox(height: 2),
           Text(
             label,
@@ -387,127 +398,132 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
   }
 
   Widget _buildHomeTab(BuildContext context) {
-    return RefreshIndicator(
+    return AtlasPullToRefresh(
       onRefresh: _loadAll,
+      enabled: !_loading,
       child: SafeArea(
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _error != null
-                ? Center(child: Text(_error!, style: TextStyle(color: primaryRed)))
-                : SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(24.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 400),
+          child: _loading
+              ? const AtlasLoadingView(
+                  key: ValueKey('home-loading'),
+                  layout: AtlasLoadingLayout.home,
+                )
+              : _error != null
+              ? ListView(
+                  key: const ValueKey('home-error'),
+                  physics: const AlwaysScrollableScrollPhysics(),
                   children: [
-                    // Header
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'WELCOME INSTRUCTOR',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: textGrey,
-                                letterSpacing: 1.0,
-                              ),
-                            ),
-                            Text(
-                              _userName,
-                              style: TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.w900,
-                                color: primaryRed,
-                              ),
-                            ),
-                          ],
-                        ),
-                        Stack(
-                          alignment: Alignment.bottomRight,
-                          children: [
-                            UserAvatar(
-                              photoUrl: _userPhotoUrl,
-                              name: _userName,
-                              radius: 28,
-                            ),
-                            Container(
-                              height: 14,
-                              width: 14,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF00E676),
-                                shape: BoxShape.circle,
-                                border:
-                                    Border.all(color: backgroundGrey, width: 2),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                    const SizedBox(height: 180),
+                    Center(
+                      child: Text(_error!, style: TextStyle(color: primaryRed)),
                     ),
-                    const SizedBox(height: 32),
-
-                    // Active Session Card
-                    Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [primaryRed, darkRed],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(24),
-                        boxShadow: [
-                          BoxShadow(
-                            color: primaryRed.withValues(alpha: 0.3),
-                            blurRadius: 15,
-                            offset: const Offset(0, 8),
+                  ],
+                )
+              : SingleChildScrollView(
+                  key: const ValueKey('home-content'),
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Header
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'WELCOME INSTRUCTOR',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: textGrey,
+                                  letterSpacing: 1.0,
+                                ),
+                              ),
+                              Text(
+                                _userName,
+                                style: TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w900,
+                                  color: primaryRed,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Stack(
+                            alignment: Alignment.bottomRight,
+                            children: [
+                              UserAvatar(
+                                photoUrl: _userPhotoUrl,
+                                name: _userName,
+                                radius: 28,
+                              ),
+                              Container(
+                                height: 14,
+                                width: 14,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF00E676),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: backgroundGrey,
+                                    width: 2,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFD4811B).withValues(alpha: 0.9),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  _activeCourse != null
-                                      ? (_activeTemplates.any((t) =>
-                                                  t.hasAnswerKey ||
-                                                  t.assessmentId != null)
-                                              ? 'ACTIVE SESSION'
-                                              : 'NO ANSWER KEY')
-                                      : 'NO COURSES',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 0.5,
-                                  ),
-                                ),
-                              ),
-                              if (_activeAssessmentType != null &&
-                                  _activeAssessmentType!.isNotEmpty)
+                      const SizedBox(height: 32),
+
+                      // Active Session Card
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [primaryRed, darkRed],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(24),
+                          boxShadow: [
+                            BoxShadow(
+                              color: primaryRed.withValues(alpha: 0.3),
+                              blurRadius: 15,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
                                 Container(
                                   padding: const EdgeInsets.symmetric(
-                                      horizontal: 10, vertical: 4),
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color: Colors.white.withValues(alpha: 0.2),
+                                    color: const Color(
+                                      0xFFD4811B,
+                                    ).withValues(alpha: 0.9),
                                     borderRadius: BorderRadius.circular(6),
                                   ),
                                   child: Text(
-                                    _assessmentTypeLabel(_activeAssessmentType),
+                                    _activeCourse != null
+                                        ? (_activeTemplates.any(
+                                                (t) =>
+                                                    t.hasAnswerKey ||
+                                                    t.assessmentId != null,
+                                              )
+                                              ? 'ACTIVE SESSION'
+                                              : 'NO ANSWER KEY')
+                                        : 'NO COURSES',
                                     style: const TextStyle(
                                       color: Colors.white,
                                       fontSize: 10,
@@ -516,201 +532,159 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                                     ),
                                   ),
                                 ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            _activeCourse != null
-                                ? (_activeCourse!['course_code'] ?? '')
-                                : 'No Courses',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 32,
-                              fontWeight: FontWeight.w900,
-                              height: 1.1,
-                            ),
-                          ),
-                          Text(
-                            _activeCourse != null
-                                ? (_activeCourse!['course_title'] ?? '')
-                                : 'No active teaching load',
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          if (_activeTemplates.any(
-                              (t) => t.hasAnswerKey || t.assessmentId != null))
-                            Row(
-                              children: [
-                                const Icon(Icons.check_circle,
-                                    color: Color(0xFF00E676), size: 16),
-                                const SizedBox(width: 6),
-                                Text(
-                                  '${_activeTemplates.where((t) => t.hasAnswerKey).length} answer key(s) ready',
-                                  style: const TextStyle(
-                                    color: Color(0xFF00E676),
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
+                                if (_activeAssessmentType != null &&
+                                    _activeAssessmentType!.isNotEmpty)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.2,
+                                      ),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      _assessmentTypeLabel(
+                                        _activeAssessmentType,
+                                      ),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 0.5,
+                                      ),
+                                    ),
                                   ),
-                                ),
                               ],
                             ),
-                          const SizedBox(height: 24),
-                          ElevatedButton.icon(
-                            onPressed:
-                                _activeCourse != null ? () => _openScanner(context) : null,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.white,
-                              foregroundColor: primaryRed,
-                              minimumSize: const Size(double.infinity, 50),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            icon: const Icon(Icons.camera_alt),
-                            label: const Text(
-                              'Scan Exam Sheets',
-                              style: TextStyle(
-                                  fontSize: 16, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 32),
-
-                    // Pending Assessments
-                    if (_activeTemplates.isNotEmpty) ...[
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'PENDING ASSESSMENTS TO SCAN',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                              color: textGrey,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: primaryRed,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              '${_activeTemplates.length} TEMPLATES',
+                            const SizedBox(height: 12),
+                            Text(
+                              _activeCourse != null
+                                  ? (_activeCourse!['course_code'] ?? '')
+                                  : 'No Courses',
                               style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
+                                fontSize: 32,
+                                fontWeight: FontWeight.w900,
+                                height: 1.1,
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      ..._activeTemplates.map((t) {
-                        final isActive = _activeTemplates.any(
-                            (at) => at.hasAnswerKey || at.assessmentId != null);
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: _buildTemplateCard(t,
-                              isActive: isActive, isFirst: t.hasAnswerKey || t.assessmentId != null),
-                        );
-                      }),
-                      const SizedBox(height: 16),
-                    ],
-
-                    // Other courses
-                    if (_courses.length > 1) ...[
-                      Text(
-                        'OTHER COURSES',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                          color: textGrey,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      ..._courses.where((c) => c['course_id'] != _activeCourse?['course_id']).map((c) {
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: GestureDetector(
-                            onTap: () => _switchActive(c['course_id']!),
-                            child: Container(
-                              padding: const EdgeInsets.all(14),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: const Color(0xFFE8ECF4)),
+                            Text(
+                              _activeCourse != null
+                                  ? (_activeCourse!['course_title'] ?? '')
+                                  : 'No active teaching load',
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
                               ),
-                              child: Row(
+                            ),
+                            const SizedBox(height: 8),
+                            if (_activeTemplates.any(
+                              (t) => t.hasAnswerKey || t.assessmentId != null,
+                            ))
+                              Row(
                                 children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(10),
-                                    decoration: BoxDecoration(
-                                      color: primaryRed.withValues(alpha: 0.08),
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: Icon(Icons.swap_horiz,
-                                        color: primaryRed, size: 18),
+                                  const Icon(
+                                    Icons.check_circle,
+                                    color: Color(0xFF00E676),
+                                    size: 16,
                                   ),
-                                  const SizedBox(width: 14),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          c['course_code'] ?? '',
-                                          style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 14,
-                                              color: Color(0xFF1E232C)),
-                                        ),
-                                        Text(
-                                          c['course_title'] ?? '',
-                                          style: TextStyle(
-                                              fontSize: 12, color: textGrey),
-                                        ),
-                                      ],
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    '${_activeTemplates.where((t) => t.hasAnswerKey).length} answer key(s) ready',
+                                    style: const TextStyle(
+                                      color: Color(0xFF00E676),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
                                     ),
                                   ),
-                                  Text('Switch',
-                                      style: TextStyle(
-                                          fontSize: 12,
-                                          color: primaryRed,
-                                          fontWeight: FontWeight.w600)),
                                 ],
                               ),
+                            const SizedBox(height: 24),
+                            ElevatedButton.icon(
+                              onPressed: _activeCourse != null
+                                  ? () => _openScanner(context)
+                                  : null,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.white,
+                                foregroundColor: primaryRed,
+                                minimumSize: const Size(double.infinity, 50),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              icon: const Icon(Icons.camera_alt),
+                              label: const Text(
+                                'Scan Exam Sheets',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                             ),
-                          ),
-                        );
-                      }),
-                    ],
-
-                    const SizedBox(height: 32),
-
-                    // System Events
-                    Row(
-                      children: [
-                        Container(
-                          height: 8,
-                          width: 8,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF00E676),
-                            shape: BoxShape.circle,
-                          ),
+                          ],
                         ),
-                        const SizedBox(width: 8),
+                      ),
+                      const SizedBox(height: 32),
+
+                      // Pending Assessments
+                      if (_activeTemplates.isNotEmpty) ...[
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'PENDING ASSESSMENTS TO SCAN',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: textGrey,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: primaryRed,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                '${_activeTemplates.length} TEMPLATES',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        ..._activeTemplates.map((t) {
+                          final isActive = _activeTemplates.any(
+                            (at) => at.hasAnswerKey || at.assessmentId != null,
+                          );
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: _buildTemplateCard(
+                              t,
+                              isActive: isActive,
+                              isFirst: t.hasAnswerKey || t.assessmentId != null,
+                            ),
+                          );
+                        }),
+                        const SizedBox(height: 16),
+                      ],
+
+                      // Other courses
+                      if (_courses.length > 1) ...[
                         Text(
-                          'SYSTEM EVENTS',
+                          'OTHER COURSES',
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w800,
@@ -718,63 +692,167 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                             letterSpacing: 0.5,
                           ),
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    if (_systemEvents.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        child: Text(
-                          'No scans yet. Start scanning to see events.',
-                          style: TextStyle(fontSize: 13, color: textGrey),
-                        ),
-                      ),
-                    ..._systemEvents.map((ev) {
-                      final flagged = ev['is_flagged'] == true;
-                      final score = ev['score_percent'] != null
-                          ? '${(ev['score_percent'] as double).toStringAsFixed(0)}%'
-                          : 'N/A';
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 14),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Icon(
-                              flagged ? Icons.flag : Icons.check_circle,
-                              color: flagged
-                                  ? Colors.orange.shade600
-                                  : const Color(0xFF00E676),
-                              size: 18,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Scanned ${ev['template_name'] ?? "sheet"} — ${ev['course_code'] ?? ""} | ${ev['student_id'] ?? "Unknown"} ($score)',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 13,
-                                      color: Colors.black87,
+                        const SizedBox(height: 12),
+                        ..._courses
+                            .where(
+                              (c) =>
+                                  c['course_id'] != _activeCourse?['course_id'],
+                            )
+                            .map((c) {
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: GestureDetector(
+                                  onTap: () => _switchActive(c['course_id']!),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(14),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: const Color(0xFFE8ECF4),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(10),
+                                          decoration: BoxDecoration(
+                                            color: primaryRed.withValues(
+                                              alpha: 0.08,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              10,
+                                            ),
+                                          ),
+                                          child: Icon(
+                                            Icons.swap_horiz,
+                                            color: primaryRed,
+                                            size: 18,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 14),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                c['course_code'] ?? '',
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 14,
+                                                  color: Color(0xFF1E232C),
+                                                ),
+                                              ),
+                                              Text(
+                                                c['course_title'] ?? '',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: textGrey,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        Text(
+                                          'Switch',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: primaryRed,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    _timeAgo(ev['created_at'] ?? ''),
-                                    style: TextStyle(
-                                        fontSize: 11, color: textGrey),
-                                  ),
-                                ],
-                              ),
+                                ),
+                              );
+                            }),
+                      ],
+
+                      const SizedBox(height: 32),
+
+                      // System Events
+                      Row(
+                        children: [
+                          Container(
+                            height: 8,
+                            width: 8,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFF00E676),
+                              shape: BoxShape.circle,
                             ),
-                          ],
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'SYSTEM EVENTS',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: textGrey,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      if (_systemEvents.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          child: Text(
+                            'No scans yet. Start scanning to see events.',
+                            style: TextStyle(fontSize: 13, color: textGrey),
+                          ),
                         ),
-                      );
-                    }),
-                  ],
+                      ..._systemEvents.map((ev) {
+                        final flagged = ev['is_flagged'] == true;
+                        final score = ev['score_percent'] != null
+                            ? '${(ev['score_percent'] as double).toStringAsFixed(0)}%'
+                            : 'N/A';
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 14),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(
+                                flagged ? Icons.flag : Icons.check_circle,
+                                color: flagged
+                                    ? Colors.orange.shade600
+                                    : const Color(0xFF00E676),
+                                size: 18,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Scanned ${ev['template_name'] ?? "sheet"} — ${ev['course_code'] ?? ""} | ${ev['student_id'] ?? "Unknown"} ($score)',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      _timeAgo(ev['created_at'] ?? ''),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: textGrey,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                    ],
+                  ),
                 ),
-              ),
+        ),
       ),
     );
   }

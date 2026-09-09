@@ -8,7 +8,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
   AuthBloc({required this.authRepository}) : super(AuthInitial()) {
     on<LoginRequested>((event, emit) async {
-      emit(AuthLoading());
+      emit(const AuthLoading(source: AuthLoadingSource.email));
       try {
         final role = await authRepository.login(
           email: event.email,
@@ -21,7 +21,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     });
 
     on<GoogleLoginRequested>((event, emit) async {
-      emit(AuthLoading());
+      emit(const AuthLoading(source: AuthLoadingSource.google));
       try {
         final result = await authRepository.loginWithGoogle();
         emit(AuthSuccess(role: result['role'] as String));
@@ -31,7 +31,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     });
 
     on<ForgotPasswordRequested>((event, emit) async {
-      emit(AuthLoading());
+      emit(const AuthLoading());
       try {
         await authRepository.requestPasswordReset(event.email);
         emit(ForgotPasswordEmailSent(email: event.email));
@@ -41,7 +41,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     });
 
     on<VerifyOtpRequested>((event, emit) async {
-      emit(AuthLoading());
+      emit(const AuthLoading());
       try {
         final resetToken = await authRepository.verifyPasswordResetOtp(
           event.email,
@@ -54,7 +54,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     });
 
     on<ResetPasswordRequested>((event, emit) async {
-      emit(AuthLoading());
+      emit(const AuthLoading());
       try {
         await authRepository.confirmPasswordReset(
           event.resetToken,
