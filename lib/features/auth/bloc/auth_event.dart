@@ -49,26 +49,3 @@ class ResetPasswordRequested extends AuthEvent {
   @override
   List<Object> get props => [resetToken, newPassword];
 }
-
-class SignupRequested extends AuthEvent {
-  final String email;
-  final String password;
-  final String name;
-  final String studentId;
-  final String course;
-  final String section;
-  final String yearLevel;
-
-  const SignupRequested({
-    required this.email,
-    required this.password,
-    required this.name,
-    required this.studentId,
-    required this.course,
-    required this.section,
-    required this.yearLevel,
-  });
-
-  @override
-  List<Object> get props => [email, password, name, studentId, course, section, yearLevel];
-}

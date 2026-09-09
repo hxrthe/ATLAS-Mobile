@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../auth/forgot_password_screen.dart';
+import '../../core/widgets/user_avatar.dart';
 
 class AccountSecurityScreen extends StatefulWidget {
   const AccountSecurityScreen({super.key});
@@ -16,6 +17,7 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
   String _userName = '';
   String _userEmail = '';
   String _userRole = '';
+  String? _userPhotoUrl;
   bool _isLoading = true;
 
   final Color primaryRed = const Color(0xFF8B1515);
@@ -37,7 +39,8 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
       setState(() {
         _userName = prefs.getString('user_name') ?? 'User';
         _userEmail = prefs.getString('user_email') ?? '';
-        _userRole = prefs.getString('user_role') ?? '';
+        _userRole = prefs.getString('user_role') ?? 'faculty';
+        _userPhotoUrl = prefs.getString('user_photo_url');
         _keepMeSignedIn = savedEmail != null;
         _isLoading = false;
       });
@@ -110,10 +113,10 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
                     ),
                     child: Row(
                       children: [
-                        CircleAvatar(
+                        UserAvatar(
+                          photoUrl: _userPhotoUrl,
+                          name: _userName,
                           radius: 30,
-                          backgroundColor: primaryRed.withValues(alpha: 0.1),
-                          child: Icon(Icons.person, color: primaryRed, size: 30),
                         ),
                         const SizedBox(width: 16),
                         Expanded(

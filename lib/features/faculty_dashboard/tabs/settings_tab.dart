@@ -7,6 +7,7 @@ import '../../auth/bloc/auth_bloc.dart';
 import '../../auth/auth_repository.dart';
 import '../../settings/account_security_screen.dart';
 import '../../settings/help_support_screen.dart';
+import '../../../core/widgets/user_avatar.dart';
 
 class SettingsTab extends StatefulWidget {
   const SettingsTab({super.key});
@@ -18,6 +19,7 @@ class SettingsTab extends StatefulWidget {
 class _SettingsTabState extends State<SettingsTab> {
   String _userName = 'Instructor';
   String _userRole = 'Faculty';
+  String? _userPhotoUrl;
 
   @override
   void initState() {
@@ -30,7 +32,8 @@ class _SettingsTabState extends State<SettingsTab> {
     if (mounted) {
       setState(() {
         _userName = prefs.getString('user_name') ?? 'Instructor';
-        _userRole = prefs.getString('user_role') == 'faculty' ? 'Faculty Instructor' : 'User';
+        _userRole = 'Faculty Instructor';
+        _userPhotoUrl = prefs.getString('user_photo_url');
       });
     }
   }
@@ -49,9 +52,10 @@ class _SettingsTabState extends State<SettingsTab> {
           ),
           const SizedBox(height: 16),
           ListTile(
-            leading: const CircleAvatar(
+            leading: UserAvatar(
+              photoUrl: _userPhotoUrl,
+              name: _userName,
               radius: 24,
-              backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=11'),
             ),
             title: Text(_userName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
             subtitle: Text(_userRole),

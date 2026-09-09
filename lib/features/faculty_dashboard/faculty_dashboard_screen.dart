@@ -6,6 +6,7 @@ import '../scanner/scanner_screen.dart';
 import '../grading/grading_repository.dart';
 import '../grading/models.dart';
 import '../faculty_dashboard/course_detail_screen.dart';
+import '../../core/widgets/user_avatar.dart';
 import 'tabs/courses_tab.dart';
 import 'tabs/reports_tab.dart';
 import 'tabs/settings_tab.dart';
@@ -21,6 +22,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
     with SingleTickerProviderStateMixin {
   int _selectedIndex = 0;
   String _userName = 'Instructor';
+  String? _userPhotoUrl;
   Timer? _inactivityTimer;
   Timer? _eventsTimer;
 
@@ -89,7 +91,11 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
   Future<void> _initLoad() async {
     final prefs = await SharedPreferences.getInstance();
     final name = prefs.getString('user_name') ?? 'Instructor';
-    setState(() => _userName = name);
+    final photoUrl = prefs.getString('user_photo_url');
+    setState(() {
+      _userName = name;
+      _userPhotoUrl = photoUrl;
+    });
 
     await _loadAll();
     // Refresh events periodically
@@ -423,11 +429,10 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                         Stack(
                           alignment: Alignment.bottomRight,
                           children: [
-                            const CircleAvatar(
+                            UserAvatar(
+                              photoUrl: _userPhotoUrl,
+                              name: _userName,
                               radius: 28,
-                              backgroundColor: Colors.grey,
-                              backgroundImage:
-                                  NetworkImage('https://i.pravatar.cc/150?img=11'),
                             ),
                             Container(
                               height: 14,

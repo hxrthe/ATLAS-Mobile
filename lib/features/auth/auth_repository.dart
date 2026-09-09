@@ -8,6 +8,64 @@ import '../../core/network/api_client.dart';
 class AuthRepository {
   final ApiClient _apiClient = ApiClient();
 
+  static const String _facultyOnlyMessage =
+      'This app is for faculty only. Create your faculty account on the ATLAS website, then sign in here.';
+
+  void _ensureFacultyRole(String? role) {
+    if (role != 'faculty') {
+      throw Exception(_facultyOnlyMessage);
+    }
+  }
+
+  Future<void> _persistProfile({
+    required SharedPreferences prefs,
+    required String role,
+    Map<String, dynamic>? user,
+    String? fallbackName,
+    String? fallbackEmail,
+    String? photoUrl,
+  }) async {
+    await prefs.setString(
+      'user_name',
+      user?['name']?.toString() ?? fallbackName ?? '',
+    );
+    await prefs.setString(
+      'user_email',
+      user?['email']?.toString() ?? fallbackEmail ?? '',
+    );
+    await prefs.setString('user_role', role);
+    await prefs.setString('user_id', user?['user_id']?.toString() ?? '');
+
+    String? savedPhoto;
+    for (final candidate in [photoUrl, user?['picture_url']?.toString()]) {
+      final url = candidate?.trim() ?? '';
+      if (url.isNotEmpty) {
+        savedPhoto = url;
+        break;
+      }
+    }
+    if (savedPhoto != null) {
+      await prefs.setString('user_photo_url', savedPhoto);
+    } else {
+      await prefs.remove('user_photo_url');
+    }
+  }
+
+  String? _pictureFromIdToken(String? idToken) {
+    if (idToken == null || idToken.isEmpty) return null;
+    try {
+      final parts = idToken.split('.');
+      if (parts.length < 2) return null;
+      final payload = jsonDecode(
+        utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
+      );
+      if (payload is Map && payload['picture'] is String) {
+        return payload['picture'] as String;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   /// Web OAuth client ID — required as [GoogleSignIn.initialize] `serverClientId`
   /// so Android can mint an ID token the backend can verify.
   static const String _googleWebClientId =
@@ -42,25 +100,17 @@ class AuthRepository {
         throw Exception('Login failed — no access token returned.');
       }
 
+      final role = user?['role']?.toString() ?? '';
+      _ensureFacultyRole(role);
+
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('access_token', accessToken);
       if (refreshToken != null) {
         await prefs.setString('refresh_token', refreshToken);
       }
 
-      // Persist user profile for dashboard display
-      if (user != null) {
-        await prefs.setString('user_name', user['name']?.toString() ?? '');
-        await prefs.setString('user_email', user['email']?.toString() ?? '');
-        await prefs.setString('user_role', user['role']?.toString() ?? 'faculty');
-        await prefs.setString('user_id', user['user_id']?.toString() ?? '');
-        // Store student_details as JSON string for later retrieval
-        if (user['student_details'] != null) {
-          await prefs.setString('student_details', jsonEncode(user['student_details']));
-        }
-      }
+      await _persistProfile(prefs: prefs, role: role, user: user);
 
-      final role = user?['role']?.toString() ?? 'faculty';
       return role;
     } on DioException catch (e) {
       if (e.response?.statusCode == 401) {
@@ -84,6 +134,8 @@ class AuthRepository {
     await prefs.setString('logout_type', 'intentional');
     await prefs.remove('access_token');
     await prefs.remove('refresh_token');
+    await prefs.remove('student_details');
+    await prefs.remove('user_photo_url');
   }
 
   /// Extract a human-readable error from a DioException response.
@@ -232,11 +284,7 @@ class AuthRepository {
       }
 
       if (data['user_exists'] == false) {
-        return {
-          'user_exists': false,
-          'email': data['email']?.toString() ?? googleUser.email,
-          'name': data['name']?.toString() ?? googleUser.displayName ?? '',
-        };
+        throw Exception(_facultyOnlyMessage);
       }
 
       final backendAccessToken = data['access'] as String?;
@@ -247,6 +295,9 @@ class AuthRepository {
         throw Exception('Backend synchronization failed — no access token returned.');
       }
 
+      final String role = user?['role']?.toString() ?? '';
+      _ensureFacultyRole(role);
+
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('access_token', backendAccessToken);
       if (backendRefreshToken != null) {
@@ -254,90 +305,23 @@ class AuthRepository {
       }
 
       final String name = user?['name']?.toString() ?? googleUser.displayName ?? 'User';
-      final String role = user?['role']?.toString() ?? 'student';
 
-      await prefs.setString('user_name', name);
-      await prefs.setString('user_email', user?['email']?.toString() ?? googleUser.email);
-      await prefs.setString('user_role', role);
-      await prefs.setString('user_id', user?['user_id']?.toString() ?? '');
-
-      if (user?['student_details'] != null) {
-        await prefs.setString('student_details', jsonEncode(user?['student_details']));
-      }
+      await _persistProfile(
+        prefs: prefs,
+        role: role,
+        user: user,
+        fallbackName: name,
+        fallbackEmail: googleUser.email,
+        photoUrl: googleUser.photoUrl ?? _pictureFromIdToken(idToken),
+      );
 
       return {
-        'user_exists': true,
         'role': role,
       };
     } on GoogleSignInException catch (e) {
       throw Exception(_googleSignInError(e));
     } on DioException catch (e) {
       throw Exception(_parseError(e, 'Google sign-in failed.'));
-    } catch (e) {
-      throw Exception(e.toString().replaceAll('Exception: ', ''));
-    }
-  }
-
-  Future<String> signup({
-    required String email,
-    required String password,
-    required String name,
-    required String studentId,
-    required String course,
-    required String section,
-    required String yearLevel,
-  }) async {
-    try {
-      final response = await _apiClient.dio.post(
-        'auth/register/',
-        data: {
-          'email': email.trim().toLowerCase(),
-          'password': password,
-          'name': name.trim(),
-          'student_id': studentId.trim(),
-          'course': course.trim(),
-          'section': section.trim(),
-          'year_level': yearLevel.trim(),
-        },
-      );
-
-      final data = response.data;
-      if (data is! Map<String, dynamic>) {
-        throw Exception('Unexpected server response. Please try again.');
-      }
-
-      final accessToken = data['access'] as String?;
-      final refreshToken = data['refresh'] as String?;
-      final user = data['user'] as Map<String, dynamic>?;
-
-      if (accessToken == null) {
-        throw Exception('Signup failed — no access token returned.');
-      }
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('access_token', accessToken);
-      if (refreshToken != null) {
-        await prefs.setString('refresh_token', refreshToken);
-      }
-
-      if (user != null) {
-        await prefs.setString('user_name', user['name']?.toString() ?? '');
-        await prefs.setString('user_email', user['email']?.toString() ?? '');
-        await prefs.setString('user_role', user['role']?.toString() ?? 'student');
-        await prefs.setString('user_id', user['user_id']?.toString() ?? '');
-        if (user['student_details'] != null) {
-          await prefs.setString('student_details', jsonEncode(user['student_details']));
-        }
-      }
-
-      return user?['role']?.toString() ?? 'student';
-    } on DioException catch (e) {
-      if (e.response?.statusCode == 409) {
-        throw Exception('An account with this email already exists.');
-      }
-      throw Exception(
-        e.response?.data?['detail'] ?? _parseError(e, 'Signup failed. Try again.'),
-      );
     } catch (e) {
       throw Exception(e.toString().replaceAll('Exception: ', ''));
     }

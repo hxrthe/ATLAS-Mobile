@@ -16,7 +16,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         );
         emit(AuthSuccess(role: role));
       } catch (e) {
-        emit(AuthFailure(error: e.toString()));
+        emit(AuthFailure(error: e.toString().replaceAll('Exception: ', '')));
       }
     });
 
@@ -24,14 +24,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(AuthLoading());
       try {
         final result = await authRepository.loginWithGoogle();
-        if (result['user_exists'] == false) {
-          emit(GoogleUserNotFound(
-            email: result['email'] as String,
-            name: result['name'] as String,
-          ));
-        } else {
-          emit(AuthSuccess(role: result['role'] as String));
-        }
+        emit(AuthSuccess(role: result['role'] as String));
       } catch (e) {
         emit(AuthFailure(error: e.toString().replaceAll('Exception: ', '')));
       }
@@ -68,24 +61,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           event.newPassword,
         );
         emit(PasswordResetSuccess());
-      } catch (e) {
-        emit(AuthFailure(error: e.toString()));
-      }
-    });
-
-    on<SignupRequested>((event, emit) async {
-      emit(AuthLoading());
-      try {
-        final role = await authRepository.signup(
-          email: event.email,
-          password: event.password,
-          name: event.name,
-          studentId: event.studentId,
-          course: event.course,
-          section: event.section,
-          yearLevel: event.yearLevel,
-        );
-        emit(AuthSuccess(role: role));
       } catch (e) {
         emit(AuthFailure(error: e.toString()));
       }

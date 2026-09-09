@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/network/api_client.dart';
 import 'models.dart';
 
@@ -137,8 +136,8 @@ class GradingRepository {
           studentId.isNotEmpty &&
           studentId != 'Unknown')
         'student_identifier': studentId,
-      if (isFlagged != null) 'is_flagged': isFlagged,
-      if (truncatedReason != null) 'flag_reason': truncatedReason,
+      'is_flagged': ?isFlagged,
+      'flag_reason': ?truncatedReason,
     });
 
     final postResp = await _apiClient.dio.post(
@@ -166,8 +165,8 @@ class GradingRepository {
               studentId != 'Unknown')
             'student_identifier': studentId,
           'responses': responses,
-          if (isFlagged != null) 'is_flagged': isFlagged,
-          if (truncatedReason != null) 'flag_reason': truncatedReason,
+          'is_flagged': ?isFlagged,
+          'flag_reason': ?truncatedReason,
         },
       );
       if (patchResp.data['success'] != true) {
@@ -473,103 +472,5 @@ class GradingRepository {
       'auth/password-reset/confirm/',
       data: {'reset_token': resetToken, 'new_password': newPassword},
     );
-  }
-
-  /// Fetch student's enrolled courses from their student_details.
-  Future<List<Map<String, dynamic>>> fetchStudentCourses() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString('student_details');
-    if (raw == null || raw.isEmpty) return [];
-
-    try {
-      final details = jsonDecode(raw) as Map<String, dynamic>;
-      final courses = details['courses'] as List<dynamic>? ?? [];
-      return courses
-          .map((c) => Map<String, dynamic>.from(c as Map<dynamic, dynamic>))
-          .toList();
-    } catch (_) {
-      return [];
-    }
-  }
-
-  /// Get student details (section, student_id, courses) from local cache.
-  Future<Map<String, dynamic>> fetchStudentDetails() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString('student_details');
-    if (raw == null || raw.isEmpty) return {};
-
-    try {
-      return jsonDecode(raw) as Map<String, dynamic>;
-    } catch (_) {
-      return {};
-    }
-  }
-
-  /// Enroll in a course by course code.
-  Future<Map<String, dynamic>> enrollInCourse(String courseCode) async {
-    final response = await _apiClient.dio.post(
-      'auth/enroll/',
-      data: {'course_code': courseCode},
-    );
-
-    final data = response.data;
-    final studentDetails =
-        data['student_details'] as Map<String, dynamic>? ?? {};
-
-    // Persist updated student_details locally
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('student_details', jsonEncode(studentDetails));
-
-    return studentDetails;
-  }
-
-  /// Unenroll from a course.
-  Future<Map<String, dynamic>> unenrollFromCourse(String courseId) async {
-    final response = await _apiClient.dio.delete(
-      'auth/enroll/$courseId/',
-    );
-
-    final data = response.data;
-    final studentDetails =
-        data['student_details'] as Map<String, dynamic>? ?? {};
-
-    // Persist updated student_details locally
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('student_details', jsonEncode(studentDetails));
-
-    return studentDetails;
-  }
-
-  /// Refresh student_details from server and cache locally.
-  Future<Map<String, dynamic>> refreshStudentDetails() async {
-    final profile = await fetchMyProfile();
-    final studentDetails =
-        profile['student_details'] as Map<String, dynamic>? ?? {};
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('student_details', jsonEncode(studentDetails));
-
-    return studentDetails;
-  }
-
-  /// Update student details on the server.
-  Future<Map<String, dynamic>> updateStudentDetails({
-    Map<String, dynamic>? studentDetails,
-    String? section,
-  }) async {
-    final payload = <String, dynamic>{};
-    if (studentDetails != null) payload['student_details'] = studentDetails;
-    if (section != null) payload['section'] = section;
-
-    final response = await _apiClient.dio.patch('auth/me/', data: payload);
-
-    final updated = response.data as Map<String, dynamic>;
-    final prefs = await SharedPreferences.getInstance();
-    final sd = updated['student_details'];
-    if (sd != null) {
-      await prefs.setString('student_details', jsonEncode(sd));
-    }
-
-    return updated;
   }
 }

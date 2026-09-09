@@ -3,7 +3,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
-import '../student_dashboard/student_dashboard_screen.dart';
 
 // STRICT RELATIVE IMPORTS
 import '../faculty_dashboard/faculty_dashboard_screen.dart';
@@ -11,7 +10,6 @@ import 'bloc/auth_bloc.dart';
 import 'bloc/auth_event.dart';
 import 'bloc/auth_state.dart';
 import 'forgot_password_screen.dart';
-import 'signup_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   final bool autoLogout;
@@ -117,22 +115,10 @@ class _LoginScreenState extends State<LoginScreen> {
         listener: (context, state) {
           if (state is AuthSuccess) {
             _saveCredentials();
-            Widget targetScreen = state.role == 'faculty'
-                ? const FacultyDashboardScreen()
-                : const StudentDashboardScreen();
-
             Navigator.pushReplacement(
               context,
-              MaterialPageRoute(builder: (context) => targetScreen),
-            );
-          } else if (state is GoogleUserNotFound) {
-            Navigator.push(
-              context,
               MaterialPageRoute(
-                builder: (context) => SignupScreen(
-                  prefillEmail: state.email,
-                  prefillName: state.name,
-                ),
+                builder: (context) => const FacultyDashboardScreen(),
               ),
             );
           } else if (state is AuthFailure) {
@@ -217,7 +203,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       
                       // --- START OF FORM ---
                       Text(
-                        'SR-CODE / INSTITUTIONAL EMAIL',
+                        'INSTITUTIONAL EMAIL',
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
@@ -443,25 +429,13 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                       ),
                       const SizedBox(height: 12),
-                      
-                      TextButton(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => SignupScreen(
-                                prefillEmail: _usernameController.text.trim(),
-                                prefillName: '',
-                              ),
-                            ),
-                          );
-                        },
-                        child: Text(
-                          "Don't have an account? Sign up",
-                          style: TextStyle(
-                            color: primaryRed,
-                            fontWeight: FontWeight.w600,
-                          ),
+                      Text(
+                        'Faculty accounts are created on the ATLAS website.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: grayText,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                       

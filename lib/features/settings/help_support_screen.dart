@@ -79,11 +79,7 @@ class HelpSupportScreen extends StatelessWidget {
             ),
             _buildFAQTile(
               'What if the QR code isn\'t recognized?',
-              'Ensure the QR code is well-lit and not obscured. Avoid direct glare by tilting the paper slightly. The QR code must contain valid assessment data for the system to identify the student and template.',
-            ),
-            _buildFAQTile(
-              'How do I join a course as a student?',
-              'On your dashboard, tap the "Join Course" button and enter the unique course code provided by your instructor.',
+              'Ensure the QR code is well-lit and not obscured. Avoid direct glare by tilting the paper slightly. The QR code must contain valid assessment data for the system to identify the template.',
             ),
             _buildFAQTile(
               'Can I edit scores manually?',
@@ -302,7 +298,7 @@ TERMS OF SERVICE AND USER RESPONSIBILITIES
 By accessing or using the ATLAS Mobile application, you agree to be bound by these Terms of Service. If you do not agree to all of the terms and conditions, you are prohibited from using the application.
 
 2. USER ELIGIBILITY AND ACCOUNT SECURITY
-The ATLAS Mobile application is designed for use by authorized faculty and students of Batangas State University. You are responsible for maintaining the confidentiality of your account credentials, including your SR-Code and secure password. Any activity occurring under your account is your sole responsibility. You must immediately notify the ATLAS support team of any unauthorized use of your account.
+The ATLAS Mobile application is designed for use by authorized faculty of Batangas State University. Faculty accounts must be created on the ATLAS website before signing in here. You are responsible for maintaining the confidentiality of your account credentials, including your institutional email and secure password. Any activity occurring under your account is your sole responsibility. You must immediately notify the ATLAS support team of any unauthorized use of your account.
 
 3. PROHIBITED CONDUCT AND USER RESPONSIBILITIES
 As a user of ATLAS, you agree not to:
@@ -310,14 +306,14 @@ As a user of ATLAS, you agree not to:
 - Attempt to circumvent the OMR grading logic or manipulate assessment results.
 - Reverse engineer, decompile, or attempt to extract the source code of the application.
 - Submit false bug reports or malicious technical data.
-- Impersonate another user or gain unauthorized access to data belonging to other faculty or students.
+- Impersonate another user or gain unauthorized access to data belonging to other faculty members.
 - Use the application in a manner that interferes with its normal operation or imposes an unreasonable load on our infrastructure.
 
 4. INTELLECTUAL PROPERTY RIGHTS
 All content, features, and functionality of the ATLAS Mobile application, including but not limited to the OMR engine, UI design, graphics, and logos, are the exclusive property of the ATLAS development team and are protected by international copyright and intellectual property laws.
 
 5. ACADEMIC INTEGRITY
-ATLAS is a tool designed to support academic assessment. Users (both faculty and students) are expected to uphold the highest standards of academic integrity. Any attempt to use the application to facilitate cheating or academic dishonesty will be reported to the appropriate university authorities.
+ATLAS is a tool designed to support academic assessment. Faculty users are expected to uphold the highest standards of academic integrity. Any attempt to use the application to facilitate cheating or academic dishonesty will be reported to the appropriate university authorities.
 
 6. LIMITATION OF LIABILITY
 The ATLAS application is provided "as is" and "as available." To the maximum extent permitted by law, the developers shall not be liable for any indirect, incidental, special, or consequential damages resulting from the use or inability to use the application, including but not limited to loss of data or academic standing.
@@ -334,15 +330,15 @@ PRIVACY POLICY AND DATA PROTECTION
 
 1. INFORMATION WE COLLECT
 ATLAS Mobile collects information necessary to provide and improve our academic assessment services. This includes:
-- Personal Identifiers: Your name, institutional email address (g.batstate-u.edu.ph), and SR-Code.
-- Academic Data: Course enrollments, assessment templates, scanned answer sheet images, and grading results.
+- Personal Identifiers: Your name and institutional email address (g.batstate-u.edu.ph).
+- Academic Data: Faculty course assignments, assessment templates, scanned answer sheet images, and grading results.
 - Technical Data: Device model, operating system version, and system logs (when explicitly submitted via bug reports).
 
 2. HOW WE USE YOUR INFORMATION
 The information collected is used solely for:
 - Authenticating users and securing access to academic records.
 - Facilitating the scanning and automated grading of OMR answer sheets.
-- Providing academic analytics and progress reports to students.
+- Providing academic analytics and grading reports to faculty.
 - Improving the accuracy and performance of the OMR engine.
 - Responding to support requests and technical issues.
 
@@ -351,8 +347,8 @@ We implement robust technical and organizational measures to protect your data. 
 
 4. DATA SHARING AND DISCLOSURE
 We do not sell, trade, or otherwise transfer your personal information to outside parties. Data is only accessible to:
-- You (the account holder).
-- Authorized faculty members (for students enrolled in their courses).
+- You (the faculty account holder).
+- Authorized faculty members for courses they teach.
 - The ATLAS technical support team (only when necessary for troubleshooting).
 
 5. USER RIGHTS AND CHOICES

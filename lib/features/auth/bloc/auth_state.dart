@@ -46,13 +46,3 @@ class OtpVerified extends AuthState {
 }
 
 class PasswordResetSuccess extends AuthState {}
-
-class GoogleUserNotFound extends AuthState {
-  final String email;
-  final String name;
-
-  const GoogleUserNotFound({required this.email, required this.name});
-
-  @override
-  List<Object> get props => [email, name];
-}
