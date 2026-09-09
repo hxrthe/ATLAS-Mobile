@@ -181,11 +181,12 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
         widget.courseId,
         _selectedAssessmentId!,
       );
-      final rows =
-          (data['rows'] as List<dynamic>?)
-              ?.map((r) => r as Map<String, dynamic>)
-              .toList() ??
+      final rawStudents =
+          (data['students'] as List<dynamic>?) ??
+          (data['rows'] as List<dynamic>?) ??
           [];
+      final rows =
+          rawStudents.map((r) => r as Map<String, dynamic>).toList();
       debugPrint('Score rows: $rows');
       if (mounted) {
         setState(() {
@@ -198,10 +199,25 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
       if (mounted) {
         setState(() {
           _loadingScores = false;
-          _scoresError = e.toString().replaceAll('Exception: ', '');
+          _scoresError = _friendlyScoresError(e);
         });
       }
     }
+  }
+
+  String _friendlyScoresError(Object e) {
+    if (e is DioException) {
+      final data = e.response?.data;
+      if (data is Map && data['detail'] is String) {
+        return data['detail'] as String;
+      }
+      final status = e.response?.statusCode;
+      if (status != null) {
+        return 'Could not load scores (server error $status). Please retry.';
+      }
+      return 'Could not load scores. Check your connection and retry.';
+    }
+    return e.toString().replaceAll('Exception: ', '');
   }
 
   Future<void> _saveAnswerKey() async {
@@ -1046,12 +1062,12 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
           .toString();
       final section = _sectionForCourse(student);
 
-      // Match score row by user_id (the student_identifier in bubble_sheet_scans)
+      // Match by platform user UUID or SR code (bubble sheets store SR codes)
       final scoreMatch = _scoreRows.firstWhere((r) {
         final sid =
             (r['student_id'] ?? r['user_id'] ?? r['student_identifier'] ?? '')
                 .toString();
-        return sid == userId;
+        return sid == userId || (srCode.isNotEmpty && sid == srCode);
       }, orElse: () => {});
 
       if (scoreMatch.isNotEmpty) {
@@ -1077,6 +1093,23 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
               'Score',
         });
       }
+    }
+
+    // Keep scanned scores that did not match an enrolled student (unknown SR code)
+    final matchedIds = {
+      for (final r in displayRows)
+        (r['student_id'] ?? r['sr_code'] ?? '').toString(),
+    }..removeWhere((id) => id.isEmpty);
+    for (final score in _scoreRows) {
+      final sid =
+          (score['student_id'] ?? score['student_identifier'] ?? '').toString();
+      if (sid.isNotEmpty && matchedIds.contains(sid)) continue;
+      displayRows.add({
+        ...Map<String, dynamic>.from(score),
+        'sr_code': sid.isNotEmpty ? sid : (score['sr_code'] ?? '—'),
+        'section': score['section'] ?? '',
+      });
+      if (sid.isNotEmpty) matchedIds.add(sid);
     }
 
     if (displayRows.isEmpty) {
