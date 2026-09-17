@@ -218,11 +218,11 @@ class _FiducialPainter extends CustomPainter {
     const paperAspectRatio = 13.0 / 8.5; // height / width
     const pageWmm = 215.9;
     const pageHmm = 330.2;
-    // Printed fiducials (bubble_sheet_generator.py) — NOT at paper corners.
-    const fidInset = 8.0;
-    const fidW = 10.0;
+    // Printed ArUco fiducials (bubble_sheet_generator.py) — NOT at paper corners.
+    const fidInset = 5.0;
+    const fidW = 15.0;
     const headerMm = 50.8; // 2" — top fiducials start here
-    const contentBotMm = 294.8; // bottom fiducial top edge
+    const contentBotMm = 289.8; // bottom fiducial top edge
 
     final availableHeight = size.height - topMargin - bottomMargin;
     var clearWidth = size.width * 0.94;
@@ -396,7 +396,7 @@ class _FiducialPainter extends CustomPainter {
       msg = 'Sheet locked \u2014 scan Assessment QR';
       msgColor = Colors.greenAccent;
     } else if (detectedCount >= 2) {
-      msg = 'Tracking fiducials ($detectedCount/4) \u2014 hold steady';
+      msg = 'Tracking corner markers ($detectedCount/4) \u2014 hold steady';
       msgColor = Colors.orange;
     } else {
       msg = 'Fit entire sheet in frame';

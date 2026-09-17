@@ -6,6 +6,8 @@ import 'package:image/image.dart' as img;
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
 import 'omr_models.dart';
 import 'omr_classifier.dart';
+import 'omr_aruco.dart';
+import 'omr_constants.dart';
 
 /// Low‑level pixel operations for fiducial detection, perspective warp,
 /// bubble sampling, ID‑bubble decoding, and real-time frame analysis.
@@ -282,49 +284,22 @@ class OmrImaging {
 
     final rPx = (rMm * dpi / 25.4).round();
     final labels = ['0','1','2','3','4','5','6','7','8','9','-'];
-
-    // Phase 1: Sample all columns, collect all fills for global threshold
-    final allColumnFills = <List<double>>[];
-    // PDF draws first ID row at y_top + 2.5mm (see bubble_sheet_generator).
     const firstRowOffsetMm = 2.5;
+    final buf = StringBuffer();
     for (int c = 0; c < cols; c++) {
       final cx = ((x0mm + c * colPitch) * dpi / 25.4).round();
-      final fills = <double>[];
+      final fills = <String, double>{};
       for (int r = 0; r < labels.length; r++) {
         final cy =
             ((yTopMm + firstRowOffsetMm + r * rowPitch) * dpi / 25.4).round();
-        fills.add(sampleCircle(warped, cx, cy, rPx));
+        fills[labels[r]] = innerFillRatio(warped, cx, cy, rPx);
       }
-      allColumnFills.add(fills);
+      final classified = classifyFills(fills);
+      buf.write(classified.$2 ? '?' : classified.$1);
     }
-
-    // Phase 2: Global threshold from ALL ID bubble fills
-    final allFills = <double>[];
-    for (final cf in allColumnFills) { allFills.addAll(cf); }
-    final globalThr = _largestGap(allFills, 0.40);
-
-    // Phase 3: Per-column largest-gap with global fallback
-    final buf = StringBuffer();
-    for (final fills in allColumnFills) {
-      final localThr = _largestGap(fills, globalThr);
-
-      double bestFill = 0;
-      int bestRow = -1;
-      for (int r = 0; r < fills.length; r++) {
-        if (fills[r] > bestFill) {
-          bestFill = fills[r];
-          bestRow = r;
-        }
-      }
-
-      if (bestRow != -1 && bestFill >= localThr) {
-        buf.write(labels[bestRow]);
-      } else {
-        buf.write('?');
-      }
-    }
-
-    return buf.toString();
+    final id = buf.toString();
+    if (id.replaceAll('?', '').isEmpty) return null;
+    return id;
   }
 
   /// Largest-gap thresholding: find the largest gap between sorted values.
@@ -1098,9 +1073,26 @@ class OmrImaging {
     img.Image src,
     Map<String, dynamic> layout,
   ) {
-    final targetDpi = (layout['dpi'] as num?)?.toDouble() ?? 150.0;
+    final targetDpi = (layout['dpi'] as num?)?.toDouble() ?? OmrConstants.targetDpi;
     final pageWpt = ((layout['page_width_pt'] as num?) ?? 612.0).toDouble();
     final pageHpt = ((layout['page_height_pt'] as num?) ?? 936.0).toDouble();
+    final dpi = targetDpi < 200 ? OmrConstants.targetDpi : targetDpi;
+
+    final aruco = OmrAruco.detect(src);
+    if (OmrAruco.hasAllFour(aruco)) {
+      final wf = warpFromAruco(aruco, src, layout, targetDpi: dpi);
+      if (wf != null) {
+        final gray = img.grayscale(wf.$1);
+        return (
+          color: wf.$1,
+          gray: gray,
+          binary: otsuBinarize(blurOnly(gray, kernel: 5)),
+          dpi: wf.$2,
+          method: 'aruco',
+          lowConfidence: false,
+        );
+      }
+    }
 
     final pageCorners = _detectPageWithResizeFallback(src);
     if (pageCorners != null && pageCorners.length == 4) {
@@ -1109,7 +1101,7 @@ class OmrImaging {
         src,
         layout,
         fromPageEdges: true,
-        targetDpi: targetDpi,
+        targetDpi: dpi,
       );
       final gray = img.grayscale(wf.$1);
       return (
@@ -1129,7 +1121,7 @@ class OmrImaging {
         src,
         layout,
         fromPageEdges: false,
-        targetDpi: targetDpi,
+        targetDpi: dpi,
       );
       final gray = img.grayscale(wf.$1);
       return (
@@ -1144,16 +1136,123 @@ class OmrImaging {
 
     final dpiX = src.width * 72.0 / pageWpt;
     final dpiY = src.height * 72.0 / pageHpt;
-    final dpi = (dpiX + dpiY) / 2;
+    final guessedDpi = (dpiX + dpiY) / 2;
     final gray = img.grayscale(src);
     return (
       color: src,
       gray: gray,
       binary: otsuBinarize(blurOnly(gray, kernel: 5)),
-      dpi: dpi,
+      dpi: guessedDpi,
       method: 'direct',
       lowConfidence: true,
     );
+  }
+
+  /// Warp using ArUco IDs 0–3 → layout millimetre centres (ID correspondence).
+  static (img.Image, double)? warpFromAruco(
+    Map<int, ArucoHit> hits,
+    img.Image src,
+    Map<String, dynamic> layout, {
+    double targetDpi = OmrConstants.targetDpi,
+  }) {
+    final dstByCorner = <String, _FPoint>{};
+    final fids = layout['fiducials'] as List<dynamic>? ?? [];
+    for (final f in fids) {
+      if (f is! Map) continue;
+      final wmm = (f['w_mm'] as num?)?.toDouble() ??
+          (f['size_mm'] as num?)?.toDouble() ??
+          OmrConstants.fidSizeMm;
+      final hmm = (f['h_mm'] as num?)?.toDouble() ?? wmm;
+      final cx = ((f['x_mm'] as num).toDouble() + wmm / 2) * targetDpi / 25.4;
+      final cy =
+          ((f['y_spec_mm'] as num).toDouble() + hmm / 2) * targetDpi / 25.4;
+      var corner = f['corner']?.toString();
+      if (corner == null && f['id'] != null) {
+        corner = OmrConstants.arucoIdToCorner[(f['id'] as num).toInt()];
+      }
+      if (corner != null) dstByCorner[corner] = _FPoint(cx, cy);
+    }
+    if (dstByCorner.length < 4) {
+      // Fallback geometry if metadata is a bare list without ids.
+      dstByCorner.addAll({
+        'TL': _FPoint(
+          (OmrConstants.fidInsetMm + OmrConstants.fidSizeMm / 2) *
+              targetDpi /
+              25.4,
+          (OmrConstants.headerMm + OmrConstants.fidSizeMm / 2) *
+              targetDpi /
+              25.4,
+        ),
+        'TR': _FPoint(
+          (OmrConstants.pageWmm -
+                  OmrConstants.fidInsetMm -
+                  OmrConstants.fidSizeMm / 2) *
+              targetDpi /
+              25.4,
+          (OmrConstants.headerMm + OmrConstants.fidSizeMm / 2) *
+              targetDpi /
+              25.4,
+        ),
+        'BR': _FPoint(
+          (OmrConstants.pageWmm -
+                  OmrConstants.fidInsetMm -
+                  OmrConstants.fidSizeMm / 2) *
+              targetDpi /
+              25.4,
+          (OmrConstants.contentBotMm + OmrConstants.fidSizeMm / 2) *
+              targetDpi /
+              25.4,
+        ),
+        'BL': _FPoint(
+          (OmrConstants.fidInsetMm + OmrConstants.fidSizeMm / 2) *
+              targetDpi /
+              25.4,
+          (OmrConstants.contentBotMm + OmrConstants.fidSizeMm / 2) *
+              targetDpi /
+              25.4,
+        ),
+      });
+    }
+
+    const order = ['TL', 'TR', 'BR', 'BL'];
+    const ids = [0, 1, 2, 3];
+    final srcPts = <_FPoint>[];
+    final dstPts = <_FPoint>[];
+    for (var i = 0; i < 4; i++) {
+      final hit = hits[ids[i]];
+      final dst = dstByCorner[order[i]];
+      if (hit == null || dst == null) return null;
+      srcPts.add(_FPoint(hit.cx, hit.cy));
+      dstPts.add(dst);
+    }
+
+    final pageWmm =
+        ((layout['page_width_pt'] as num?) ?? 612.0).toDouble() / 72.0 * 25.4;
+    final pageHmm =
+        ((layout['page_height_pt'] as num?) ?? 936.0).toDouble() / 72.0 * 25.4;
+    final ow = (pageWmm * targetDpi / 25.4).round().clamp(200, 4000);
+    final oh = (pageHmm * targetDpi / 25.4).round().clamp(200, 6000);
+
+    final mat = _computeHomography(srcPts, dstPts);
+    if (mat == null) return null;
+    final inv = _invert3x3(mat);
+    final out = img.Image(width: ow, height: oh);
+    for (int y = 0; y < oh; y++) {
+      for (int x = 0; x < ow; x++) {
+        out.setPixel(x, y, img.ColorInt32.rgba(255, 255, 255, 255));
+      }
+    }
+    for (int y = 0; y < oh; y++) {
+      for (int x = 0; x < ow; x++) {
+        final srcXY = _applyHomography(inv, x.toDouble(), y.toDouble());
+        final sx = srcXY.x.round();
+        final sy = srcXY.y.round();
+        if (sx >= 0 && sy >= 0 && sx < src.width && sy < src.height) {
+          out.setPixel(x, y, src.getPixel(sx, sy));
+        }
+      }
+    }
+    return (out, targetDpi);
   }
 
   /// Warp the sheet onto a full page canvas at fixed [targetDpi].
@@ -1311,6 +1410,54 @@ class OmrImaging {
       }
     }
     return total > 0 ? filled / total : 0;
+  }
+
+  static double innerFillRatio(img.Image binary, int cx, int cy, int r) {
+    final rr = max(3, (r * OmrConstants.innerFillRatio).round());
+    return maskFillRatio(binary, cx, cy, rr);
+  }
+
+  /// Per-question z-score / jump classifier (plan Stage 2.5).
+  static (String answer, bool ambiguous, String note) classifyFills(
+    Map<String, double> fills,
+  ) {
+    if (fills.isEmpty) return ('?', true, 'No choices');
+    final ranked = fills.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final bestK = ranked.first.key;
+    final best = ranked.first.value;
+    final second = ranked.length > 1 ? ranked[1].value : 0.0;
+    final mean = fills.values.reduce((a, b) => a + b) / fills.length;
+    var variance = 0.0;
+    for (final v in fills.values) {
+      final d = v - mean;
+      variance += d * d;
+    }
+    final std = max(sqrt(variance / fills.length), 0.02);
+    final zBest = (best - mean) / std;
+    final gap = best - second;
+    final blank = best < OmrConstants.blankCeiling;
+    final marked = best >= OmrConstants.markFloor &&
+        (zBest >= OmrConstants.zScoreMark || gap >= OmrConstants.gapMark);
+    final doubleMark = ranked.length > 1 &&
+        second >= OmrConstants.markFloor &&
+        gap < OmrConstants.doubleGap;
+    if (blank) return ('?', true, 'Blank (${best.toStringAsFixed(2)})');
+    if (doubleMark) {
+      return (
+        '?',
+        true,
+        'Double mark ($bestK=${best.toStringAsFixed(2)} vs ${second.toStringAsFixed(2)})'
+      );
+    }
+    if (!marked) {
+      return (
+        '?',
+        true,
+        'Ambiguous ($bestK=${best.toStringAsFixed(2)} z=${zBest.toStringAsFixed(2)})'
+      );
+    }
+    return (bestK, false, 'Marked $bestK (${best.toStringAsFixed(2)})');
   }
 
   /// Refine a bubble centre by searching for the densest dark region nearby.
@@ -1719,12 +1866,12 @@ class OmrImaging {
             .inflate(0.02);
 
         // Printed fiducial centres (mm) → UV on long-bond page.
-        const pageWmm = 215.9;
-        const pageHmm = 330.2;
-        const fidInset = 8.0;
-        const fidW = 10.0;
-        const headerMm = 50.8;
-        const contentBotMm = 294.8;
+        const fidInset = OmrConstants.fidInsetMm;
+        const fidW = OmrConstants.fidSizeMm;
+        const headerMm = OmrConstants.headerMm;
+        const contentBotMm = OmrConstants.contentBotMm;
+        const pageWmm = OmrConstants.pageWmm;
+        const pageHmm = OmrConstants.pageHmm;
         final uvs = <Offset>[
           Offset((fidInset + fidW / 2) / pageWmm,
               (headerMm + fidW / 2) / pageHmm),
@@ -1892,12 +2039,12 @@ class OmrImaging {
 
   /// Ghost fiducial centres in normalised UI — same mm layout as the painter.
   static List<Offset> _expectedFiducialUiNorm() {
-    const pageWmm = 215.9;
-    const pageHmm = 330.2;
-    const fidInset = 8.0;
-    const fidW = 10.0;
-    const headerMm = 50.8;
-    const contentBotMm = 294.8;
+    const pageWmm = OmrConstants.pageWmm;
+    const pageHmm = OmrConstants.pageHmm;
+    const fidInset = OmrConstants.fidInsetMm;
+    const fidW = OmrConstants.fidSizeMm;
+    const headerMm = OmrConstants.headerMm;
+    const contentBotMm = OmrConstants.contentBotMm;
     final guide = _paperGuideUiNorm();
     Offset at(double xMm, double yMm) => Offset(
           guide.left + (xMm / pageWmm) * guide.width,

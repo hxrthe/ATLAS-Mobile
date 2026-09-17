@@ -344,6 +344,8 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       _selectedTemplate!.hasLayoutItems &&
       _fiducialLock.allLocked &&
       _fiducialLock.lockDuration >= 2 &&
+      !_diagnostics.isBlurry &&
+      !_diagnostics.hasGlare &&
       !_isCapturing &&
       !_isIdentifying;
 

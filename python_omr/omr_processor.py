@@ -16,6 +16,7 @@ from typing import Optional, Tuple, List
 import cv2
 import numpy as np
 
+from omr_core import process_sheet as process_sheet_core
 SAMPLE_THRESHOLD = 100
 MIN_GAP = 0.10
 MIN_JUMP = 0.25
@@ -633,96 +634,36 @@ def process_omr(
     answer_key: dict = None,
     marker_path: str = None,
 ) -> OmrResult:
-    gray = load_image(image_path)
-    color = load_color(image_path)
-
-    assessment_id = detect_assessment_qr(color, gray)
-
-    page_w_pt = float(layout.get("page_width_pt", 612.0))
-    page_h_pt = float(layout.get("page_height_pt", 936.0))
-    target_dpi = float(layout.get("dpi", 150))
-    out_w = max(200, int(round((page_w_pt / 72.0) * target_dpi)))
-    out_h = max(200, int(round((page_h_pt / 72.0) * target_dpi)))
-
-    # Reference: optional resize to width 700 before page detect
-    work = gray
-    scale_back = 1.0
-    if work.shape[1] > 700:
-        scale_back = work.shape[1] / 700.0
-        work = cv2.resize(work, (700, int(work.shape[0] / scale_back)))
-
-    page_pts = detect_page(work)
-    alignment_ok = page_pts is not None
-    if alignment_ok and scale_back != 1.0:
-        page_pts = (page_pts * scale_back).astype(np.float32)
-        work = gray
-
-    if alignment_ok:
-        warped = four_point_transform(work, page_pts, out_w, out_h)
-        dpi = target_dpi
-    else:
-        warped = work
-        dpi = warped.shape[1] / (page_w_pt / 72.0)
-
-    binary = otsu_binarize_inv(warped)
-    student_id = read_id_bubbles(binary, layout, dpi)
-
-    grid = layout.get("answer_grid", {})
-    num_choices = int(grid.get("num_choices", layout.get("num_choices", 4)))
-    items = layout.get("items", {})
-    total_items = int(layout.get("total_items", len(items) or 0))
-    if not total_items and items:
-        total_items = max(int(k) for k in items.keys())
-
-    if items:
-        readings = read_answer_bubbles(
-            binary, warped, items, [chr(65 + i) for i in range(num_choices)], dpi
+    core = process_sheet_core(image_path, layout, answer_key)
+    readings = [
+        BubbleReading(
+            item_number=r.item_number,
+            detected_answer=r.detected_answer,
+            fill_ratio=r.fill_ratio,
+            second_fill_ratio=r.second_fill_ratio,
+            is_ambiguous=r.is_ambiguous,
+            is_confirmed=r.is_confirmed,
+            confidence_note=r.confidence_note,
         )
-        confirmed = sum(1 for r in readings if r.detected_answer != "?" and not r.is_ambiguous)
-        if confirmed < max(1, int(total_items * 0.15)):
-            contour_readings = read_answer_bubbles_reference(
-                binary, layout, dpi, total_items, num_choices
-            )
-            contour_confirmed = sum(
-                1 for r in contour_readings if r.detected_answer != "?" and not r.is_ambiguous
-            )
-            if contour_confirmed > confirmed:
-                readings = contour_readings
-    else:
-        readings = read_answer_bubbles_reference(binary, layout, dpi, total_items, num_choices)
-
-    responses = {str(r.item_number): r.detected_answer for r in readings if r.detected_answer != "?"}
-    correct, max_score, pct = grade(responses, answer_key or {})
-
-    flagged = [r.item_number for r in readings if r.is_ambiguous]
-    reasons = []
-    if not alignment_ok:
-        reasons.append("Page alignment failed")
-    if student_id is None or "?" in (student_id or ""):
-        reasons.append("Student ID incomplete")
-    if flagged:
-        reasons.append(f"{len(flagged)} ambiguous item(s)")
-
-    flag_reason = "; ".join(reasons) if reasons else None
-    if flag_reason and len(flag_reason) > 255:
-        flag_reason = flag_reason[:254] + "…"
-
+        for r in core.readings
+    ]
     return OmrResult(
-        student_identifier=student_id,
-        responses=responses,
+        student_identifier=core.student_identifier,
+        responses=core.responses,
         readings=readings,
-        correct_count=correct,
-        max_score=max_score,
-        score_percent=pct,
-        is_flagged=bool(reasons),
-        flag_reason=flag_reason,
-        flagged_items=flagged,
-        assessment_id=assessment_id,
+        correct_count=core.correct_count,
+        max_score=core.max_score,
+        score_percent=core.score_percent,
+        is_flagged=core.is_flagged,
+        flag_reason=core.flag_reason,
+        flagged_items=core.flagged_items,
+        assessment_id=core.assessment_id,
     )
 
 
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="OMR Processor (hybrid)")
+    parser = argparse.ArgumentParser(description="OMR Processor (ArUco + inner-core)")
     parser.add_argument("image", help="Path to image file")
     parser.add_argument("layout", help="Path to layout JSON")
     parser.add_argument("--marker", help="Path to corner marker image", default=None)
@@ -739,7 +680,7 @@ if __name__ == "__main__":
     with open(out_path, "w") as f:
         json.dump(result.to_dict(), f, indent=2)
 
-    print(f"✓ Processed: {args.image}")
+    print(f"Processed: {args.image}")
     print(f"  Assessment ID: {result.assessment_id}")
     print(f"  Student ID: {result.student_identifier}")
     print(f"  Score: {result.correct_count}/{result.max_score} ({result.score_percent:.1f}%)")

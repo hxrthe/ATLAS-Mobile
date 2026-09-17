@@ -291,13 +291,13 @@ class ScannerDiagnostics {
 
     String message;
     if (isBlurry) {
-      message = 'Waiting for Autofocus';
+      message = 'Hold still — image is blurry';
     } else if (hasGlare) {
-      message = 'Bright Light Detected';
+      message = 'Move away from the light';
     } else if (lockedCorners == 0) {
-      message = 'Point at sheet (QR + page edges)';
+      message = 'Show all four corner markers + assessment QR';
     } else if (lockedCorners < 4) {
-      message = 'Corners optional — capture when ready';
+      message = 'Tracking corner markers ($lockedCorners/4)';
     } else {
       message = '';
     }

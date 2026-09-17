@@ -46,7 +46,7 @@ Map<String, dynamic> omrProcessInIsolate(OmrIsolateArgs args) {
 
   final prepared = OmrImaging.prepareSheetForOmr(image, layout);
   final studentId = args.studentId ??
-      OmrImaging.readIDBubbles(prepared.gray, layout, prepared.dpi);
+      OmrImaging.readIDBubbles(prepared.binary, layout, prepared.dpi);
 
   final hasItems =
       (layout['items'] is Map) && (layout['items'] as Map).isNotEmpty;

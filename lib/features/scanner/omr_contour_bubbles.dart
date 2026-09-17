@@ -67,11 +67,6 @@ class OmrReferenceGrader {
   static const int minAnswerBubblePx = 14;
   static const int minIdBubblePx = 10;
 
-  // Match Django bubble_sheet_scanner thresholds.
-  static const double _fillThreshold = 0.42;
-  static const double _confidenceFloor = 0.28;
-  static const double _marginFill = 0.08;
-
   // ── Template-coordinate reading (primary — uses layout items mm positions) ─
 
   static List<RowReadResult> readAnswerBubblesFromTemplate(
@@ -89,7 +84,7 @@ class OmrReferenceGrader {
         ((layout['bubble_radius_pt'] as num?) != null
             ? (layout['bubble_radius_pt'] as num).toDouble() * 25.4 / 72.0
             : 2.0);
-    final rPx = max(3, (bubbleRMm * dpi / 25.4 * 0.90).round());
+    final rPx = max(3, (bubbleRMm * dpi / 25.4).round());
     final choices =
         List.generate(numChoices, (i) => String.fromCharCode(65 + i));
 
@@ -100,7 +95,7 @@ class OmrReferenceGrader {
       if (itemNum <= 0) continue;
       final itemData = entry.value as Map<String, dynamic>;
 
-      final fills = <({String choice, double fill})>[];
+      final fills = <String, double>{};
       for (final ch in choices) {
         final coord = itemData[ch] as Map<String, dynamic>?;
         if (coord == null) continue;
@@ -108,10 +103,7 @@ class OmrReferenceGrader {
         final cyMm = (coord['cy_spec_mm'] as num?)?.toDouble() ?? 0;
         final cx = OmrImaging.mmToPx(cxMm, dpi);
         final cy = OmrImaging.mmToPx(cyMm, dpi);
-
-        // Grayscale only (Django-style) — no refine/offset that latch onto rings.
-        final fill = OmrImaging.sampleCircle(gray, cx, cy, rPx);
-        fills.add((choice: ch, fill: fill));
+        fills[ch] = OmrImaging.innerFillRatio(binary, cx, cy, rPx);
       }
 
       if (fills.isEmpty) {
@@ -123,27 +115,14 @@ class OmrReferenceGrader {
         continue;
       }
 
-      fills.sort((a, b) => b.fill.compareTo(a.fill));
-      final top = fills.first;
-      final secondFill = fills.length >= 2 ? fills[1].fill : 0.0;
-
-      var ambiguous = false;
-      if (top.fill < _confidenceFloor) {
-        ambiguous = true;
-      } else if (fills.length >= 2 && top.fill - secondFill < _marginFill) {
-        ambiguous = true;
-      }
-
-      final answer = ambiguous
-          ? '?'
-          : (top.fill >= _fillThreshold ? top.choice : '?');
-
+      final classified = OmrImaging.classifyFills(fills);
+      final ranked = fills.values.toList()..sort((a, b) => b.compareTo(a));
       results.add(RowReadResult(
         itemNumber: itemNum,
-        answer: answer,
-        bestFill: (top.fill * 500).round(),
-        secondFill: (secondFill * 500).round(),
-        ambiguous: ambiguous || answer == '?',
+        answer: classified.$1,
+        bestFill: (ranked.first * 500).round(),
+        secondFill: ranked.length > 1 ? (ranked[1] * 500).round() : 0,
+        ambiguous: classified.$2 || classified.$1 == '?',
       ));
     }
 
