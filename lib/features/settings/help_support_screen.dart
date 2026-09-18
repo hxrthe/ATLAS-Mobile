@@ -2,14 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'report_issue_screen.dart';
+import '../../core/theme/app_theme.dart';
 
 class HelpSupportScreen extends StatelessWidget {
   const HelpSupportScreen({super.key});
-
-  final Color primaryRed = const Color(0xFF8B1515);
-  final Color darkText = const Color(0xFF1E232C);
-  final Color grayText = const Color(0xFF8391A1);
-  final Color borderColor = const Color(0xFFE8ECF4);
 
   Future<void> _launchEmail(BuildContext context) async {
     final prefs = await SharedPreferences.getInstance();
@@ -51,18 +47,20 @@ class HelpSupportScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.atlas;
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: colors.scaffold,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: colors.primary,
+        foregroundColor: colors.onPrimary,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios, color: darkText),
+          icon: const Icon(Icons.arrow_back_ios),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text(
+        title: const Text(
           'Help & Support',
-          style: TextStyle(color: darkText, fontWeight: FontWeight.bold),
+          style: TextStyle(fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
       ),
@@ -71,32 +69,43 @@ class HelpSupportScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildSectionTitle('FAQ\'S'),
+            _buildSectionTitle(colors, 'FAQ\'S'),
             const SizedBox(height: 16),
             _buildFAQTile(
+              context,
+              colors,
               'How do I scan an answer sheet?',
               'Navigate to the camera tab, align the four corner markers with the paper squares in the viewfinder, and hold steady. The app will automatically capture and grade the sheet once all corners are locked.',
             ),
             _buildFAQTile(
+              context,
+              colors,
               'What if the QR code isn\'t recognized?',
               'Ensure the QR code is well-lit and not obscured. Avoid direct glare by tilting the paper slightly. The QR code must contain valid assessment data for the system to identify the template.',
             ),
             _buildFAQTile(
+              context,
+              colors,
               'Can I edit scores manually?',
               'Yes. In the "Review Papers" section, tap on any record to view details, then select "Edit Answers" to manually correct any misread bubbles.',
             ),
             _buildFAQTile(
-              'What does "Ambiguous" mean?',
-              'The system flags an item as ambiguous if multiple bubbles are shaded or if the shading is too light to be certain. These should be reviewed manually in the paper detail view.',
+              context,
+              colors,
+              'What does "Invalid" mean?',
+              'The system flags an item as invalid if multiple bubbles are shaded or if the shading is too light to be certain. These should be reviewed manually in the paper detail view.',
             ),
             _buildFAQTile(
+              context,
+              colors,
               'How do I sync my data?',
               'The app syncs automatically when you have an internet connection. You can also pull down to refresh on most screens to force a synchronization with the server.',
             ),
             const SizedBox(height: 32),
-            _buildSectionTitle('TROUBLESHOOTING'),
+            _buildSectionTitle(colors, 'TROUBLESHOOTING'),
             const SizedBox(height: 16),
             _buildActionTile(
+              colors,
               icon: Icons.bug_report_outlined,
               title: 'Report an Issue / Bug',
               subtitle: 'Send technical errors to our team',
@@ -109,15 +118,17 @@ class HelpSupportScreen extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             _buildActionTile(
+              colors,
               icon: Icons.email_outlined,
               title: 'Direct Support Contact',
               subtitle: 'atlasdegdev@gmail.com',
               onTap: () => _launchEmail(context),
             ),
             const SizedBox(height: 32),
-            _buildSectionTitle('LEGAL'),
+            _buildSectionTitle(colors, 'LEGAL'),
             const SizedBox(height: 16),
             _buildActionTile(
+              colors,
               icon: Icons.description_outlined,
               title: 'Terms of Service',
               subtitle: 'Read our usage terms',
@@ -125,6 +136,7 @@ class HelpSupportScreen extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             _buildActionTile(
+              colors,
               icon: Icons.privacy_tip_outlined,
               title: 'Privacy Policy',
               subtitle: 'How we handle your data',
@@ -136,13 +148,13 @@ class HelpSupportScreen extends StatelessWidget {
                 children: [
                   Text(
                     'App Version',
-                    style: TextStyle(color: grayText, fontSize: 12),
+                    style: TextStyle(color: colors.textSecondary, fontSize: 12),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     '1.0.0+1',
                     style: TextStyle(
-                      color: darkText,
+                      color: colors.textPrimary,
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
                     ),
@@ -157,49 +169,64 @@ class HelpSupportScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildSectionTitle(String title) {
+  Widget _buildSectionTitle(AtlasColors colors, String title) {
     return Text(
       title,
       style: TextStyle(
         fontSize: 12,
         fontWeight: FontWeight.w800,
-        color: grayText,
+        color: colors.textSecondary,
         letterSpacing: 0.5,
       ),
     );
   }
 
-  Widget _buildFAQTile(String question, String answer) {
+  Widget _buildFAQTile(
+    BuildContext context,
+    AtlasColors colors,
+    String question,
+    String answer,
+  ) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.card,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: borderColor),
+        border: Border.all(color: colors.border),
       ),
-      child: ExpansionTile(
-        title: Text(
-          question,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-            color: darkText,
-          ),
+      child: Theme(
+        data: Theme.of(context).copyWith(
+          dividerColor: Colors.transparent,
+          splashColor: colors.primary.withValues(alpha: 0.08),
+          highlightColor: colors.primary.withValues(alpha: 0.04),
         ),
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
-            child: Text(
-              answer,
-              style: TextStyle(color: grayText, fontSize: 13),
+        child: ExpansionTile(
+          iconColor: colors.textSecondary,
+          collapsedIconColor: colors.textSecondary,
+          title: Text(
+            question,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: colors.textPrimary,
             ),
           ),
-        ],
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
+              child: Text(
+                answer,
+                style: TextStyle(color: colors.textSecondary, fontSize: 13),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildActionTile({
+  Widget _buildActionTile(
+    AtlasColors colors, {
     required IconData icon,
     required String title,
     required String subtitle,
@@ -211,13 +238,13 @@ class HelpSupportScreen extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: colors.card,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: borderColor),
+          border: Border.all(color: colors.border),
         ),
         child: Row(
           children: [
-            Icon(icon, color: primaryRed),
+            Icon(icon, color: colors.primary),
             const SizedBox(width: 16),
             Expanded(
               child: Column(
@@ -227,17 +254,17 @@ class HelpSupportScreen extends StatelessWidget {
                     title,
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
-                      color: darkText,
+                      color: colors.textPrimary,
                     ),
                   ),
                   Text(
                     subtitle,
-                    style: TextStyle(color: grayText, fontSize: 12),
+                    style: TextStyle(color: colors.textSecondary, fontSize: 12),
                   ),
                 ],
               ),
             ),
-            Icon(Icons.arrow_forward_ios, size: 14, color: grayText),
+            Icon(Icons.arrow_forward_ios, size: 14, color: colors.textSecondary),
           ],
         ),
       ),
@@ -249,45 +276,52 @@ class HelpSupportScreen extends StatelessWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.85,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: darkText,
+      builder: (sheetContext) {
+        final colors = sheetContext.atlas;
+        return Container(
+          height: MediaQuery.of(sheetContext).size.height * 0.85,
+          decoration: BoxDecoration(
+            color: colors.card,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.close, color: colors.textSecondary),
+                    onPressed: () => Navigator.pop(sheetContext),
+                  ),
+                ],
+              ),
+              Divider(color: colors.divider),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Text(
+                    content,
+                    style: TextStyle(
+                      color: colors.textPrimary,
+                      height: 1.6,
+                      fontSize: 14,
+                    ),
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
-            ),
-            const Divider(),
-            Expanded(
-              child: SingleChildScrollView(
-                child: Text(
-                  content,
-                  style: TextStyle(color: darkText, height: 1.6, fontSize: 14),
-                ),
               ),
-            ),
-          ],
-        ),
-      ),
+            ],
+          ),
+        );
+      },
     );
   }
 

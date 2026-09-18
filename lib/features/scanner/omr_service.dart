@@ -49,6 +49,8 @@ class OmrService {
     BubbleTemplate template, {
     String? studentId,
     String? assessmentId,
+    OmrGradeSnapshot? gradeSnapshot,
+    void Function(String status)? onProgress,
   }) async {
     if (preferPythonServer && await isServerAvailable()) {
       try {
@@ -68,6 +70,8 @@ class OmrService {
       template,
       studentId: studentId,
       assessmentId: assessmentId,
+      gradeSnapshot: gradeSnapshot,
+      onProgress: onProgress,
     );
   }
 

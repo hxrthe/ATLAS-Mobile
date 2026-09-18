@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'bloc/auth_bloc.dart';
 import 'bloc/auth_event.dart';
 import 'bloc/auth_state.dart';
+import '../../core/theme/app_theme.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
   final String? initialEmail;
@@ -93,13 +94,17 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    // Auth stays light regardless of app theme mode.
+    return Theme(
+      data: AppTheme.light(),
+      child: Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: primaryRed,
+        foregroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.black),
+          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -134,6 +139,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           );
         },
       ),
+    ),
     );
   }
 

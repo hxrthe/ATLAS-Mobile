@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../../grading/grading_repository.dart';
 import '../../grading/models.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/atlas_loading_view.dart';
 import '../../../core/widgets/atlas_pull_to_refresh.dart';
 
@@ -267,51 +268,57 @@ class _ReportsTabState extends State<ReportsTab> {
 
   void _showSetPassingScore(double initialValue) {
     double current = initialValue;
-    const primaryRed = Color(0xFF8B1515);
-    const textGrey = Color(0xFF8391A1);
+    final sheetColors = context.atlas;
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      backgroundColor: sheetColors.card,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
+        final c = ctx.atlas;
         return StatefulBuilder(
           builder: (context, setModalState) {
             return Container(
+              color: c.card,
               padding: const EdgeInsets.all(24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.grading, size: 48, color: primaryRed),
+                  Icon(Icons.grading, size: 48, color: c.primary),
                   const SizedBox(height: 12),
-                  const Text(
+                  Text(
                     'Passing Score Threshold',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: c.textPrimary,
+                    ),
                   ),
                   const SizedBox(height: 4),
-                  const Text(
+                  Text(
                     'Students scoring at or above this percentage\nwill be marked as passed.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12, color: textGrey),
+                    style: TextStyle(fontSize: 12, color: c.textSecondary),
                   ),
                   const SizedBox(height: 24),
                   Text(
                     '${current.toStringAsFixed(0)}%',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 48,
                       fontWeight: FontWeight.w900,
-                      color: primaryRed,
+                      color: c.primary,
                     ),
                   ),
                   const SizedBox(height: 16),
                   SliderTheme(
                     data: SliderThemeData(
-                      activeTrackColor: primaryRed,
-                      inactiveTrackColor: primaryRed.withValues(alpha: 0.12),
-                      thumbColor: primaryRed,
-                      overlayColor: primaryRed.withValues(alpha: 0.12),
+                      activeTrackColor: c.primary,
+                      inactiveTrackColor: c.primary.withValues(alpha: 0.12),
+                      thumbColor: c.primary,
+                      overlayColor: c.primary.withValues(alpha: 0.12),
                       trackHeight: 6,
                       thumbShape: const RoundSliderThumbShape(
                         enabledThumbRadius: 14,
@@ -336,8 +343,8 @@ class _ReportsTabState extends State<ReportsTab> {
                               _savePassingScore(current);
                             },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: primaryRed,
-                        foregroundColor: Colors.white,
+                        backgroundColor: c.primary,
+                        foregroundColor: c.onPrimary,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -459,8 +466,7 @@ class _ReportsTabState extends State<ReportsTab> {
 
   @override
   Widget build(BuildContext context) {
-    const primaryRed = Color(0xFF8B1515);
-    const textGrey = Color(0xFF8391A1);
+    final c = context.atlas;
 
     if (_loading) {
       return const SafeArea(
@@ -479,7 +485,7 @@ class _ReportsTabState extends State<ReportsTab> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(_error!, style: const TextStyle(color: primaryRed)),
+                    Text(_error!, style: TextStyle(color: c.primary)),
                     const SizedBox(height: 12),
                     ElevatedButton(onPressed: _load, child: const Text('Retry')),
                   ],
@@ -514,12 +520,12 @@ class _ReportsTabState extends State<ReportsTab> {
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(24.0),
           children: [
-            const Text(
+            Text(
               'DESCRIPTIVE ASSESSMENT ANALYTICS',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w800,
-                color: textGrey,
+                color: c.textSecondary,
                 letterSpacing: 0.5,
               ),
             ),
@@ -580,7 +586,7 @@ class _ReportsTabState extends State<ReportsTab> {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: c.card,
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
@@ -592,14 +598,18 @@ class _ReportsTabState extends State<ReportsTab> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Class Performance',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: c.textPrimary,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     '$_scanCount scans analyzed',
-                    style: const TextStyle(fontSize: 12, color: textGrey),
+                    style: TextStyle(fontSize: 12, color: c.textSecondary),
                   ),
                   const SizedBox(height: 16),
                   Row(
@@ -614,7 +624,8 @@ class _ReportsTabState extends State<ReportsTab> {
                                   passingScore != null &&
                                   _classAverage >= passingScore
                               ? Colors.green
-                              : primaryRed,
+                              : c.primary,
+                          c.textSecondary,
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -628,7 +639,8 @@ class _ReportsTabState extends State<ReportsTab> {
                             passingScore != null
                                 ? '${passingScore.toStringAsFixed(0)}%'
                                 : 'N/A',
-                            const Color(0xFF1E232C),
+                            c.textPrimary,
+                            c.textSecondary,
                           ),
                         ),
                       ),
@@ -640,6 +652,7 @@ class _ReportsTabState extends State<ReportsTab> {
                               ? '${(_filteredScans.where((s) => (s.scorePercent ?? 0) >= passingScore).length / max(_scanCount, 1) * 100).toStringAsFixed(0)}%'
                               : 'N/A',
                           Colors.blue,
+                          c.textSecondary,
                         ),
                       ),
                     ],
@@ -653,7 +666,7 @@ class _ReportsTabState extends State<ReportsTab> {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: c.card,
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
@@ -667,19 +680,20 @@ class _ReportsTabState extends State<ReportsTab> {
                 children: [
                   Row(
                     children: [
-                      const Text(
+                      Text(
                         'Item Analysis — Formula & Legend',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
+                          color: c.textPrimary,
                         ),
                       ),
                       const Spacer(),
                       GestureDetector(
                         onTap: () => _showFormulaDetail(),
-                        child: const Icon(
+                        child: Icon(
                           Icons.info_outline,
-                          color: primaryRed,
+                          color: c.primary,
                           size: 22,
                         ),
                       ),
@@ -688,33 +702,34 @@ class _ReportsTabState extends State<ReportsTab> {
                   const SizedBox(height: 4),
                   Text(
                     'Based on $_totalScannedStudents scanned students across all sections',
-                    style: const TextStyle(fontSize: 12, color: textGrey),
+                    style: TextStyle(fontSize: 12, color: c.textSecondary),
                   ),
                   const SizedBox(height: 12),
                   // Formula summary
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade50,
+                      color: c.cardMuted,
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.grey.shade200),
+                      border: Border.all(color: c.border),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'Formulas',
                           style: TextStyle(
                             fontWeight: FontWeight.w700,
                             fontSize: 13,
+                            color: c.textPrimary,
                           ),
                         ),
                         const SizedBox(height: 8),
                         RichText(
-                          text: const TextSpan(
+                          text: TextSpan(
                             style: TextStyle(
                               fontSize: 13,
-                              color: Color(0xFF1E232C),
+                              color: c.textPrimary,
                               height: 1.5,
                             ),
                             children: [
@@ -722,21 +737,21 @@ class _ReportsTabState extends State<ReportsTab> {
                                 text: 'Difficulty (P)',
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: Color(0xFF8B1515),
+                                  color: c.primary,
                                 ),
                               ),
-                              TextSpan(
+                              const TextSpan(
                                 text:
                                     ' = R ÷ T\n    where R = correct responses, T = total students\n',
                               ),
-                              TextSpan(
+                              const TextSpan(
                                 text: 'Discrimination (D)',
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   color: Colors.blue,
                                 ),
                               ),
-                              TextSpan(
+                              const TextSpan(
                                 text:
                                     ' = Pᵤ − Pₗ\n    where Pᵤ = proportion of upper 27% correct,\n    Pₗ = proportion of lower 27% correct',
                               ),
@@ -748,12 +763,16 @@ class _ReportsTabState extends State<ReportsTab> {
                   ),
                   const SizedBox(height: 12),
                   // Interpretation benchmarks
-                  const Text(
+                  Text(
                     'Interpretation Benchmarks',
-                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      color: c.textPrimary,
+                    ),
                   ),
                   const SizedBox(height: 8),
-                  _buildBenchmarkTable(),
+                  _buildBenchmarkTable(c),
                 ],
               ),
             ),
@@ -763,7 +782,7 @@ class _ReportsTabState extends State<ReportsTab> {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: c.card,
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
@@ -775,24 +794,28 @@ class _ReportsTabState extends State<ReportsTab> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Item Analysis Table',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: c.textPrimary,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     '${_itemAnalysis.length} items analyzed',
-                    style: const TextStyle(fontSize: 12, color: textGrey),
+                    style: TextStyle(fontSize: 12, color: c.textSecondary),
                   ),
                   const SizedBox(height: 12),
                   if (_itemAnalysis.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
                       child: Text(
                         '0 items analyzed',
                         style: TextStyle(
                           fontSize: 13,
-                          color: Color(0xFF8391A1),
+                          color: c.textSecondary,
                         ),
                       ),
                     )
@@ -800,7 +823,7 @@ class _ReportsTabState extends State<ReportsTab> {
                     Table(
                       border: TableBorder(
                         horizontalInside: BorderSide(
-                          color: Colors.grey.shade200,
+                          color: c.border,
                         ),
                       ),
                       columnWidths: const {
@@ -814,49 +837,53 @@ class _ReportsTabState extends State<ReportsTab> {
                           decoration: BoxDecoration(
                             border: Border(
                               bottom: BorderSide(
-                                color: Colors.grey.shade300,
+                                color: c.border,
                                 width: 1,
                               ),
                             ),
                           ),
-                          children: const [
+                          children: [
                             Padding(
-                              padding: EdgeInsets.symmetric(vertical: 8),
+                              padding: const EdgeInsets.symmetric(vertical: 8),
                               child: Text(
                                 'Item #',
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12,
+                                  color: c.textPrimary,
                                 ),
                               ),
                             ),
                             Padding(
-                              padding: EdgeInsets.symmetric(vertical: 8),
+                              padding: const EdgeInsets.symmetric(vertical: 8),
                               child: Text(
                                 'Difficulty (P)',
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12,
+                                  color: c.textPrimary,
                                 ),
                               ),
                             ),
                             Padding(
-                              padding: EdgeInsets.symmetric(vertical: 8),
+                              padding: const EdgeInsets.symmetric(vertical: 8),
                               child: Text(
                                 'Discrim. (D)',
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12,
+                                  color: c.textPrimary,
                                 ),
                               ),
                             ),
                             Padding(
-                              padding: EdgeInsets.symmetric(vertical: 8),
+                              padding: const EdgeInsets.symmetric(vertical: 8),
                               child: Text(
                                 'Status',
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12,
+                                  color: c.textPrimary,
                                 ),
                               ),
                             ),
@@ -876,9 +903,10 @@ class _ReportsTabState extends State<ReportsTab> {
                                 ),
                                 child: Text(
                                   '${item['item_number']}',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w500,
+                                    color: c.textPrimary,
                                   ),
                                 ),
                               ),
@@ -891,10 +919,10 @@ class _ReportsTabState extends State<ReportsTab> {
                                   children: [
                                     Text(
                                       diff.toStringAsFixed(3),
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontSize: 13,
                                         fontWeight: FontWeight.w600,
-                                        color: primaryRed,
+                                        color: c.primary,
                                       ),
                                     ),
                                     Text(
@@ -904,8 +932,8 @@ class _ReportsTabState extends State<ReportsTab> {
                                         color:
                                             diffLabel.contains('Ideal') ||
                                                 diffLabel.contains('Moderate')
-                                            ? Colors.green.shade700
-                                            : Colors.orange.shade700,
+                                            ? c.correct
+                                            : c.ambiguous,
                                       ),
                                     ),
                                   ],
@@ -931,10 +959,10 @@ class _ReportsTabState extends State<ReportsTab> {
                                       style: TextStyle(
                                         fontSize: 10,
                                         color: discLabel == 'Excellent'
-                                            ? Colors.green.shade700
+                                            ? c.correct
                                             : discLabel.contains('Good')
-                                            ? Colors.blue.shade700
-                                            : Colors.orange.shade700,
+                                            ? Colors.lightBlueAccent
+                                            : c.ambiguous,
                                       ),
                                     ),
                                   ],
@@ -961,7 +989,7 @@ class _ReportsTabState extends State<ReportsTab> {
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: c.card,
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
@@ -973,17 +1001,18 @@ class _ReportsTabState extends State<ReportsTab> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       "Bloom's Mastery (Class)",
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
+                        color: c.textPrimary,
                       ),
                     ),
                     const SizedBox(height: 4),
-                    const Text(
+                    Text(
                       'Tap a bar to see per-student details',
-                      style: TextStyle(fontSize: 12, color: textGrey),
+                      style: TextStyle(fontSize: 12, color: c.textSecondary),
                     ),
                     const SizedBox(height: 16),
                     ..._bloomAverages.entries.map((e) {
@@ -1009,9 +1038,10 @@ class _ReportsTabState extends State<ReportsTab> {
                                 children: [
                                   Text(
                                     _bloomLabelFull[e.key]!,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 13,
                                       fontWeight: FontWeight.w600,
+                                      color: c.textPrimary,
                                     ),
                                   ),
                                   Text(
@@ -1030,7 +1060,7 @@ class _ReportsTabState extends State<ReportsTab> {
                                 child: LinearProgressIndicator(
                                   value: e.value / 100,
                                   minHeight: 10,
-                                  backgroundColor: Colors.grey.shade200,
+                                  backgroundColor: c.border,
                                   color: colors[idx % colors.length],
                                 ),
                               ),
@@ -1097,10 +1127,10 @@ class _ReportsTabState extends State<ReportsTab> {
     );
   }
 
-  Widget _buildBenchmarkTable() {
+  Widget _buildBenchmarkTable(AtlasColors c) {
     return Table(
       border: TableBorder(
-        horizontalInside: BorderSide(color: Colors.grey.shade200),
+        horizontalInside: BorderSide(color: c.border),
       ),
       columnWidths: const {
         0: FlexColumnWidth(1),
@@ -1111,71 +1141,90 @@ class _ReportsTabState extends State<ReportsTab> {
         TableRow(
           decoration: BoxDecoration(
             border: Border(
-              bottom: BorderSide(color: Colors.grey.shade300, width: 1),
+              bottom: BorderSide(color: c.border, width: 1),
             ),
           ),
-          children: const [
+          children: [
             Padding(
-              padding: EdgeInsets.symmetric(vertical: 6),
+              padding: const EdgeInsets.symmetric(vertical: 6),
               child: Text(
                 'Index',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 11,
+                  color: c.textPrimary,
+                ),
               ),
             ),
             Padding(
-              padding: EdgeInsets.symmetric(vertical: 6),
+              padding: const EdgeInsets.symmetric(vertical: 6),
               child: Text(
                 'Value',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 11,
+                  color: c.textPrimary,
+                ),
               ),
             ),
             Padding(
-              padding: EdgeInsets.symmetric(vertical: 6),
+              padding: const EdgeInsets.symmetric(vertical: 6),
               child: Text(
                 'Interpretation',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 11,
+                  color: c.textPrimary,
+                ),
               ),
             ),
           ],
         ),
         // Difficulty rows
         _benchRow(
+          c,
           'Difficulty',
           '< 0.20',
           'Very Difficult — revise or replace',
-          const Color(0xFF8B1515),
+          c.primary,
         ),
         _benchRow(
+          c,
           'Difficulty',
           '0.20 – 0.80',
           'Moderate — ideal for most items',
-          Colors.green.shade700,
+          c.correct,
         ),
         _benchRow(
+          c,
           'Difficulty',
           '> 0.80',
           'Very Easy — make more challenging',
-          const Color(0xFF8B1515),
+          c.primary,
         ),
         _benchRow(
+          c,
           'Discrim.',
           '< 0.20',
           'Poor — reject or heavily revise',
           Colors.blue,
         ),
         _benchRow(
+          c,
           'Discrim.',
           '0.20 – 0.29',
           'Marginal — revise for better differentiation',
           Colors.blue,
         ),
         _benchRow(
+          c,
           'Discrim.',
           '0.30 – 0.39',
           'Reasonably good — acceptable',
           Colors.blue,
         ),
         _benchRow(
+          c,
           'Discrim.',
           '≥ 0.40',
           'Excellent — strong differentiator',
@@ -1186,6 +1235,7 @@ class _ReportsTabState extends State<ReportsTab> {
   }
 
   TableRow _benchRow(
+    AtlasColors c,
     String index,
     String value,
     String interpretation,
@@ -1208,14 +1258,18 @@ class _ReportsTabState extends State<ReportsTab> {
           padding: const EdgeInsets.symmetric(vertical: 6),
           child: Text(
             value,
-            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              color: c.textPrimary,
+            ),
           ),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 6),
           child: Text(
             interpretation,
-            style: const TextStyle(fontSize: 10, color: Color(0xFF8391A1)),
+            style: TextStyle(fontSize: 10, color: c.textSecondary),
           ),
         ),
       ],
@@ -1223,84 +1277,116 @@ class _ReportsTabState extends State<ReportsTab> {
   }
 
   void _showFormulaDetail() {
+    final sheetColors = context.atlas;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      backgroundColor: sheetColors.card,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
+        final c = ctx.atlas;
         return Container(
+          color: c.card,
           constraints: BoxConstraints(
             maxHeight: MediaQuery.of(ctx).size.height * 0.7,
           ),
           padding: const EdgeInsets.all(24),
           child: ListView(
             shrinkWrap: true,
-            children: const [
+            children: [
               Text(
                 'Item Analysis — Full Methodology',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: c.textPrimary,
+                ),
               ),
-              SizedBox(height: 16),
+              const SizedBox(height: 16),
               Text(
                 '1. Score & Sort',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: c.textPrimary,
+                ),
               ),
-              SizedBox(height: 4),
+              const SizedBox(height: 4),
               Text(
                 'Calculate total scores for all students and arrange in descending order (highest to lowest).',
-                style: TextStyle(fontSize: 13, color: Color(0xFF8391A1)),
+                style: TextStyle(fontSize: 13, color: c.textSecondary),
               ),
-              SizedBox(height: 12),
+              const SizedBox(height: 12),
               Text(
                 '2. Identify Subgroups',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: c.textPrimary,
+                ),
               ),
-              SizedBox(height: 4),
+              const SizedBox(height: 4),
               Text(
                 'Select top 27% (Upper Group) and bottom 27% (Lower Group). Discard the middle 46% from these calculations.\n\nLet n = number of students in each subgroup.',
-                style: TextStyle(fontSize: 13, color: Color(0xFF8391A1)),
+                style: TextStyle(fontSize: 13, color: c.textSecondary),
               ),
-              SizedBox(height: 12),
+              const SizedBox(height: 12),
               Text(
                 '3. Tally Correct Answers',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: c.textPrimary,
+                ),
               ),
-              SizedBox(height: 4),
+              const SizedBox(height: 4),
               Text(
                 'For each item, count correct answers:\nU = correct in Upper Group\nL = correct in Lower Group',
-                style: TextStyle(fontSize: 13, color: Color(0xFF8391A1)),
+                style: TextStyle(fontSize: 13, color: c.textSecondary),
               ),
-              SizedBox(height: 12),
+              const SizedBox(height: 12),
               Text(
                 '4. Difficulty Index (P)',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: c.textPrimary,
+                ),
               ),
-              SizedBox(height: 4),
+              const SizedBox(height: 4),
               Text(
                 'P = (U + L) / (2n)\n\nRanges from 0.00 to 1.00\n• < 0.20: Very difficult\n• 0.20 – 0.80: Ideal\n• > 0.80: Very easy',
-                style: TextStyle(fontSize: 13, color: Color(0xFF8391A1)),
+                style: TextStyle(fontSize: 13, color: c.textSecondary),
               ),
-              SizedBox(height: 12),
+              const SizedBox(height: 12),
               Text(
                 '5. Discrimination Index (D)',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: c.textPrimary,
+                ),
               ),
-              SizedBox(height: 4),
+              const SizedBox(height: 4),
               Text(
                 'D = (U/n) − (L/n)\n\nRanges from −1.00 to +1.00\n• < 0.20: Poor\n• 0.20 – 0.29: Marginal\n• 0.30 – 0.39: Good\n• ≥ 0.40: Excellent',
-                style: TextStyle(fontSize: 13, color: Color(0xFF8391A1)),
+                style: TextStyle(fontSize: 13, color: c.textSecondary),
               ),
-              SizedBox(height: 12),
+              const SizedBox(height: 12),
               Text(
                 '6. Decision Matrix',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: c.textPrimary,
+                ),
               ),
-              SizedBox(height: 4),
+              const SizedBox(height: 4),
               Text(
                 'Retain: good difficulty + good discrimination\nRevise: one metric is weak\nDiscard: both metrics are poor',
-                style: TextStyle(fontSize: 13, color: Color(0xFF8391A1)),
+                style: TextStyle(fontSize: 13, color: c.textSecondary),
               ),
             ],
           ),
@@ -1311,7 +1397,6 @@ class _ReportsTabState extends State<ReportsTab> {
 
   void _showBloomDetail(String level) {
     final details = _bloomDetails[level] ?? [];
-    const primaryRed = Color(0xFF8B1515);
 
     // Compute actual per-student average — matches what the card shows
     double avg = 0;
@@ -1323,14 +1408,18 @@ class _ReportsTabState extends State<ReportsTab> {
       avg = sum / details.length;
     }
 
+    final sheetColors = context.atlas;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      backgroundColor: sheetColors.card,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
+        final c = ctx.atlas;
         return Container(
+          color: c.card,
           constraints: BoxConstraints(
             maxHeight: MediaQuery.of(ctx).size.height * 0.6,
           ),
@@ -1344,7 +1433,7 @@ class _ReportsTabState extends State<ReportsTab> {
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade400,
+                    color: c.border,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -1352,22 +1441,23 @@ class _ReportsTabState extends State<ReportsTab> {
               const SizedBox(height: 16),
               Text(
                 '${_bloomLabelFull[level]}: Per-Student Mastery',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
+                  color: c.textPrimary,
                 ),
               ),
               const SizedBox(height: 4),
               Text(
                 'Class Average: ${avg.toStringAsFixed(0)}%  •  ${details.length} students',
-                style: const TextStyle(fontSize: 12, color: Color(0xFF8391A1)),
+                style: TextStyle(fontSize: 12, color: c.textSecondary),
               ),
               const SizedBox(height: 16),
               Flexible(
                 child: ListView.separated(
                   shrinkWrap: true,
                   itemCount: details.length,
-                  separatorBuilder: (_, a) => const Divider(),
+                  separatorBuilder: (_, a) => Divider(color: c.divider),
                   itemBuilder: (_, i) {
                     final d = details[i];
                     final mastery = d['mastery'] as double;
@@ -1375,8 +1465,8 @@ class _ReportsTabState extends State<ReportsTab> {
                       contentPadding: EdgeInsets.zero,
                       leading: CircleAvatar(
                         backgroundColor: mastery >= 75
-                            ? Colors.green.shade100
-                            : primaryRed.withValues(alpha: 0.12),
+                            ? Colors.green.withValues(alpha: 0.15)
+                            : c.primary.withValues(alpha: 0.12),
                         child: Text(
                           d['student_id']
                               .toString()
@@ -1389,16 +1479,17 @@ class _ReportsTabState extends State<ReportsTab> {
                             fontWeight: FontWeight.bold,
                             fontSize: 12,
                             color: mastery >= 75
-                                ? Colors.green.shade700
-                                : primaryRed,
+                                ? c.correct
+                                : c.primary,
                           ),
                         ),
                       ),
                       title: Text(
                         d['student_id'].toString(),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontWeight: FontWeight.w500,
                           fontSize: 14,
+                          color: c.textPrimary,
                         ),
                       ),
                       trailing: Text(
@@ -1407,15 +1498,15 @@ class _ReportsTabState extends State<ReportsTab> {
                           fontWeight: FontWeight.bold,
                           fontSize: 14,
                           color: mastery >= 75
-                              ? Colors.green.shade700
-                              : primaryRed,
+                              ? c.correct
+                              : c.primary,
                         ),
                       ),
                       subtitle: LinearProgressIndicator(
                         value: mastery / 100,
                         minHeight: 4,
-                        backgroundColor: Colors.grey.shade200,
-                        color: mastery >= 75 ? Colors.green : primaryRed,
+                        backgroundColor: c.border,
+                        color: mastery >= 75 ? c.correct : c.primary,
                       ),
                     );
                   },
@@ -1428,7 +1519,12 @@ class _ReportsTabState extends State<ReportsTab> {
     );
   }
 
-  Widget _statCard(String label, String value, Color color) {
+  Widget _statCard(
+    String label,
+    String value,
+    Color color,
+    Color labelColor,
+  ) {
     return Column(
       children: [
         Text(
@@ -1443,7 +1539,7 @@ class _ReportsTabState extends State<ReportsTab> {
         Text(
           label,
           textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 11, color: Color(0xFF8391A1)),
+          style: TextStyle(fontSize: 11, color: labelColor),
         ),
       ],
     );
@@ -1455,9 +1551,10 @@ class _ReportsTabState extends State<ReportsTab> {
     List<DropdownMenuEntry<String>> entries,
     void Function(String?) onSelected,
   ) {
+    final c = context.atlas;
     return DropdownMenu<String?>(
       expandedInsets: EdgeInsets.zero,
-      label: Text(label),
+      label: Text(label, style: TextStyle(color: c.textSecondary)),
       initialSelection: value,
       dropdownMenuEntries: [
         const DropdownMenuEntry<String?>(value: null, label: 'All'),
@@ -1466,9 +1563,26 @@ class _ReportsTabState extends State<ReportsTab> {
         ),
       ],
       onSelected: onSelected,
-      textStyle: const TextStyle(fontSize: 13),
+      textStyle: TextStyle(fontSize: 13, color: c.textPrimary),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: c.inputFill,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: c.border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: c.border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: c.primary, width: 1.5),
+        ),
+      ),
       menuStyle: MenuStyle(
         maximumSize: WidgetStateProperty.all(const Size.fromHeight(200)),
+        backgroundColor: WidgetStateProperty.all(c.card),
       ),
     );
   }

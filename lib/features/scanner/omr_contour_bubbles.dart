@@ -74,8 +74,10 @@ class OmrReferenceGrader {
     img.Image gray,
     Map<String, dynamic> layout,
     double dpi,
-    int numChoices,
-  ) {
+    int numChoices, {
+    double originXmm = 0,
+    double originYmm = 0,
+  }) {
     final items = layout['items'] as Map<String, dynamic>? ?? {};
     if (items.isEmpty) return [];
 
@@ -101,8 +103,8 @@ class OmrReferenceGrader {
         if (coord == null) continue;
         final cxMm = (coord['cx_mm'] as num?)?.toDouble() ?? 0;
         final cyMm = (coord['cy_spec_mm'] as num?)?.toDouble() ?? 0;
-        final cx = OmrImaging.mmToPx(cxMm, dpi);
-        final cy = OmrImaging.mmToPx(cyMm, dpi);
+        final cx = OmrImaging.mmToPx(cxMm - originXmm, dpi);
+        final cy = OmrImaging.mmToPx(cyMm - originYmm, dpi);
         fills[ch] = OmrImaging.innerFillRatio(binary, cx, cy, rPx);
       }
 
@@ -501,6 +503,14 @@ class OmrReferenceGrader {
         );
       }
       final fillNorm = r.bestFill > 0 ? (r.bestFill / 500.0).clamp(0.0, 1.0) : 0.0;
+      final note = !r.ambiguous
+          ? 'Contour fill ${r.bestFill}'
+          : (r.bestFill <= 0
+              ? 'Blank (no answer)'
+              : (r.secondFill > 0 &&
+                      (r.bestFill - r.secondFill) < r.bestFill * 0.15
+                  ? 'Double mark (fills ${r.bestFill} vs ${r.secondFill})'
+                  : 'Invalid row (fills ${r.bestFill} vs ${r.secondFill})'));
       return BubbleReading(
         itemNumber: itemNo,
         detectedAnswer: r.answer,
@@ -508,9 +518,7 @@ class OmrReferenceGrader {
         secondFillRatio: r.secondFill > 0 ? (r.secondFill / 500.0).clamp(0.0, 1.0) : null,
         isAmbiguous: r.ambiguous,
         isConfirmed: !r.ambiguous && r.answer != '?',
-        confidenceNote: r.ambiguous
-            ? 'Ambiguous row (fills ${r.bestFill} vs ${r.secondFill})'
-            : 'Contour fill ${r.bestFill}',
+        confidenceNote: note,
         confidenceScore: r.ambiguous ? 0.35 : 0.85,
       );
     });

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../grading/grading_repository.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/atlas_loading_view.dart';
 import '../../../core/widgets/atlas_pull_to_refresh.dart';
 
@@ -47,8 +48,7 @@ class _CoursesTabState extends State<CoursesTab> {
 
   @override
   Widget build(BuildContext context) {
-    const primaryRed = Color(0xFF8B1515);
-    const textGrey = Color(0xFF8391A1);
+    final c = context.atlas;
 
     return SafeArea(
       child: AtlasPullToRefresh(
@@ -60,12 +60,12 @@ class _CoursesTabState extends State<CoursesTab> {
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(24.0),
                 children: [
-                  const Text(
+                  Text(
                     'COURSE MANAGEMENT',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w800,
-                      color: textGrey,
+                      color: c.textSecondary,
                       letterSpacing: 0.5,
                     ),
                   ),
@@ -79,7 +79,7 @@ class _CoursesTabState extends State<CoursesTab> {
                             Text(
                               _error!,
                               textAlign: TextAlign.center,
-                              style: const TextStyle(color: primaryRed),
+                              style: TextStyle(color: c.primary),
                             ),
                             const SizedBox(height: 12),
                             ElevatedButton(
@@ -100,12 +100,12 @@ class _CoursesTabState extends State<CoursesTab> {
                       ),
                     ],
                   if (!_loading && _error == null && _courses.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.all(24),
+                    Padding(
+                      padding: const EdgeInsets.all(24),
                       child: Text(
                         'No courses found in your teaching load.',
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: textGrey),
+                        style: TextStyle(color: c.textSecondary),
                       ),
                     ),
                 ],
@@ -115,13 +115,15 @@ class _CoursesTabState extends State<CoursesTab> {
   }
 
   Widget _buildCourseCard(String code, String title, String courseId) {
+    final c = context.atlas;
+
     return GestureDetector(
       onTap: () => widget.onCourseSelected(courseId, code, title),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: c.card,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFF8B1515), width: 2),
+          border: Border.all(color: c.primary, width: 2),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.02),
@@ -135,8 +137,8 @@ class _CoursesTabState extends State<CoursesTab> {
           child: Row(
             children: [
               CircleAvatar(
-                backgroundColor: const Color(0xFF8B1515).withValues(alpha: 0.1),
-                child: const Icon(Icons.book, color: Color(0xFF8B1515)),
+                backgroundColor: c.primary.withValues(alpha: 0.1),
+                child: Icon(Icons.book, color: c.primary),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -145,16 +147,17 @@ class _CoursesTabState extends State<CoursesTab> {
                   children: [
                     Text(
                       code,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
+                        color: c.textPrimary,
                       ),
                     ),
                     Text(
                       title,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 13,
-                        color: Color(0xFF8391A1),
+                        color: c.textSecondary,
                       ),
                     ),
                   ],
@@ -163,7 +166,7 @@ class _CoursesTabState extends State<CoursesTab> {
               Icon(
                 Icons.arrow_forward_ios,
                 size: 16,
-                color: Colors.grey.shade400,
+                color: c.textSecondary,
               ),
             ],
           ),

@@ -4,7 +4,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 
-// STRICT RELATIVE IMPORTS
+import '../../core/theme/app_theme.dart';
 import '../faculty_dashboard/faculty_dashboard_screen.dart';
 import 'bloc/auth_bloc.dart';
 import 'bloc/auth_event.dart';
@@ -107,7 +107,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    // Auth stays light regardless of app theme mode.
+    return Theme(
+      data: AppTheme.light(),
+      child: Scaffold(
       backgroundColor: Colors.white,
       // Locks the screen size so the keyboard overlays instead of squishing the UI
       resizeToAvoidBottomInset: false, 
@@ -458,6 +461,7 @@ class _LoginScreenState extends State<LoginScreen> {
           );
         },
       ),
+    ),
     );
   }
 }

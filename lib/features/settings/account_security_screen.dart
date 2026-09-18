@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../auth/forgot_password_screen.dart';
 import '../../core/widgets/user_avatar.dart';
 import '../../core/widgets/atlas_loading_view.dart';
+import '../../core/theme/app_theme.dart';
 
 class AccountSecurityScreen extends StatefulWidget {
   const AccountSecurityScreen({super.key});
@@ -20,11 +21,6 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
   String _userRole = '';
   String? _userPhotoUrl;
   bool _isLoading = true;
-
-  final Color primaryRed = const Color(0xFF8B1515);
-  final Color darkText = const Color(0xFF1E232C);
-  final Color grayText = const Color(0xFF8391A1);
-  final Color borderColor = const Color(0xFFE8ECF4);
 
   @override
   void initState() {
@@ -77,18 +73,20 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.atlas;
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: colors.scaffold,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: colors.primary,
+        foregroundColor: colors.onPrimary,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios, color: darkText),
+          icon: const Icon(Icons.arrow_back_ios),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text(
+        title: const Text(
           'Account & Security',
-          style: TextStyle(color: darkText, fontWeight: FontWeight.bold),
+          style: TextStyle(fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
       ),
@@ -104,7 +102,7 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w800,
-                      color: grayText,
+                      color: colors.textSecondary,
                       letterSpacing: 0.5,
                     ),
                   ),
@@ -112,9 +110,9 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: colors.card,
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: borderColor),
+                      border: Border.all(color: colors.border),
                     ),
                     child: Row(
                       children: [
@@ -133,20 +131,23 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
                                 style: TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.bold,
-                                  color: darkText,
+                                  color: colors.textPrimary,
                                 ),
                               ),
                               const SizedBox(height: 4),
                               Text(
                                 _userEmail,
-                                style: TextStyle(color: grayText, fontSize: 14),
+                                style: TextStyle(
+                                  color: colors.textSecondary,
+                                  fontSize: 14,
+                                ),
                               ),
                               if (_userRole.isNotEmpty) ...[
                                 const SizedBox(height: 4),
                                 Text(
                                   _userRole.toUpperCase(),
                                   style: TextStyle(
-                                    color: primaryRed,
+                                    color: colors.primary,
                                     fontSize: 10,
                                     fontWeight: FontWeight.bold,
                                   ),
@@ -164,12 +165,13 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w800,
-                      color: grayText,
+                      color: colors.textSecondary,
                       letterSpacing: 0.5,
                     ),
                   ),
                   const SizedBox(height: 16),
                   _buildSettingTile(
+                    colors,
                     icon: Icons.lock_reset,
                     title: 'Password Reset',
                     subtitle: 'Change your account password',
@@ -190,13 +192,13 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
                       vertical: 8,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: colors.card,
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: borderColor),
+                      border: Border.all(color: colors.border),
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.vpn_key_outlined, color: primaryRed),
+                        Icon(Icons.vpn_key_outlined, color: colors.primary),
                         const SizedBox(width: 16),
                         Expanded(
                           child: Column(
@@ -206,12 +208,15 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
                                 'Keep Me Signed In',
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: darkText,
+                                  color: colors.textPrimary,
                                 ),
                               ),
                               Text(
                                 'Save credentials for auto-fill',
-                                style: TextStyle(color: grayText, fontSize: 12),
+                                style: TextStyle(
+                                  color: colors.textSecondary,
+                                  fontSize: 12,
+                                ),
                               ),
                             ],
                           ),
@@ -219,7 +224,6 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
                         Switch(
                           value: _keepMeSignedIn,
                           onChanged: _toggleKeepMeSignedIn,
-                          activeThumbColor: primaryRed,
                         ),
                       ],
                     ),
@@ -230,7 +234,8 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
     );
   }
 
-  Widget _buildSettingTile({
+  Widget _buildSettingTile(
+    AtlasColors colors, {
     required IconData icon,
     required String title,
     required String subtitle,
@@ -242,13 +247,13 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: colors.card,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: borderColor),
+          border: Border.all(color: colors.border),
         ),
         child: Row(
           children: [
-            Icon(icon, color: primaryRed),
+            Icon(icon, color: colors.primary),
             const SizedBox(width: 16),
             Expanded(
               child: Column(
@@ -258,17 +263,17 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
                     title,
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
-                      color: darkText,
+                      color: colors.textPrimary,
                     ),
                   ),
                   Text(
                     subtitle,
-                    style: TextStyle(color: grayText, fontSize: 12),
+                    style: TextStyle(color: colors.textSecondary, fontSize: 12),
                   ),
                 ],
               ),
             ),
-            Icon(Icons.arrow_forward_ios, size: 14, color: grayText),
+            Icon(Icons.arrow_forward_ios, size: 14, color: colors.textSecondary),
           ],
         ),
       ),

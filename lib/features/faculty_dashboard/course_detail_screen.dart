@@ -2,8 +2,9 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import '../grading/grading_repository.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/widgets/atlas_loading_view.dart';
+import '../grading/grading_repository.dart';
 
 class CourseDetailScreen extends StatefulWidget {
   final String courseId;
@@ -27,10 +28,6 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
   final GradingRepository _repo = GradingRepository();
-
-  static const primaryRed = Color(0xFF8B1515);
-  static const textGrey = Color(0xFF8391A1);
-  static const darkText = Color(0xFF1E232C);
 
   List<Map<String, dynamic>> _assessments = [];
   String? _selectedAssessmentId;
@@ -233,17 +230,21 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
         }
       }
       if (mounted) {
+        final c = context.atlas;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Answer key saved'),
-            backgroundColor: Color(0xFF198754),
+          SnackBar(
+            content: const Text('Answer key saved'),
+            backgroundColor: c.correct,
           ),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed: $e'), backgroundColor: primaryRed),
+          SnackBar(
+            content: Text('Failed: $e'),
+            backgroundColor: context.atlas.primary,
+          ),
         );
       }
     }
@@ -308,7 +309,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F6F9),
+      backgroundColor: context.atlas.scaffold,
       body: SafeArea(
         child: Column(
           children: [
@@ -331,41 +332,45 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   }
 
   Widget _buildBreadcrumb() {
+    final c = context.atlas;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      color: Colors.white,
+      color: c.card,
       child: Row(
         children: [
           GestureDetector(
             onTap: widget.onBack,
-            child: const Row(
+            child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.arrow_back_ios, size: 16, color: primaryRed),
-                SizedBox(width: 4),
+                Icon(Icons.arrow_back_ios, size: 16, color: c.primary),
+                const SizedBox(width: 4),
                 Text(
                   'Courses',
                   style: TextStyle(
                     fontSize: 14,
-                    color: primaryRed,
+                    color: c.primary,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
             ),
           ),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 6),
-            child: Text(' / ', style: TextStyle(color: textGrey, fontSize: 14)),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Text(
+              ' / ',
+              style: TextStyle(color: c.textSecondary, fontSize: 14),
+            ),
           ),
           Expanded(
             child: Text(
               '${widget.courseCode} / ${_tabController.index == 0 ? 'Evaluation Materials' : 'Students & Scores'}',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
-                color: darkText,
+                color: c.textPrimary,
               ),
               overflow: TextOverflow.ellipsis,
             ),
@@ -376,20 +381,22 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   }
 
   Widget _buildCourseCard() {
+    final c = context.atlas;
+    final onHero = c.onPrimary.withValues(alpha: 0.85);
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [primaryRed, Color(0xFF5A0C0C)],
+        gradient: LinearGradient(
+          colors: [c.primary, const Color(0xFF5A0C0C)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: primaryRed.withValues(alpha: 0.25),
+            color: c.primary.withValues(alpha: 0.25),
             blurRadius: 12,
             offset: const Offset(0, 6),
           ),
@@ -400,27 +407,27 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
         children: [
           Text(
             widget.courseCode,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 26,
               fontWeight: FontWeight.w900,
-              color: Colors.white,
+              color: c.onPrimary,
             ),
           ),
           const SizedBox(height: 4),
           Text(
             widget.courseTitle,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w500,
-              color: Colors.white70,
+              color: onHero,
             ),
           ),
           const SizedBox(height: 10),
           Row(
             children: [
-              _infoChip(Icons.assignment, '${_assessments.length} assessments'),
+              _infoChip(Icons.assignment, '${_assessments.length} assessments', onHero),
               const SizedBox(width: 12),
-              _infoChip(Icons.quiz, '${_items.length} items'),
+              _infoChip(Icons.quiz, '${_items.length} items', onHero),
             ],
           ),
         ],
@@ -428,26 +435,27 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     );
   }
 
-  Widget _infoChip(IconData icon, String text) {
+  Widget _infoChip(IconData icon, String text, Color color) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, color: Colors.white70, size: 14),
+        Icon(icon, color: color, size: 14),
         const SizedBox(width: 4),
-        Text(text, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+        Text(text, style: TextStyle(color: color, fontSize: 12)),
       ],
     );
   }
 
   Widget _buildTabBar() {
+    final c = context.atlas;
     return Container(
-      color: Colors.white,
+      color: c.card,
       margin: const EdgeInsets.only(top: 16),
       child: TabBar(
         controller: _tabController,
-        labelColor: primaryRed,
-        unselectedLabelColor: textGrey,
-        indicatorColor: primaryRed,
+        labelColor: c.primary,
+        unselectedLabelColor: c.textSecondary,
+        indicatorColor: c.primary,
         indicatorWeight: 3,
         labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
         tabs: const [
@@ -461,6 +469,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   // ═══ EM Tab ══════════════════════════════════════════════════════════
 
   Widget _buildEMTab() {
+    final c = context.atlas;
     if (_loadingEM) {
       return const AtlasLoadingView(layout: AtlasLoadingLayout.list);
     }
@@ -469,7 +478,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(_emError!, style: const TextStyle(color: primaryRed)),
+            Text(_emError!, style: TextStyle(color: c.primary)),
             const SizedBox(height: 12),
             ElevatedButton(
               onPressed: _loadWorkspace,
@@ -480,10 +489,10 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
       );
     }
     if (_items.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
           'No items for this assessment',
-          style: TextStyle(color: textGrey),
+          style: TextStyle(color: c.textSecondary),
         ),
       );
     }
@@ -491,15 +500,15 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     return Column(
       children: [
         Container(
-          color: Colors.white,
+          color: c.card,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           child: Row(
             children: [
-              _subTabBtn('Questions', 0),
+              _subTabBtn('Questions', 0, c),
               const SizedBox(width: 8),
-              _subTabBtn('Answer Key', 1),
+              _subTabBtn('Answer Key', 1, c),
               const SizedBox(width: 8),
-              _subTabBtn('Passing Score', 2),
+              _subTabBtn('Passing Score', 2, c),
             ],
           ),
         ),
@@ -519,7 +528,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     }
   }
 
-  Widget _subTabBtn(String label, int index) {
+  Widget _subTabBtn(String label, int index, AtlasColors c) {
     final active = index == _emSubTab;
     return GestureDetector(
       onTap: () {
@@ -531,7 +540,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
           color: active
-              ? primaryRed.withValues(alpha: 0.08)
+              ? c.primary.withValues(alpha: 0.08)
               : Colors.transparent,
           borderRadius: BorderRadius.circular(20),
         ),
@@ -540,7 +549,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
           style: TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w700,
-            color: active ? primaryRed : textGrey,
+            color: active ? c.primary : c.textSecondary,
           ),
         ),
       ),
@@ -548,13 +557,14 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   }
 
   Widget _buildQuestionsList() {
+    final c = context.atlas;
     List<Map<String, dynamic>> filtered = _items;
 
     if (filtered.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
           'No questions for this assessment',
-          style: TextStyle(color: textGrey),
+          style: TextStyle(color: c.textSecondary),
         ),
       );
     }
@@ -578,9 +588,9 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
           margin: const EdgeInsets.only(bottom: 8),
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: c.card,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFFE8ECF4)),
+            border: Border.all(color: c.border),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -589,15 +599,15 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                 width: 32,
                 height: 32,
                 decoration: BoxDecoration(
-                  color: primaryRed.withValues(alpha: 0.1),
+                  color: c.primary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Center(
                   child: Text(
                     qNum,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.bold,
-                      color: primaryRed,
+                      color: c.primary,
                       fontSize: 13,
                     ),
                   ),
@@ -611,16 +621,16 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                     if (section.isNotEmpty)
                       Text(
                         section,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
-                          color: textGrey,
+                          color: c.textSecondary,
                         ),
                       ),
                     const SizedBox(height: 2),
                     Text(
                       item['question_text'] ?? 'Item $qNum',
-                      style: const TextStyle(fontSize: 14, color: darkText),
+                      style: TextStyle(fontSize: 14, color: c.textPrimary),
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -631,11 +641,11 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                         runSpacing: 2,
                         children: choices
                             .map(
-                              (c) => Text(
-                                c,
-                                style: const TextStyle(
+                              (choice) => Text(
+                                choice,
+                                style: TextStyle(
                                   fontSize: 11,
-                                  color: textGrey,
+                                  color: c.textSecondary,
                                 ),
                               ),
                             )
@@ -647,7 +657,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
               ),
               if (answer.isNotEmpty) ...[
                 const SizedBox(width: 8),
-                _answerBadge(answer),
+                _answerBadge(answer, c),
               ],
             ],
           ),
@@ -656,21 +666,21 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     );
   }
 
-  Widget _answerBadge(String letter) {
+  Widget _answerBadge(String letter, AtlasColors c) {
     return Container(
       width: 30,
       height: 30,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: primaryRed,
+        color: c.primary,
       ),
       child: Center(
         child: Text(
           letter,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.bold,
-            color: Colors.white,
+            color: c.onPrimary,
           ),
         ),
       ),
@@ -678,11 +688,12 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   }
 
   Widget _buildAnswerKeyPanel() {
+    final c = context.atlas;
     if (_items.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
           'No items in assessment',
-          style: TextStyle(color: textGrey),
+          style: TextStyle(color: c.textSecondary),
         ),
       );
     }
@@ -709,13 +720,11 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                 child: Container(
                   decoration: BoxDecoration(
                     color: answer.isNotEmpty
-                        ? primaryRed.withValues(alpha: 0.08)
-                        : Colors.white,
+                        ? c.primary.withValues(alpha: 0.08)
+                        : c.card,
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
-                      color: answer.isNotEmpty
-                          ? primaryRed
-                          : const Color(0xFFE8ECF4),
+                      color: answer.isNotEmpty ? c.primary : c.border,
                       width: answer.isNotEmpty ? 2 : 1,
                     ),
                   ),
@@ -724,10 +733,10 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                     children: [
                       Text(
                         itemNum,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
-                          color: darkText,
+                          color: c.textSecondary,
                         ),
                       ),
                       const SizedBox(height: 6),
@@ -736,7 +745,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                         style: TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.w900,
-                          color: answer.isNotEmpty ? primaryRed : textGrey,
+                          color: answer.isNotEmpty ? c.primary : c.textSecondary,
                         ),
                       ),
                     ],
@@ -758,8 +767,8 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: primaryRed,
-                foregroundColor: Colors.white,
+                backgroundColor: c.primary,
+                foregroundColor: c.onPrimary,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -817,12 +826,13 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
         courseId,
       );
       if (mounted) {
+        final c = context.atlas;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               'Passing score saved: ${_passingScore!.toStringAsFixed(0)}%',
             ),
-            backgroundColor: const Color(0xFF198754),
+            backgroundColor: c.correct,
           ),
         );
       }
@@ -844,7 +854,10 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(msg), backgroundColor: primaryRed),
+          SnackBar(
+            content: Text(msg),
+            backgroundColor: context.atlas.primary,
+          ),
         );
       }
     } finally {
@@ -853,6 +866,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   }
 
   Widget _buildPassingScorePanel() {
+    final c = context.atlas;
     if (_loadingPassingScore) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -869,45 +883,50 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
               width: double.infinity,
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: c.card,
                 borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: c.border),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.02),
+                    color: c.textPrimary.withValues(alpha: 0.04),
                     blurRadius: 10,
                   ),
                 ],
               ),
               child: Column(
                 children: [
-                  const Icon(Icons.grading, size: 48, color: primaryRed),
+                  Icon(Icons.grading, size: 48, color: c.primary),
                   const SizedBox(height: 12),
-                  const Text(
+                  Text(
                     'Passing Score Threshold',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: c.textPrimary,
+                    ),
                   ),
                   const SizedBox(height: 4),
-                  const Text(
+                  Text(
                     'Students scoring at or above this percentage\nwill be marked as passed.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12, color: textGrey),
+                    style: TextStyle(fontSize: 12, color: c.textSecondary),
                   ),
                   const SizedBox(height: 24),
                   Text(
                     '${current.toStringAsFixed(0)}%',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 48,
                       fontWeight: FontWeight.w900,
-                      color: primaryRed,
+                      color: c.primary,
                     ),
                   ),
                   const SizedBox(height: 16),
                   SliderTheme(
                     data: SliderThemeData(
-                      activeTrackColor: primaryRed,
-                      inactiveTrackColor: primaryRed.withValues(alpha: 0.12),
-                      thumbColor: primaryRed,
-                      overlayColor: primaryRed.withValues(alpha: 0.12),
+                      activeTrackColor: c.primary,
+                      inactiveTrackColor: c.primary.withValues(alpha: 0.12),
+                      thumbColor: c.primary,
+                      overlayColor: c.primary.withValues(alpha: 0.12),
                       trackHeight: 6,
                       thumbShape: const RoundSliderThumbShape(
                         enabledThumbRadius: 14,
@@ -927,11 +946,11 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                     children: [
                       Text(
                         '0%',
-                        style: const TextStyle(fontSize: 11, color: textGrey),
+                        style: TextStyle(fontSize: 11, color: c.textSecondary),
                       ),
                       Text(
                         '100%',
-                        style: const TextStyle(fontSize: 11, color: textGrey),
+                        style: TextStyle(fontSize: 11, color: c.textSecondary),
                       ),
                     ],
                   ),
@@ -952,8 +971,8 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                             ),
                             decoration: BoxDecoration(
                               color: current == v
-                                  ? primaryRed
-                                  : primaryRed.withValues(alpha: 0.08),
+                                  ? c.primary
+                                  : c.primary.withValues(alpha: 0.08),
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Text(
@@ -961,7 +980,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                               style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w700,
-                                color: current == v ? Colors.white : primaryRed,
+                                color: current == v ? c.onPrimary : c.primary,
                               ),
                             ),
                           ),
@@ -978,12 +997,12 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
               child: ElevatedButton.icon(
                 onPressed: _savingPassingScore ? null : _savePassingScore,
                 icon: _savingPassingScore
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: Colors.white,
+                          color: c.onPrimary,
                         ),
                       )
                     : const Icon(Icons.save, size: 18),
@@ -992,8 +1011,8 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: primaryRed,
-                  foregroundColor: Colors.white,
+                  backgroundColor: c.primary,
+                  foregroundColor: c.onPrimary,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -1010,6 +1029,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   // ═══ Scores Tab ══════════════════════════════════════════════════════
 
   Widget _buildScoresTab() {
+    final c = context.atlas;
     if (_loadingScores) {
       return const AtlasLoadingView(layout: AtlasLoadingLayout.list);
     }
@@ -1018,7 +1038,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(_scoresError!, style: const TextStyle(color: primaryRed)),
+            Text(_scoresError!, style: TextStyle(color: c.primary)),
             const SizedBox(height: 12),
             ElevatedButton(onPressed: _loadScores, child: const Text('Retry')),
           ],
@@ -1113,8 +1133,8 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     }
 
     if (displayRows.isEmpty) {
-      return const Center(
-        child: Text('No students found', style: TextStyle(color: textGrey)),
+      return Center(
+        child: Text('No students found', style: TextStyle(color: c.textSecondary)),
       );
     }
 
@@ -1124,30 +1144,31 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
         scrollDirection: Axis.horizontal,
         child: DataTable(
           headingRowColor: WidgetStateProperty.all(
-            primaryRed.withValues(alpha: 0.06),
+            c.primary.withValues(alpha: 0.06),
           ),
+          dataRowColor: WidgetStateProperty.all(c.card),
           border: TableBorder.all(
-            color: const Color(0xFFE8ECF4),
+            color: c.border,
             borderRadius: BorderRadius.circular(8),
           ),
           columns: [
-            const DataColumn(
+            DataColumn(
               label: Text(
                 'SR Code',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 13,
-                  color: darkText,
+                  color: c.textPrimary,
                 ),
               ),
             ),
-            const DataColumn(
+            DataColumn(
               label: Text(
                 'Section',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 13,
-                  color: darkText,
+                  color: c.textPrimary,
                 ),
               ),
             ),
@@ -1159,10 +1180,10 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                             .isNotEmpty)
                     ? displayRows.first['assessment_title'].toString()
                     : 'Score',
-                style: const TextStyle(
+                style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 13,
-                  color: darkText,
+                  color: c.textPrimary,
                 ),
               ),
             ),
@@ -1172,6 +1193,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
             final sec = (r['section'] ?? '').toString();
             final score = r['score'];
             final pct = r['percent'];
+            final hasScore = pct != null || score != null;
             final display = pct != null
                 ? '${(pct as num).toStringAsFixed(0)}%'
                 : score != null
@@ -1182,26 +1204,27 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                 DataCell(
                   Text(
                     sid,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.w600,
                       fontSize: 13,
+                      color: c.textPrimary,
                     ),
                   ),
                 ),
                 DataCell(
                   Text(
                     sec,
-                    style: const TextStyle(fontSize: 13, color: textGrey),
+                    style: TextStyle(fontSize: 13, color: c.textSecondary),
                   ),
                 ),
                 DataCell(
                   Center(
                     child: Text(
                       display,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
-                        color: darkText,
+                        color: hasScore ? c.textPrimary : c.textSecondary,
                       ),
                     ),
                   ),
@@ -1217,11 +1240,12 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   // ═══ Bottom Bars ══════════════════════════════════════════════════════
 
   Widget _buildEMBottomBar() {
+    final c = context.atlas;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Color(0xFFE8ECF4))),
+      decoration: BoxDecoration(
+        color: c.card,
+        border: Border(top: BorderSide(color: c.border)),
       ),
       child: SafeArea(
         child: Row(
@@ -1231,19 +1255,25 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                 initialValue: _selectedAssessmentId,
                 decoration: InputDecoration(
                   labelText: 'Assessment',
+                  labelStyle: TextStyle(color: c.textSecondary),
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 14,
                     vertical: 10,
                   ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: Color(0xFFE8ECF4)),
+                    borderSide: BorderSide(color: c.border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: c.border),
                   ),
                   filled: true,
-                  fillColor: const Color(0xFFF4F6F9),
+                  fillColor: c.inputFill,
                 ),
                 isExpanded: true,
-                style: const TextStyle(fontSize: 13, color: darkText),
+                style: TextStyle(fontSize: 13, color: c.textPrimary),
+                dropdownColor: c.card,
                 items: _assessments
                     .map(
                       (a) => DropdownMenuItem<String>(
@@ -1265,11 +1295,12 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   }
 
   Widget _buildScoresBottomBar() {
+    final c = context.atlas;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Color(0xFFE8ECF4))),
+      decoration: BoxDecoration(
+        color: c.card,
+        border: Border(top: BorderSide(color: c.border)),
       ),
       child: SafeArea(
         child: Row(
@@ -1279,19 +1310,25 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                 initialValue: _selectedAssessmentId,
                 decoration: InputDecoration(
                   labelText: 'Assessment',
+                  labelStyle: TextStyle(color: c.textSecondary),
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 14,
                     vertical: 10,
                   ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: Color(0xFFE8ECF4)),
+                    borderSide: BorderSide(color: c.border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: c.border),
                   ),
                   filled: true,
-                  fillColor: const Color(0xFFF4F6F9),
+                  fillColor: c.inputFill,
                 ),
                 isExpanded: true,
-                style: const TextStyle(fontSize: 13, color: darkText),
+                style: TextStyle(fontSize: 13, color: c.textPrimary),
+                dropdownColor: c.card,
                 items: _assessments
                     .map(
                       (a) => DropdownMenuItem<String>(
@@ -1312,19 +1349,25 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                 initialValue: _scoreSectionFilter,
                 decoration: InputDecoration(
                   labelText: 'Section',
+                  labelStyle: TextStyle(color: c.textSecondary),
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 14,
                     vertical: 10,
                   ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: Color(0xFFE8ECF4)),
+                    borderSide: BorderSide(color: c.border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: c.border),
                   ),
                   filled: true,
-                  fillColor: const Color(0xFFF4F6F9),
+                  fillColor: c.inputFill,
                 ),
                 isExpanded: true,
-                style: const TextStyle(fontSize: 13, color: darkText),
+                style: TextStyle(fontSize: 13, color: c.textPrimary),
+                dropdownColor: c.card,
                 items: [
                   const DropdownMenuItem<String>(
                     value: null,

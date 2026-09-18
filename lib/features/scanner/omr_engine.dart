@@ -1,9 +1,13 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 import '../grading/models.dart';
+import 'omr_aruco.dart';
+import 'omr_constants.dart';
 import 'omr_imaging.dart';
 import 'omr_models.dart';
 import 'omr_contour_bubbles.dart';
@@ -18,6 +22,11 @@ class OmrIsolateArgs {
   final String? studentId;
   final String? assessmentId;
   final String? qrAssessmentId;
+  final Uint8List? gradeLuma;
+  final int? gradeWidth;
+  final int? gradeHeight;
+  final List<double>? arucoXy;
+  final bool requireSnapshot;
 
   const OmrIsolateArgs({
     required this.imagePath,
@@ -28,29 +37,74 @@ class OmrIsolateArgs {
     this.studentId,
     this.assessmentId,
     this.qrAssessmentId,
+    this.gradeLuma,
+    this.gradeWidth,
+    this.gradeHeight,
+    this.arucoXy,
+    this.requireSnapshot = false,
   });
 }
 
 /// Top-level entry for [Isolate.run] / [compute].
-Map<String, dynamic> omrProcessInIsolate(OmrIsolateArgs args) {
+Map<String, dynamic> omrProcessInIsolate(
+  OmrIsolateArgs args, {
+  void Function(String status)? onProgress,
+}) {
+  void progress(String s) => onProgress?.call(s);
   final sw = Stopwatch()..start();
-  final bytes = File(args.imagePath).readAsBytesSync();
-  img.Image? image = img.decodeImage(bytes);
-  if (image == null) {
-    throw Exception('Failed to decode image.');
+  img.Image image;
+  Map<int, ArucoHit>? forcedAruco;
+  final luma = args.gradeLuma;
+  final gw = args.gradeWidth;
+  final gh = args.gradeHeight;
+  final xy = args.arucoXy;
+  final snapshotOk = luma != null &&
+      gw != null &&
+      gh != null &&
+      xy != null &&
+      xy.length == 8 &&
+      luma.length >= gw * gh;
+  if (args.requireSnapshot && !snapshotOk) {
+    throw Exception('Grade snapshot missing in isolate.');
   }
-  image = img.bakeOrientation(image);
+  if (snapshotOk) {
+    image = OmrImaging.lumaToGray(luma!, gw!, gh!);
+    forcedAruco = {
+      0: ArucoHit(0, xy![0], xy[1], 0),
+      1: ArucoHit(1, xy[2], xy[3], 0),
+      2: ArucoHit(2, xy[4], xy[5], 0),
+      3: ArucoHit(3, xy[6], xy[7], 0),
+    };
+  } else {
+    final bytes = File(args.imagePath).readAsBytesSync();
+    img.Image? decoded = img.decodeImage(bytes);
+    if (decoded == null) {
+      throw Exception('Failed to decode image.');
+    }
+    image = img.bakeOrientation(decoded);
+  }
 
   final layout = args.layout;
   final resolvedAssessmentId = args.assessmentId ?? args.qrAssessmentId;
 
-  final prepared = OmrImaging.prepareSheetForOmr(image, layout);
+  progress('Aligning sheet…');
+  final prepared =
+      OmrImaging.prepareSheetForOmr(image, layout, forcedAruco: forcedAruco);
+
+  progress('Reading student ID…');
   final studentId = args.studentId ??
-      OmrImaging.readIDBubbles(prepared.binary, layout, prepared.dpi);
+      OmrImaging.readIDBubbles(
+        prepared.binary,
+        layout,
+        prepared.dpi,
+        originXmm: prepared.cropOriginXmm,
+        originYmm: prepared.cropOriginYmm,
+      );
 
   final hasItems =
       (layout['items'] is Map) && (layout['items'] as Map).isNotEmpty;
 
+  progress('Extracting answers…');
   final rowResults = hasItems
       ? OmrReferenceGrader.readAnswerBubblesFromTemplate(
           prepared.binary,
@@ -58,6 +112,8 @@ Map<String, dynamic> omrProcessInIsolate(OmrIsolateArgs args) {
           layout,
           prepared.dpi,
           args.numChoices,
+          originXmm: prepared.cropOriginXmm,
+          originYmm: prepared.cropOriginYmm,
         )
       : List.generate(
           args.totalItems,
@@ -80,25 +136,25 @@ Map<String, dynamic> omrProcessInIsolate(OmrIsolateArgs args) {
     }
   }
 
+  progress('Scoring answers…');
   final gr = OmrEngine.grade(responses, args.answerKey, args.totalItems);
   sw.stop();
 
-  // Encode bird's-eye JPEG for the post-capture result UI.
-  img.Image display = prepared.color;
-  const maxW = 900;
-  if (display.width > maxW) {
-    final nh = (display.height * maxW / display.width).round();
-    display = img.copyResize(display, width: maxW, height: nh);
-  }
-  final alignedJpeg = Uint8List.fromList(img.encodeJpg(display, quality: 78));
+  // Display JPEG is the capture-time ArUco crop — do not rebuild from grade canvas.
+  const Uint8List? alignedJpeg = null;
+  const int? alignedW = null;
+  const int? alignedH = null;
 
+  progress('Building result…');
   final markers = _buildScoredMarkers(
     layout: layout,
     answerKey: args.answerKey,
     responses: responses,
+    readings: readings,
     dpi: prepared.dpi,
     imageWidth: prepared.gray.width,
     imageHeight: prepared.gray.height,
+    studentId: studentId,
   );
 
   final flagged = readings
@@ -115,7 +171,7 @@ Map<String, dynamic> omrProcessInIsolate(OmrIsolateArgs args) {
   final idPartial = studentId != null && studentId.contains('?');
   if (studentId == null || idPartial) reasons.add('Student ID incomplete');
   if (flagged.isNotEmpty) {
-    reasons.add('${flagged.length} ambiguous item(s)');
+    reasons.add('${flagged.length} invalid item(s)');
   }
 
   final flagReasonRaw = reasons.isEmpty ? null : reasons.join('; ');
@@ -149,6 +205,8 @@ Map<String, dynamic> omrProcessInIsolate(OmrIsolateArgs args) {
     'alignment': prepared.method,
     'low_confidence': prepared.lowConfidence,
     'aligned_jpeg': alignedJpeg,
+    'aligned_width': alignedW,
+    'aligned_height': alignedH,
     'scored_markers': markers,
   };
 }
@@ -157,44 +215,95 @@ List<Map<String, dynamic>> _buildScoredMarkers({
   required Map<String, dynamic> layout,
   required Map<String, String> answerKey,
   required Map<String, String> responses,
+  required List<BubbleReading> readings,
   required double dpi,
   required int imageWidth,
   required int imageHeight,
+  String? studentId,
 }) {
-  final items = layout['items'];
-  if (items is! Map || imageWidth <= 0 || imageHeight <= 0) return [];
+  if (imageWidth <= 0 || imageHeight <= 0) return [];
 
-  final mmToPx = dpi / 25.4;
   final out = <Map<String, dynamic>>[];
+  final grid = layout['answer_grid'];
+  final answerRMm = grid is Map
+      ? (grid['bubble_r_mm'] as num?)?.toDouble() ?? 2.0
+      : ((layout['bubble_radius_pt'] as num?)?.toDouble() ?? 5.67) * 25.4 / 72.0;
 
-  for (final entry in answerKey.entries) {
-    final itemNum = entry.key;
-    final correct = entry.value;
-    final detected = responses[itemNum];
-    final isCorrect = detected != null && detected == correct;
+  double pageNx(double cxMm) =>
+      (cxMm / OmrConstants.pageWmm).clamp(0.0, 1.0);
+  double pageNy(double cyMm) =>
+      (cyMm / OmrConstants.pageHmm).clamp(0.0, 1.0);
 
-    final itemData = items[itemNum];
-    if (itemData is! Map) continue;
+  final readingByItem = <int, BubbleReading>{
+    for (final r in readings) r.itemNumber: r,
+  };
 
-    // Mark the bubble the student filled; if blank, mark the correct bubble.
-    final markChoice = (detected != null && detected.isNotEmpty)
-        ? detected
-        : correct;
-    final coord = itemData[markChoice] ?? itemData[correct];
-    if (coord is! Map) continue;
+  final items = layout['items'];
+  if (items is Map) {
+    for (final entry in answerKey.entries) {
+      final itemNum = entry.key;
+      final correct = entry.value;
+      final detected = responses[itemNum];
+      final itemNo = int.tryParse(itemNum) ?? 0;
+      final reading = readingByItem[itemNo];
+      final isAmbiguous = reading?.isAmbiguous == true ||
+          detected == null ||
+          detected.isEmpty ||
+          detected == '?';
+      final isCorrect = !isAmbiguous && detected == correct;
 
-    final cxMm = (coord['cx_mm'] as num?)?.toDouble() ?? 0;
-    final cyMm = (coord['cy_spec_mm'] as num?)?.toDouble() ?? 0;
-    final nx = ((cxMm * mmToPx) / imageWidth).clamp(0.0, 1.0);
-    final ny = ((cyMm * mmToPx) / imageHeight).clamp(0.0, 1.0);
+      final itemData = items[itemNum];
+      if (itemData is! Map) continue;
 
-    out.add({
-      'item_number': int.tryParse(itemNum) ?? 0,
-      'nx': nx,
-      'ny': ny,
-      'is_correct': isCorrect,
-    });
+      final markChoice = (!isAmbiguous && detected.isNotEmpty)
+          ? detected
+          : correct;
+      final coord = itemData[markChoice] ?? itemData[correct];
+      if (coord is! Map) continue;
+
+      final cxMm = (coord['cx_mm'] as num?)?.toDouble() ?? 0;
+      final cyMm = (coord['cy_spec_mm'] as num?)?.toDouble() ?? 0;
+
+      out.add({
+        'item_number': itemNo,
+        'nx': pageNx(cxMm),
+        'ny': pageNy(cyMm),
+        'r_mm': answerRMm,
+        'kind': isAmbiguous
+            ? 'ambiguous'
+            : (isCorrect ? 'correct' : 'wrong'),
+      });
+    }
   }
+
+  final idc = layout['id_columns'];
+  if (studentId != null && studentId.isNotEmpty && idc is Map) {
+    const labels = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '-'];
+    const firstRowOffsetMm = 2.5;
+    final x0mm = (idc['x0_mm'] as num?)?.toDouble() ?? 0;
+    final yTopMm = (idc['y_top_spec_mm'] as num?)?.toDouble() ?? 0;
+    final colPitch = (idc['col_pitch_mm'] as num?)?.toDouble() ?? 6.5;
+    final rowPitch = (idc['row_pitch_mm'] as num?)?.toDouble() ?? 5.0;
+    final idRMm = (idc['bubble_r_mm'] as num?)?.toDouble() ?? 1.75;
+    final cols = (idc['num_cols'] as num?)?.toInt() ?? studentId.length;
+    final n = min(cols, studentId.length);
+    for (var c = 0; c < n; c++) {
+      final ch = studentId[c];
+      if (ch == '?') continue;
+      final row = labels.indexOf(ch);
+      if (row < 0) continue;
+      final cxMm = x0mm + c * colPitch;
+      final cyMm = yTopMm + firstRowOffsetMm + row * rowPitch;
+      out.add({
+        'item_number': -(c + 1),
+        'nx': pageNx(cxMm),
+        'ny': pageNy(cyMm),
+        'r_mm': idRMm,
+        'kind': 'id',
+      });
+    }
+  }
+
   return out;
 }
 
@@ -208,6 +317,8 @@ class OmrEngine {
     BubbleTemplate template, {
     String? studentId,
     String? assessmentId,
+    OmrGradeSnapshot? gradeSnapshot,
+    void Function(String status)? onProgress,
   }) async {
     final layout = template.layoutMetadata;
     if (!template.hasLayoutItems) {
@@ -221,20 +332,71 @@ class OmrEngine {
     final qrRaw = await OmrImaging.decodeQR(imagePath);
     final qrAssessmentId = OmrImaging.parseAssessmentId(qrRaw);
 
-    final map = await Isolate.run(
-      () => omrProcessInIsolate(OmrIsolateArgs(
-        imagePath: imagePath,
-        layout: Map<String, dynamic>.from(layout),
-        answerKey: Map<String, String>.from(template.answerKey),
-        totalItems: template.totalItems,
-        numChoices: template.numChoices,
-        studentId: studentId,
-        assessmentId: assessmentId,
-        qrAssessmentId: qrAssessmentId,
-      )),
+    final snap = gradeSnapshot != null && gradeSnapshot.isComplete
+        ? gradeSnapshot
+        : null;
+    final gradeLuma =
+        snap == null ? null : Uint8List.fromList(snap.luma);
+    final gradeWidth = snap?.width;
+    final gradeHeight = snap?.height;
+    final arucoXy =
+        snap == null ? null : List<double>.from(snap.arucoXy);
+
+    final args = OmrIsolateArgs(
+      imagePath: imagePath,
+      layout: Map<String, dynamic>.from(layout),
+      answerKey: Map<String, String>.from(template.answerKey),
+      totalItems: template.totalItems,
+      numChoices: template.numChoices,
+      studentId: studentId,
+      assessmentId: assessmentId,
+      qrAssessmentId: qrAssessmentId,
+      gradeLuma: gradeLuma,
+      gradeWidth: gradeWidth,
+      gradeHeight: gradeHeight,
+      arucoXy: arucoXy,
+      requireSnapshot: snap != null,
     );
 
-    return _resultFromMap(map);
+    if (onProgress == null) {
+      final map = await Isolate.run(() => omrProcessInIsolate(args));
+      return _resultFromMap(map);
+    }
+
+    final receive = ReceivePort();
+    final errorPort = ReceivePort();
+    await Isolate.spawn(
+      _omrIsolateMain,
+      _OmrIsolateLaunch(receive.sendPort, args),
+      onError: errorPort.sendPort,
+      errorsAreFatal: true,
+    );
+    final completer = Completer<Map<String, dynamic>>();
+    late final StreamSubscription sub;
+    late final StreamSubscription errSub;
+    sub = receive.listen((msg) {
+      if (msg is String) {
+        onProgress(msg);
+      } else if (msg is Map) {
+        completer.complete(Map<String, dynamic>.from(msg));
+      }
+    });
+    errSub = errorPort.listen((err) {
+      if (!completer.isCompleted) {
+        completer.completeError(
+          Exception(err is List ? err.first : err),
+        );
+      }
+    });
+    try {
+      final map = await completer.future;
+      return _resultFromMap(map);
+    } finally {
+      await sub.cancel();
+      await errSub.cancel();
+      receive.close();
+      errorPort.close();
+    }
   }
 
   static OmrResult _resultFromMap(Map<String, dynamic> map) {
@@ -284,13 +446,23 @@ class OmrEngine {
           : (map['aligned_jpeg'] is List
               ? Uint8List.fromList(List<int>.from(map['aligned_jpeg'] as List))
               : null),
+      alignedWidth: (map['aligned_width'] as num?)?.toInt(),
+      alignedHeight: (map['aligned_height'] as num?)?.toInt(),
       scoredMarkers: (map['scored_markers'] as List<dynamic>? ?? []).map((raw) {
         final m = Map<String, dynamic>.from(raw as Map);
         return ScoredBubbleMarker(
           itemNumber: m['item_number'] as int? ?? 0,
           nx: (m['nx'] as num?)?.toDouble() ?? 0,
           ny: (m['ny'] as num?)?.toDouble() ?? 0,
-          isCorrect: m['is_correct'] as bool? ?? false,
+          rMm: (m['r_mm'] as num?)?.toDouble() ?? 2.0,
+          kind: switch (m['kind']?.toString()) {
+            'id' => ScoredMarkerKind.studentId,
+            'wrong' => ScoredMarkerKind.wrong,
+            'ambiguous' => ScoredMarkerKind.ambiguous,
+            _ => (m['is_correct'] as bool? ?? true)
+                ? ScoredMarkerKind.correct
+                : ScoredMarkerKind.wrong,
+          },
         );
       }).toList(),
       alignmentMethod: map['alignment']?.toString() ?? 'unknown',
@@ -315,4 +487,18 @@ class OmrEngine {
     final pct = maxScore > 0 ? (correct / maxScore) * 100.0 : 0.0;
     return (correct, maxScore, pct);
   }
+}
+
+class _OmrIsolateLaunch {
+  final SendPort sendPort;
+  final OmrIsolateArgs args;
+  _OmrIsolateLaunch(this.sendPort, this.args);
+}
+
+void _omrIsolateMain(_OmrIsolateLaunch launch) {
+  final map = omrProcessInIsolate(
+    launch.args,
+    onProgress: launch.sendPort.send,
+  );
+  launch.sendPort.send(map);
 }

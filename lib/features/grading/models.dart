@@ -50,10 +50,25 @@ class BubbleTemplate {
       hasEssay: json['has_essay'] ?? false,
       essayLines: json['essay_lines'] ?? 10,
       hasAnswerKey: json['has_answer_key'] ?? false,
-      answerKey: Map<String, String>.from(json['answer_key'] ?? {}),
+      answerKey: _parseAnswerKey(json['answer_key']),
       passingScore: (json['passing_score'] as num?)?.toDouble(),
       layoutMetadata: json['layout_metadata'] ?? {},
     );
+  }
+
+  static Map<String, String> _parseAnswerKey(dynamic raw) {
+    if (raw is! Map) return {};
+    final out = <String, String>{};
+    raw.forEach((k, v) {
+      final key = k.toString().trim();
+      final val = v.toString().trim().toUpperCase();
+      if (key.isEmpty || val.isEmpty) return;
+      out[key] = val;
+      // Also index bare item numbers (strip leading zeros).
+      final asInt = int.tryParse(key);
+      if (asInt != null) out[asInt.toString()] = val;
+    });
+    return out;
   }
 }
 

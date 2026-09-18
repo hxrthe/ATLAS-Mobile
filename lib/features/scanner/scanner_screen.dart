@@ -34,7 +34,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
   bool _isCameraReady = false;
   bool _isStreaming = false;
   int _frameCount = 0;
-  static const int _frameSkip = 2;
+  static const int _frameSkip = 1;
 
   final GradingRepository _repository = GradingRepository();
   List<BubbleTemplate> _templates = [];
@@ -48,7 +48,9 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
   bool _frameBusy = false;
   String? _identifyError;
   Uint8List? _alignedPreviewBytes;
-  static const int _lockThresholdFrames = 5;
+  OmrGradeSnapshot? _gradeSnapshot;
+  static const int _lockThresholdFrames = 1;
+  int _omrJobId = 0;
 
   AnimationController? _scoreFlashController;
   Animation<double>? _scoreFlashAnimation;
@@ -69,10 +71,14 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
   bool _resultProcessing = false;
   String _resultStatus = '';
   OmrResult? _lastOmrResult;
-  int _resultStatusStep = 0;
   /// idle | uploading | uploaded | failed | rejected
   String _uploadStatus = 'idle';
   ScanRecord? _pendingUploadRecord;
+
+  /// When set, the next capture must match these IDs (Rescan only).
+  String? _rescanExpectedStudentId;
+  String? _rescanExpectedAssessmentId;
+  String? _rescanReplaceRecordId;
 
   Rect? _roi;
   Size? _lastScreenSize;
@@ -264,10 +270,17 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     _frameBusy = true;
 
     try {
-      // Corner / fiducial tracking first (must stay snappy for moving guides).
+      // Warp when we have none, when lock is about to capture, and every 12th
+      // frame for the live ALIGNED pip. Never capture without this JPEG.
+      final wantWarp = _alignedPreviewBytes == null ||
+          _fiducialLock.lockDuration >= 3 ||
+          _frameCount % 12 == 0;
+
       final det = OmrImaging.detectFiducialsLive(
         frame,
-        buildAlignedPreview: _frameCount % 12 == 0,
+        previewSize: _controller?.value.previewSize,
+        buildAlignedPreview: wantWarp,
+        copyGradeSnapshot: wantWarp,
       );
 
       final next = _fiducialLock.update(
@@ -293,12 +306,41 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       if (mounted) {
         setState(() {
           _fiducialLock = next;
+          if (next.allFresh) {
+            _diagnostics = ScannerDiagnostics.ok();
+          }
           if (det.alignedPreview != null) {
             _alignedPreviewBytes = det.alignedPreview;
           } else if (!next.corners.any((c) => c.position != null)) {
             _alignedPreviewBytes = null;
+            _gradeSnapshot = null;
+          }
+          if (det.gradeLuma != null &&
+              det.gradeW != null &&
+              det.gradeH != null &&
+              det.arucoXy != null &&
+              det.arucoXy!.length == 8) {
+            _gradeSnapshot = OmrGradeSnapshot(
+              luma: det.gradeLuma!,
+              width: det.gradeW!,
+              height: det.gradeH!,
+              arucoXy: List<double>.from(det.arucoXy!),
+              displayLuma: det.displayLuma,
+              displayWidth: det.displayW,
+              displayHeight: det.displayH,
+              displayArucoXy: det.displayXy == null
+                  ? null
+                  : List<double>.from(det.displayXy!),
+            );
           }
         });
+      }
+
+      if (_shouldAutoCapture(next) &&
+          _alignedPreviewBytes != null &&
+          _gradeSnapshot != null) {
+        _manualCapture();
+        return;
       }
     } catch (e) {
       debugPrint('Live frame error: $e');
@@ -314,10 +356,14 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
         if (qr != null && qr.isNotEmpty) {
           final assessmentId = OmrImaging.parseAssessmentId(qr);
           if (assessmentId != null && assessmentId.isNotEmpty) {
-            if (_selectedTemplate?.assessmentId != assessmentId) {
-              await _identifyAssessmentFromQr(assessmentId);
-            } else if (!_assessmentIdentified && mounted) {
-              setState(() => _assessmentIdentified = true);
+            final rescanLocked = _rescanExpectedAssessmentId != null &&
+                !_sameId(_rescanExpectedAssessmentId, assessmentId);
+            if (!rescanLocked) {
+              if (_selectedTemplate?.assessmentId != assessmentId) {
+                await _identifyAssessmentFromQr(assessmentId);
+              } else if (!_assessmentIdentified && mounted) {
+                setState(() => _assessmentIdentified = true);
+              }
             }
           }
         }
@@ -342,10 +388,21 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       _assessmentIdentified &&
       _selectedTemplate != null &&
       _selectedTemplate!.hasLayoutItems &&
-      _fiducialLock.allLocked &&
-      _fiducialLock.lockDuration >= 2 &&
-      !_diagnostics.isBlurry &&
-      !_diagnostics.hasGlare &&
+      _fiducialLock.allFresh &&
+      _fiducialLock.lockDuration >= 5 &&
+      _alignedPreviewBytes != null &&
+      _gradeSnapshot != null &&
+      !_isCapturing &&
+      !_isIdentifying;
+
+  bool _shouldAutoCapture(FiducialLockState next) =>
+      _assessmentIdentified &&
+      _selectedTemplate != null &&
+      _selectedTemplate!.hasLayoutItems &&
+      next.allFresh &&
+      next.lockDuration >= 5 &&
+      _alignedPreviewBytes != null &&
+      _gradeSnapshot != null &&
       !_isCapturing &&
       !_isIdentifying;
 
@@ -354,22 +411,44 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     if (_controller == null || !_controller!.value.isInitialized) return;
     _isCapturing = true;
     try {
+      final snapshot = _gradeSnapshot;
+      if (snapshot == null || !snapshot.isComplete) {
+        _isCapturing = false;
+        if (mounted) _startImageStream();
+        return;
+      }
       HapticFeedback.mediumImpact();
-      final image = await _controller!.takePicture();
+      final sheetJpeg = OmrImaging.alignedSheetJpeg(
+            luma: snapshot.hasDisplayLuma
+                ? snapshot.displayLuma!
+                : snapshot.luma,
+            width: snapshot.hasDisplayLuma
+                ? snapshot.displayWidth!
+                : snapshot.width,
+            height: snapshot.hasDisplayLuma
+                ? snapshot.displayHeight!
+                : snapshot.height,
+            arucoXy: snapshot.hasDisplayLuma
+                ? snapshot.displayArucoXy!
+                : snapshot.arucoXy,
+          ) ??
+          _alignedPreviewBytes;
       await _stopImageStream();
-
       if (!mounted) return;
       setState(() {
-        _resultCapturePath = image.path;
-        _resultPreviewBytes = _alignedPreviewBytes;
+        _resultPreviewBytes = sheetJpeg;
         _resultProcessing = true;
-        _resultStatus = 'Realigning sheet…';
-        _resultStatusStep = 0;
+        _resultStatus = 'Aligning sheet…';
         _lastOmrResult = null;
         _mode = _ScreenMode.result;
       });
-      _startResultStatusCycle();
-      _processScanInBackground(image.path);
+      _startResultStatusCycle(); // fallback labels until first milestone
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      final image = await _controller!.takePicture();
+      if (!mounted) return;
+      setState(() => _resultCapturePath = image.path);
+      final jobId = ++_omrJobId;
+      _processScanInBackground(image.path, jobId, snapshot);
       _syncTorch();
     } catch (e) {
       debugPrint("Capture error: $e");
@@ -384,39 +463,65 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     }
   }
 
-  static const _resultStatusMessages = [
-    'Realigning sheet…',
-    'Reading student ID…',
-    'Extracting answers…',
-    'Checking against answer key…',
-    'Preparing scored sheet…',
-  ];
-
   void _startResultStatusCycle() {
+    // Fake timed labels are skipped: real OMR milestones arrive via onProgress.
+    // Keep a single fallback only if the isolate is silent for a few seconds.
     _resultStatusTimer?.cancel();
-    _resultStatusTimer = Timer.periodic(const Duration(milliseconds: 900), (_) {
-      if (!mounted || !_resultProcessing) {
-        _resultStatusTimer?.cancel();
-        return;
+    _resultStatusTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted || !_resultProcessing) return;
+      if (_resultStatus == 'Aligning sheet…' ||
+          _resultStatus == 'Realigning sheet…') {
+        setState(() => _resultStatus = 'Processing sheet…');
       }
-      setState(() {
-        if (_resultStatusStep < _resultStatusMessages.length - 1) {
-          _resultStatusStep++;
-          _resultStatus = _resultStatusMessages[_resultStatusStep];
-        }
-      });
     });
   }
 
-  void _scanNext() {
+  void _bindOmrResult(OmrResult result) {
+    _lastOmrResult = result;
+  }
+
+  Future<void> _rescanCurrent() async {
+    final expectedStudent = _lastOmrResult?.studentIdentifier ??
+        _pendingUploadRecord?.studentIdentifier;
+    final expectedAssessment = _lastOmrResult?.assessmentId ??
+        _selectedTemplate?.assessmentId;
+    final replaceId = _pendingUploadRecord?.id;
+
+    _omrJobId++;
     _resultStatusTimer?.cancel();
+    final pending = _pendingUploadRecord;
+    _pendingUploadRecord = null;
+    if (pending != null) {
+      await ScanHistory.removeRecord(pending.id);
+      _scanRecords.removeWhere((r) => r.id == pending.id);
+    }
+    if (!mounted) return;
+    _beginRescanSession(
+      expectedStudentId: expectedStudent,
+      expectedAssessmentId: expectedAssessment,
+      replaceRecordId: replaceId,
+    );
+  }
+
+  void _beginRescanSession({
+    String? expectedStudentId,
+    String? expectedAssessmentId,
+    String? replaceRecordId,
+  }) {
     setState(() {
+      _rescanExpectedStudentId = expectedStudentId;
+      _rescanExpectedAssessmentId = expectedAssessmentId;
+      _rescanReplaceRecordId = replaceRecordId;
+      _detailRecord = null;
       _mode = _ScreenMode.scanning;
       _isCapturing = false;
       _resultProcessing = false;
       _lastOmrResult = null;
       _resultCapturePath = null;
       _resultPreviewBytes = null;
+      _alignedPreviewBytes = null;
+      _gradeSnapshot = null;
+      _frameCount = 0;
       _resultStatus = '';
       _uploadStatus = 'idle';
       _pendingUploadRecord = null;
@@ -425,7 +530,49 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     _startImageStream();
   }
 
-  Future<void> _processScanInBackground(String imagePath) async {
+  void _clearRescanLock() {
+    _rescanExpectedStudentId = null;
+    _rescanExpectedAssessmentId = null;
+    _rescanReplaceRecordId = null;
+  }
+
+  bool _sameId(String? a, String? b) {
+    final x = (a ?? '').trim().toUpperCase();
+    final y = (b ?? '').trim().toUpperCase();
+    if (x.isEmpty || y.isEmpty) return false;
+    return x == y;
+  }
+
+  bool get _isRescanSession =>
+      _rescanExpectedStudentId != null || _rescanExpectedAssessmentId != null;
+
+  void _scanNext() {
+    _omrJobId++;
+    _resultStatusTimer?.cancel();
+    _clearRescanLock();
+    setState(() {
+      _mode = _ScreenMode.scanning;
+      _isCapturing = false;
+      _resultProcessing = false;
+      _lastOmrResult = null;
+      _resultCapturePath = null;
+      _resultPreviewBytes = null;
+      _alignedPreviewBytes = null;
+      _gradeSnapshot = null;
+      _frameCount = 0;
+      _resultStatus = '';
+      _uploadStatus = 'idle';
+      _pendingUploadRecord = null;
+      _fiducialLock = FiducialLockState.initial();
+    });
+    _startImageStream();
+  }
+
+  Future<void> _processScanInBackground(
+    String imagePath,
+    int jobId,
+    OmrGradeSnapshot snapshot,
+  ) async {
     try {
       final selected = _selectedTemplate;
       if (selected == null) {
@@ -461,6 +608,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
           debugPrint('Failed to load template layout/key: $e');
         }
       }
+      if (jobId != _omrJobId || !mounted) return;
 
       if (!scanTemplate.hasLayoutItems) {
         _isCapturing = false;
@@ -487,18 +635,28 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       }
 
       if (mounted) {
-        setState(() => _resultStatus = 'Extracting answers…');
+        setState(() => _resultStatus = 'Aligning sheet…');
       }
 
       final omrService = OmrService();
-      final result = await omrService.scanImage(imagePath, scanTemplate);
+      final result = await omrService.scanImage(
+        imagePath,
+        scanTemplate,
+        gradeSnapshot: snapshot,
+        onProgress: (status) {
+          if (!mounted || jobId != _omrJobId) return;
+          _resultStatusTimer?.cancel();
+          setState(() => _resultStatus = status);
+        },
+      );
+      if (jobId != _omrJobId || !mounted) return;
 
       // Hard gate: never save/upload unaligned (direct) captures.
       if (!result.isAlignmentUsable) {
         _resultStatusTimer?.cancel();
         if (mounted) {
           setState(() {
-            _lastOmrResult = result;
+            _bindOmrResult(result);
             _isCapturing = false;
             _resultProcessing = false;
             _uploadStatus = 'rejected';
@@ -510,10 +668,58 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       }
 
       final finalStudentId = result.studentIdentifier ?? 'Unknown';
+      final finalAssessmentId =
+          result.assessmentId ?? scanTemplate.assessmentId;
+
+      // Rescan lock: must be the same student + assessment sheet.
+      if (_isRescanSession) {
+        final studentOk = _rescanExpectedStudentId == null ||
+            _sameId(_rescanExpectedStudentId, finalStudentId);
+        final assessmentOk = _rescanExpectedAssessmentId == null ||
+            _sameId(_rescanExpectedAssessmentId, finalAssessmentId);
+        if (!studentOk || !assessmentOk) {
+          _resultStatusTimer?.cancel();
+          if (mounted) {
+            setState(() {
+              _bindOmrResult(result);
+              _isCapturing = true;
+              _resultProcessing = true;
+              _uploadStatus = 'idle';
+              _resultStatus =
+                  'Rescanning aborted — new answer sheet detected.';
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Rescanning aborted — new answer sheet detected.',
+                ),
+                behavior: SnackBarBehavior.floating,
+                duration: Duration(seconds: 4),
+              ),
+            );
+          }
+
+          // Hold abort message, then countdown, then save as a new record.
+          await Future<void>.delayed(const Duration(seconds: 5));
+          if (jobId != _omrJobId || !mounted) return;
+
+          for (var n = 3; n >= 1; n--) {
+            if (!mounted || jobId != _omrJobId) return;
+            setState(() {
+              _resultStatus = 'Scanning new paper… in $n';
+            });
+            await Future<void>.delayed(const Duration(seconds: 1));
+          }
+          if (jobId != _omrJobId || !mounted) return;
+
+          // Drop rescan lock so this sheet is saved as a new record.
+          _clearRescanLock();
+        }
+      }
 
       if (mounted) {
         setState(() {
-          _lastOmrResult = result;
+          _bindOmrResult(result);
           _resultStatus = 'Saving to database…';
           _uploadStatus = 'uploading';
         });
@@ -521,12 +727,22 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
 
       // Check for duplicate scan (same student + same assessment)
       final allRecords = await ScanHistory.getAll();
+      if (jobId != _omrJobId || !mounted) return;
       final duplicate = allRecords.where(
         (r) =>
             r.studentIdentifier == finalStudentId &&
-            r.templateId == scanTemplate.templateId,
+            r.templateId == scanTemplate.templateId &&
+            r.id != _rescanReplaceRecordId,
       );
-      if (duplicate.isNotEmpty && mounted) {
+      // Intentional rescan of a known record: replace it without dialog.
+      if (_rescanReplaceRecordId != null) {
+        await ScanHistory.removeRecord(_rescanReplaceRecordId!);
+        if (mounted) {
+          setState(() {
+            _scanRecords.removeWhere((r) => r.id == _rescanReplaceRecordId);
+          });
+        }
+      } else if (duplicate.isNotEmpty && mounted) {
         final confirmed = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -551,7 +767,9 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
             ],
           ),
         );
+        if (jobId != _omrJobId || !mounted) return;
         if (confirmed != true) {
+          if (jobId != _omrJobId) return;
           if (mounted) {
             setState(() {
               _resultProcessing = false;
@@ -588,7 +806,12 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       );
 
       await ScanHistory.addRecord(record);
+      if (jobId != _omrJobId) {
+        await ScanHistory.removeRecord(record.id);
+        return;
+      }
       _pendingUploadRecord = record;
+      _clearRescanLock();
 
       HapticFeedback.heavyImpact();
       SystemSound.play(SystemSoundType.click);
@@ -599,7 +822,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
           _scanRecords.insert(0, record);
           _isCapturing = false;
           _resultProcessing = false;
-          _lastOmrResult = result;
+          _bindOmrResult(result);
           _resultStatus = 'Uploading to grading results…';
           _uploadStatus = 'uploading';
         });
@@ -608,14 +831,13 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     } catch (e) {
       debugPrint("OMR processing error: $e");
       _resultStatusTimer?.cancel();
-      if (mounted) {
-        setState(() {
-          _isCapturing = false;
-          _resultProcessing = false;
-          _resultStatus = 'Scan error — try again';
-          _uploadStatus = 'rejected';
-        });
-      }
+      if (jobId != _omrJobId || !mounted) return;
+      setState(() {
+        _isCapturing = false;
+        _resultProcessing = false;
+        _resultStatus = 'Scan error — try again';
+        _uploadStatus = 'rejected';
+      });
     }
   }
 
@@ -632,11 +854,12 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     }
 
     if (mounted) {
-      setState(() {
-        _uploadStatus = 'uploading';
-        _resultStatus = 'Uploading to grading results…';
-      });
-    }
+        if (_pendingUploadRecord?.id != record.id) return;
+        setState(() {
+          _uploadStatus = 'uploading';
+          _resultStatus = 'Uploading to grading results…';
+        });
+      }
 
     try {
       final scan = await _repository.uploadGradedScan(
@@ -649,6 +872,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       );
       await ScanHistory.updateRecord(record.id, {'server_scan_id': scan.scanId});
       if (mounted) {
+        if (_pendingUploadRecord?.id != record.id) return;
         setState(() {
           final idx = _scanRecords.indexWhere((r) => r.id == record.id);
           if (idx >= 0) {
@@ -663,13 +887,12 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       }
     } catch (e) {
       debugPrint('Upload graded scan failed: $e');
-      if (mounted) {
-        setState(() {
-          _uploadStatus = 'failed';
-          _resultStatus =
-              'Saved on device — upload failed. Tap retry to sync.';
-        });
-      }
+      if (!mounted || _pendingUploadRecord?.id != record.id) return;
+      setState(() {
+        _uploadStatus = 'failed';
+        _resultStatus =
+            'Saved on device — upload failed. Tap retry to sync.';
+      });
     }
   }
 
@@ -728,7 +951,47 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
   }
 
   void _openPaperDetail(ScanRecord record) {
-    setState(() { _detailRecord = record; _mode = _ScreenMode.detail; });
+    setState(() {
+      _detailRecord = record;
+      _mode = _ScreenMode.detail;
+    });
+    _ensureTemplateForRecord(record);
+  }
+
+  /// Review detail needs the full answer key for correct/incorrect coloring.
+  Future<void> _ensureTemplateForRecord(ScanRecord record) async {
+    BubbleTemplate? current = _selectedTemplate;
+    if (current?.templateId == record.templateId &&
+        current!.answerKey.isNotEmpty) {
+      return;
+    }
+    final cachedIdx =
+        _templates.indexWhere((t) => t.templateId == record.templateId);
+    final cached = cachedIdx >= 0 ? _templates[cachedIdx] : null;
+    if (cached != null && cached.answerKey.isNotEmpty) {
+      if (mounted) setState(() => _selectedTemplate = cached);
+      return;
+    }
+    try {
+      var bound = await _repository.fetchTemplateDetail(record.templateId);
+      if (bound.answerKey.isEmpty && bound.assessmentId != null) {
+        bound = await _repository.syncKeyFromAssessment(bound.templateId);
+      }
+      if (!mounted) return;
+      setState(() {
+        _selectedTemplate = bound;
+        final idx =
+            _templates.indexWhere((t) => t.templateId == bound.templateId);
+        if (idx >= 0) {
+          _templates[idx] = bound;
+        } else {
+          _templates.add(bound);
+        }
+      });
+      _updateCachedTemplate(bound);
+    } catch (e) {
+      debugPrint('Detail template fetch failed: $e');
+    }
   }
 
   void _closePaperDetail() {
@@ -751,17 +1014,34 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
   Future<void> _onSaveEditedAnswers(ScanRecord record, Map<String, String> updatedResponses) async {
     int correct = 0;
     final key = _selectedTemplate?.answerKey ?? {};
-    for (final entry in key.entries) {
-      if (updatedResponses[entry.key] == entry.value) correct++;
+    final total = key.isNotEmpty
+        ? key.length
+        : (_selectedTemplate?.totalItems ?? updatedResponses.length);
+    final flagged = <int>[];
+    for (var i = 1; i <= total; i++) {
+      final item = i.toString();
+      final resp = (updatedResponses[item] ?? '?').trim();
+      final expected = key[item] ?? key[item.padLeft(2, '0')];
+      final ambiguous = resp.isEmpty ||
+          resp == '?' ||
+          resp.replaceAll(RegExp(r'[^A-Za-z]'), '').length > 1;
+      if (ambiguous) {
+        flagged.add(i);
+      } else if (expected != null &&
+          resp.toUpperCase() == expected.trim().toUpperCase()) {
+        correct++;
+      }
     }
-    final pct = key.isNotEmpty ? (correct / key.length) * 100.0 : 0.0;
+    final pct = total > 0 ? (correct / total) * 100.0 : 0.0;
     final updated = record.copyWith(
       responses: updatedResponses,
       scorePercent: pct,
       scoreRaw: correct.toDouble(),
-      maxScore: key.length.toDouble(),
-      isFlagged: false,
-      flagReason: null,
+      maxScore: total.toDouble(),
+      isFlagged: flagged.isNotEmpty,
+      flagReason: flagged.isEmpty ? null : '${flagged.length} invalid item(s)',
+      clearFlagReason: flagged.isEmpty,
+      flaggedItems: flagged,
     );
     await ScanHistory.updateRecord(record.id, updated.toJson());
     if (mounted) {
@@ -774,13 +1054,13 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
   }
 
   Future<void> _reScanPaper(ScanRecord record) async {
-    await ScanHistory.removeRecord(record.id);
-    setState(() {
-      _scanRecords.removeWhere((r) => r.id == record.id);
-      _detailRecord = null;
-      _mode = _ScreenMode.scanning;
-    });
-    _startImageStream();
+    await _ensureTemplateForRecord(record);
+    final assessmentId = _selectedTemplate?.assessmentId;
+    _beginRescanSession(
+      expectedStudentId: record.studentIdentifier,
+      expectedAssessmentId: assessmentId,
+      replaceRecordId: record.id,
+    );
   }
 
   Future<void> _uploadRecord(ScanRecord record) async {
@@ -798,6 +1078,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       return PaperDetailView(
         record: _detailRecord!,
         template: _selectedTemplate,
+        passingScore: _selectedTemplate?.passingScore ?? 50,
         onBack: _closePaperDetail,
         onEditAnswers: () => _editAnswers(_detailRecord!),
         onReScan: () => _reScanPaper(_detailRecord!),
@@ -813,7 +1094,9 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
         statusMessage: _resultStatus,
         result: _lastOmrResult,
         uploadStatus: _uploadStatus,
+        passingScore: _selectedTemplate?.passingScore ?? 50,
         onScanNext: _scanNext,
+        onRescan: _rescanCurrent,
         onRetryUpload: _uploadStatus == 'failed' ? _retryUpload : null,
         onClose: _scanNext,
       );

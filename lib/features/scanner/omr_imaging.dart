@@ -8,6 +8,7 @@ import 'omr_models.dart';
 import 'omr_classifier.dart';
 import 'omr_aruco.dart';
 import 'omr_constants.dart';
+import 'omr_fast_pixels.dart';
 
 /// Low‑level pixel operations for fiducial detection, perspective warp,
 /// bubble sampling, ID‑bubble decoding, and real-time frame analysis.
@@ -270,8 +271,10 @@ class OmrImaging {
   static String? readIDBubbles(
     img.Image warped,
     Map<String, dynamic> layout,
-    double dpi,
-  ) {
+    double dpi, {
+    double originXmm = 0,
+    double originYmm = 0,
+  }) {
     final idc = layout['id_columns'] as Map<String, dynamic>?;
     if (idc == null) return null;
 
@@ -287,11 +290,13 @@ class OmrImaging {
     const firstRowOffsetMm = 2.5;
     final buf = StringBuffer();
     for (int c = 0; c < cols; c++) {
-      final cx = ((x0mm + c * colPitch) * dpi / 25.4).round();
+      final cx = mmToPx(x0mm + c * colPitch - originXmm, dpi);
       final fills = <String, double>{};
       for (int r = 0; r < labels.length; r++) {
-        final cy =
-            ((yTopMm + firstRowOffsetMm + r * rowPitch) * dpi / 25.4).round();
+        final cy = mmToPx(
+          yTopMm + firstRowOffsetMm + r * rowPitch - originYmm,
+          dpi,
+        );
         fills[labels[r]] = innerFillRatio(warped, cx, cy, rPx);
       }
       final classified = classifyFills(fills);
@@ -1061,7 +1066,7 @@ class OmrImaging {
     return detectFiducials(src, layout);
   }
 
-  /// Align sheet: page contour → fiducials → direct full-frame (no scoring).
+  /// Align sheet for grading: ArUco crop @ [OmrConstants.gradingDpi] (fast path).
   static ({
     img.Image color,
     img.Image gray,
@@ -1069,50 +1074,69 @@ class OmrImaging {
     double dpi,
     String method,
     bool lowConfidence,
+    double cropOriginXmm,
+    double cropOriginYmm,
   }) prepareSheetForOmr(
     img.Image src,
-    Map<String, dynamic> layout,
-  ) {
-    final targetDpi = (layout['dpi'] as num?)?.toDouble() ?? OmrConstants.targetDpi;
-    final pageWpt = ((layout['page_width_pt'] as num?) ?? 612.0).toDouble();
-    final pageHpt = ((layout['page_height_pt'] as num?) ?? 936.0).toDouble();
-    final dpi = targetDpi < 200 ? OmrConstants.targetDpi : targetDpi;
+    Map<String, dynamic> layout, {
+    Map<int, ArucoHit>? forcedAruco,
+  }) {
+    final dpi = OmrConstants.gradingDpi;
+    final originX = OmrConstants.cropOriginXmm;
+    final originY = OmrConstants.cropOriginYmm;
 
-    final aruco = OmrAruco.detect(src);
-    if (OmrAruco.hasAllFour(aruco)) {
-      final wf = warpFromAruco(aruco, src, layout, targetDpi: dpi);
-      if (wf != null) {
-        final gray = img.grayscale(wf.$1);
+    ({img.Image gray, img.Image binary})? pack(Map<int, ArucoHit> hits) {
+      final wf = warpFromAruco(
+        hits,
+        src,
+        layout,
+        targetDpi: dpi,
+        cropToAruco: true,
+      );
+      return wf == null ? null : (gray: wf.$1, binary: wf.$2);
+    }
+
+    if (forcedAruco != null && OmrAruco.hasAllFour(forcedAruco)) {
+      final ready = pack(forcedAruco);
+      if (ready != null) {
         return (
-          color: wf.$1,
-          gray: gray,
-          binary: otsuBinarize(blurOnly(gray, kernel: 5)),
-          dpi: wf.$2,
+          color: ready.gray,
+          gray: ready.gray,
+          binary: ready.binary,
+          dpi: dpi,
           method: 'aruco',
           lowConfidence: false,
+          cropOriginXmm: originX,
+          cropOriginYmm: originY,
         );
       }
     }
 
-    final pageCorners = _detectPageWithResizeFallback(src);
-    if (pageCorners != null && pageCorners.length == 4) {
-      final wf = warpToPage(
-        pageCorners,
-        src,
-        layout,
-        fromPageEdges: true,
-        targetDpi: dpi,
-      );
-      final gray = img.grayscale(wf.$1);
-      return (
-        color: wf.$1,
-        gray: gray,
-        binary: otsuBinarize(blurOnly(gray, kernel: 5)),
-        dpi: wf.$2,
-        method: 'page_contour',
-        lowConfidence: false,
-      );
+    Map<int, ArucoHit>? arucoHits;
+    final lumaHits = OmrAruco.detectOnImage(src);
+    if (OmrAruco.hasAllFour(lumaHits)) arucoHits = lumaHits;
+    if (arucoHits == null && max(src.width, src.height) <= 2000) {
+      final fallback = OmrAruco.completeMissingCorner(OmrAruco.detect(src));
+      if (OmrAruco.hasAllFour(fallback)) arucoHits = fallback;
     }
+    if (arucoHits != null) {
+      final ready = pack(arucoHits);
+      if (ready != null) {
+        return (
+          color: ready.gray,
+          gray: ready.gray,
+          binary: ready.binary,
+          dpi: dpi,
+          method: 'aruco',
+          lowConfidence: false,
+          cropOriginXmm: originX,
+          cropOriginYmm: originY,
+        );
+      }
+    }
+
+    // Do not use page-contour on phone photos. It often locks onto a laptop
+    // lid or table instead of the sheet, while the live ArUco preview was fine.
 
     final fids = detectFiducials(src, layout);
     if (fids.length >= 4) {
@@ -1130,10 +1154,14 @@ class OmrImaging {
         binary: otsuBinarize(blurOnly(gray, kernel: 5)),
         dpi: wf.$2,
         method: 'fiducial',
-        lowConfidence: false,
+        lowConfidence: true,
+        cropOriginXmm: 0,
+        cropOriginYmm: 0,
       );
     }
 
+    final pageWpt = ((layout['page_width_pt'] as num?) ?? 612.0).toDouble();
+    final pageHpt = ((layout['page_height_pt'] as num?) ?? 936.0).toDouble();
     final dpiX = src.width * 72.0 / pageWpt;
     final dpiY = src.height * 72.0 / pageHpt;
     final guessedDpi = (dpiX + dpiY) / 2;
@@ -1145,36 +1173,45 @@ class OmrImaging {
       dpi: guessedDpi,
       method: 'direct',
       lowConfidence: true,
+      cropOriginXmm: 0,
+      cropOriginYmm: 0,
     );
   }
 
-  /// Warp using ArUco IDs 0–3 → layout millimetre centres (ID correspondence).
-  static (img.Image, double)? warpFromAruco(
+  /// Warp ArUco 0–3 → ArUco-padded crop (or full page) using [OmrFastPixels].
+  /// Returns `(gray, binary)` ready for bubble sampling.
+  static (img.Image, img.Image)? warpFromAruco(
     Map<int, ArucoHit> hits,
     img.Image src,
     Map<String, dynamic> layout, {
-    double targetDpi = OmrConstants.targetDpi,
+    double targetDpi = OmrConstants.gradingDpi,
+    bool cropToAruco = true,
   }) {
-    final dstByCorner = <String, _FPoint>{};
-    final fids = layout['fiducials'] as List<dynamic>? ?? [];
-    for (final f in fids) {
-      if (f is! Map) continue;
-      final wmm = (f['w_mm'] as num?)?.toDouble() ??
-          (f['size_mm'] as num?)?.toDouble() ??
-          OmrConstants.fidSizeMm;
-      final hmm = (f['h_mm'] as num?)?.toDouble() ?? wmm;
-      final cx = ((f['x_mm'] as num).toDouble() + wmm / 2) * targetDpi / 25.4;
-      final cy =
-          ((f['y_spec_mm'] as num).toDouble() + hmm / 2) * targetDpi / 25.4;
-      var corner = f['corner']?.toString();
-      if (corner == null && f['id'] != null) {
-        corner = OmrConstants.arucoIdToCorner[(f['id'] as num).toInt()];
+    const ids = [0, 1, 2, 3];
+    final srcPts = <_FPoint>[];
+    final dstPts = <_FPoint>[];
+    late final int ow;
+    late final int oh;
+
+    if (cropToAruco) {
+      ow = (OmrConstants.cropWmm * targetDpi / 25.4).round().clamp(200, 4000);
+      oh = (OmrConstants.cropHmm * targetDpi / 25.4).round().clamp(200, 6000);
+      final pad = OmrConstants.cropEdgeToCenterMm * targetDpi / 25.4;
+      final corners = [
+        _FPoint(pad, pad),
+        _FPoint(ow - pad, pad),
+        _FPoint(ow - pad, oh - pad),
+        _FPoint(pad, oh - pad),
+      ];
+      for (var i = 0; i < 4; i++) {
+        final hit = hits[ids[i]];
+        if (hit == null) return null;
+        srcPts.add(_FPoint(hit.cx, hit.cy));
+        dstPts.add(corners[i]);
       }
-      if (corner != null) dstByCorner[corner] = _FPoint(cx, cy);
-    }
-    if (dstByCorner.length < 4) {
-      // Fallback geometry if metadata is a bare list without ids.
-      dstByCorner.addAll({
+    } else {
+      const order = ['TL', 'TR', 'BR', 'BL'];
+      final dstByCorner = <String, _FPoint>{
         'TL': _FPoint(
           (OmrConstants.fidInsetMm + OmrConstants.fidSizeMm / 2) *
               targetDpi /
@@ -1211,48 +1248,36 @@ class OmrImaging {
               targetDpi /
               25.4,
         ),
-      });
+      };
+      ow = (OmrConstants.pageWmm * targetDpi / 25.4).round().clamp(200, 4000);
+      oh = (OmrConstants.pageHmm * targetDpi / 25.4).round().clamp(200, 6000);
+      for (var i = 0; i < 4; i++) {
+        final hit = hits[ids[i]];
+        final dst = dstByCorner[order[i]];
+        if (hit == null || dst == null) return null;
+        srcPts.add(_FPoint(hit.cx, hit.cy));
+        dstPts.add(dst);
+      }
     }
-
-    const order = ['TL', 'TR', 'BR', 'BL'];
-    const ids = [0, 1, 2, 3];
-    final srcPts = <_FPoint>[];
-    final dstPts = <_FPoint>[];
-    for (var i = 0; i < 4; i++) {
-      final hit = hits[ids[i]];
-      final dst = dstByCorner[order[i]];
-      if (hit == null || dst == null) return null;
-      srcPts.add(_FPoint(hit.cx, hit.cy));
-      dstPts.add(dst);
-    }
-
-    final pageWmm =
-        ((layout['page_width_pt'] as num?) ?? 612.0).toDouble() / 72.0 * 25.4;
-    final pageHmm =
-        ((layout['page_height_pt'] as num?) ?? 936.0).toDouble() / 72.0 * 25.4;
-    final ow = (pageWmm * targetDpi / 25.4).round().clamp(200, 4000);
-    final oh = (pageHmm * targetDpi / 25.4).round().clamp(200, 6000);
 
     final mat = _computeHomography(srcPts, dstPts);
     if (mat == null) return null;
     final inv = _invert3x3(mat);
-    final out = img.Image(width: ow, height: oh);
-    for (int y = 0; y < oh; y++) {
-      for (int x = 0; x < ow; x++) {
-        out.setPixel(x, y, img.ColorInt32.rgba(255, 255, 255, 255));
-      }
-    }
-    for (int y = 0; y < oh; y++) {
-      for (int x = 0; x < ow; x++) {
-        final srcXY = _applyHomography(inv, x.toDouble(), y.toDouble());
-        final sx = srcXY.x.round();
-        final sy = srcXY.y.round();
-        if (sx >= 0 && sy >= 0 && sx < src.width && sy < src.height) {
-          out.setPixel(x, y, src.getPixel(sx, sy));
-        }
-      }
-    }
-    return (out, targetDpi);
+    final srcLuma = OmrFastPixels.lumaFromImage(src);
+    final warped = OmrFastPixels.warpGray(
+      src: srcLuma,
+      srcW: src.width,
+      srcH: src.height,
+      inv: inv,
+      outW: ow,
+      outH: oh,
+    );
+    final blurred = OmrFastPixels.boxBlur(warped, ow, oh, kernel: 5);
+    final binaryLuma = OmrFastPixels.otsuBinaryInv(blurred, ow, oh);
+    return (
+      OmrFastPixels.toGrayImage(warped, ow, oh),
+      OmrFastPixels.toGrayImage(binaryLuma, ow, oh),
+    );
   }
 
   /// Warp the sheet onto a full page canvas at fixed [targetDpi].
@@ -1454,7 +1479,7 @@ class OmrImaging {
       return (
         '?',
         true,
-        'Ambiguous ($bestK=${best.toStringAsFixed(2)} z=${zBest.toStringAsFixed(2)})'
+        'Invalid ($bestK=${best.toStringAsFixed(2)} z=${zBest.toStringAsFixed(2)})'
       );
     }
     return (bestK, false, 'Marked $bestK (${best.toStringAsFixed(2)})');
@@ -1620,6 +1645,18 @@ class OmrImaging {
     return out;
   }
 
+  static img.Image lumaToGray(Uint8List luma, int w, int h) {
+    final out = img.Image(width: w, height: h);
+    for (var y = 0; y < h; y++) {
+      final row = y * w;
+      for (var x = 0; x < w; x++) {
+        final v = luma[row + x];
+        out.setPixelRgb(x, y, v, v, v);
+      }
+    }
+    return out;
+  }
+
   static img.Image _convertYUV420(CameraImage frame) {
     final w = frame.width;
     final h = frame.height;
@@ -1759,9 +1796,52 @@ class OmrImaging {
     }
   }
 
-  /// Live fiducial tracking — finds dark square markers in the four corner
-  /// regions of the camera frame (fast Y-plane downsample). Falls back to
-  /// page-contour detection when blobs are missing.
+  /// Map a point in the camera-image / luma grid into normalised preview
+  /// coordinates (0–1), matching how [CameraPreview] draws the texture.
+  static Offset imagePointToPreviewNorm({
+    required double x,
+    required double y,
+    required int imageWidth,
+    required int imageHeight,
+    Size? previewSize,
+  }) {
+    final landscape = imageWidth > imageHeight;
+    final double u;
+    final double v;
+    if (landscape) {
+      u = y / imageHeight;
+      v = 1.0 - x / imageWidth;
+    } else {
+      u = x / imageWidth;
+      v = y / imageHeight;
+    }
+
+    if (previewSize == null ||
+        previewSize.width <= 0 ||
+        previewSize.height <= 0) {
+      return Offset(u, v);
+    }
+
+    final imgW = landscape ? imageHeight.toDouble() : imageWidth.toDouble();
+    final imgH = landscape ? imageWidth.toDouble() : imageHeight.toDouble();
+    final prevW = min(previewSize.width, previewSize.height);
+    final prevH = max(previewSize.width, previewSize.height);
+    if (imgW <= 0 || imgH <= 0 || prevW <= 0 || prevH <= 0) {
+      return Offset(u, v);
+    }
+
+    // Center-crop analysis frame onto the preview aspect (BoxFit.cover).
+    final scale = max(prevW / imgW, prevH / imgH);
+    final originX = (imgW * scale - prevW) / 2;
+    final originY = (imgH * scale - prevH) / 2;
+    return Offset(
+      (u * imgW * scale - originX) / prevW,
+      (v * imgH * scale - originY) / prevH,
+    );
+  }
+
+  /// Live fiducial tracking — decode ArUco IDs 0–3 on the camera Y plane.
+  /// Does **not** wait for a page contour or overlay alignment.
   static ({
     bool tl,
     bool tr,
@@ -1776,9 +1856,19 @@ class OmrImaging {
     double? brx,
     double? bry,
     Uint8List? alignedPreview,
+    Uint8List? gradeLuma,
+    int? gradeW,
+    int? gradeH,
+    List<double>? arucoXy,
+    Uint8List? displayLuma,
+    int? displayW,
+    int? displayH,
+    List<double>? displayXy,
   }) detectFiducialsLive(
     CameraImage frame, {
     bool buildAlignedPreview = false,
+    bool copyGradeSnapshot = false,
+    Size? previewSize,
   }) {
     const fail = (
       tl: false,
@@ -1794,6 +1884,14 @@ class OmrImaging {
       brx: null,
       bry: null,
       alignedPreview: null,
+      gradeLuma: null,
+      gradeW: null,
+      gradeH: null,
+      arucoXy: null,
+      displayLuma: null,
+      displayW: null,
+      displayH: null,
+      displayXy: null,
     );
 
     try {
@@ -1802,178 +1900,63 @@ class OmrImaging {
       final fh = frame.height;
       final stride = yPlane.bytesPerRow;
       final pixStride = yPlane.bytesPerPixel ?? 1;
-      const scale = 4;
+      final longSide = max(fw, fh);
+      final scale = longSide >= 1500 ? 3 : (longSide >= 900 ? 2 : 1);
       final w = max(40, fw ~/ scale);
       final h = max(40, fh ~/ scale);
 
-      // Downsampled luminance grid
-      final grid = List.generate(h, (yy) {
-        return List<int>.generate(w, (xx) {
-          final sx = (xx * scale).clamp(0, fw - 1);
-          final sy = (yy * scale).clamp(0, fh - 1);
-          final idx = sy * stride + sx * pixStride;
-          if (idx < 0 || idx >= yPlane.bytes.length) return 255;
-          return yPlane.bytes[idx];
-        });
-      });
-
-      final landscape = w > h;
-      Offset toUi(double ix, double iy) {
-        final sx = ix / w;
-        final sy = iy / h;
-        if (landscape) return Offset(sy, 1.0 - sx);
-        return Offset(sx, sy);
-      }
-
-      Offset fromUi(Offset ui) {
-        if (landscape) {
-          // Inverse of toUi: ui=(sy, 1-sx)
-          return Offset((1.0 - ui.dy) * w, ui.dx * h);
+      final luma = Uint8List(w * h);
+      final src = yPlane.bytes;
+      for (var yy = 0; yy < h; yy++) {
+        final sy = min(yy * scale, fh - 1);
+        final dstRow = yy * w;
+        final srcRow = sy * stride;
+        for (var xx = 0; xx < w; xx++) {
+          final idx = srcRow + min(xx * scale, fw - 1) * pixStride;
+          luma[dstRow + xx] = idx < src.length ? src[idx] : 255;
         }
-        return Offset(ui.dx * w, ui.dy * h);
       }
 
-      // ── 1) Predict fiducials inside the PAPER, not screen corners ──
-      // Page contour → inset fiducial UV from printed layout mm.
-      // Fallback: same ghost-guide positions used by the overlay painter.
-      final page = detectPageCornersFast(
-        frame,
-        targetWidth: 260,
-        buildAlignedPreview: false,
-      );
+      final hits = OmrAruco.detectLuma(luma, w, h);
 
-      late final List<Offset> predictedUi;
-      late final Rect paperBoundsUi;
-
-      if (page.tl &&
-          page.tr &&
-          page.bl &&
-          page.br &&
-          page.tlx != null &&
-          page.tly != null &&
-          page.trx != null &&
-          page.tryv != null &&
-          page.blx != null &&
-          page.bly != null &&
-          page.brx != null &&
-          page.bry != null) {
-        final tl = Offset(page.tlx!, page.tly!);
-        final tr = Offset(page.trx!, page.tryv!);
-        final bl = Offset(page.blx!, page.bly!);
-        final br = Offset(page.brx!, page.bry!);
-        paperBoundsUi = Rect.fromPoints(tl, br)
-            .expandToInclude(Rect.fromPoints(tr, bl))
-            .inflate(0.02);
-
-        // Printed fiducial centres (mm) → UV on long-bond page.
-        const fidInset = OmrConstants.fidInsetMm;
-        const fidW = OmrConstants.fidSizeMm;
-        const headerMm = OmrConstants.headerMm;
-        const contentBotMm = OmrConstants.contentBotMm;
-        const pageWmm = OmrConstants.pageWmm;
-        const pageHmm = OmrConstants.pageHmm;
-        final uvs = <Offset>[
-          Offset((fidInset + fidW / 2) / pageWmm,
-              (headerMm + fidW / 2) / pageHmm),
-          Offset((pageWmm - fidInset - fidW / 2) / pageWmm,
-              (headerMm + fidW / 2) / pageHmm),
-          Offset((fidInset + fidW / 2) / pageWmm,
-              (contentBotMm + fidW / 2) / pageHmm),
-          Offset((pageWmm - fidInset - fidW / 2) / pageWmm,
-              (contentBotMm + fidW / 2) / pageHmm),
-        ];
-        Offset bilinear(Offset uv) {
-          final u = uv.dx, v = uv.dy;
-          return Offset(
-            (1 - u) * (1 - v) * tl.dx +
-                u * (1 - v) * tr.dx +
-                (1 - u) * v * bl.dx +
-                u * v * br.dx,
-            (1 - u) * (1 - v) * tl.dy +
-                u * (1 - v) * tr.dy +
-                (1 - u) * v * bl.dy +
-                u * v * br.dy,
+      Offset toUi(double ix, double iy) => imagePointToPreviewNorm(
+            x: ix,
+            y: iy,
+            imageWidth: w,
+            imageHeight: h,
+            previewSize: previewSize,
           );
-        }
 
-        predictedUi = uvs.map(bilinear).toList();
-      } else {
-        // Paper not found — search near the on-screen alignment ghosts.
-        predictedUi = _expectedFiducialUiNorm();
-        paperBoundsUi = _paperGuideUiNorm();
+      Offset? uiOf(int id) {
+        final hit = hits[id];
+        if (hit == null) return null;
+        return toUi(hit.cx, hit.cy);
       }
 
-      // ── 2) Small local search around each prediction (image space) ──
-      final searchR = (min(w, h) * 0.08).round().clamp(10, 28);
-      final found = <Offset?>[];
-      for (final pred in predictedUi) {
-        final img = fromUi(pred);
-        final cx = img.dx.round().clamp(0, w - 1);
-        final cy = img.dy.round().clamp(0, h - 1);
-        final region = _CornerRegion(
-          rx: (cx - searchR).clamp(0, w - 1),
-          ry: (cy - searchR).clamp(0, h - 1),
-          rw: (searchR * 2).clamp(1, w),
-          rh: (searchR * 2).clamp(1, h),
-          ax: cx,
-          ay: cy,
-        );
-        // Clip rw/rh to stay in bounds
-        final rw = min(region.rw, w - region.rx);
-        final rh = min(region.rh, h - region.ry);
-        final clipped = _CornerRegion(
-          rx: region.rx,
-          ry: region.ry,
-          rw: rw,
-          rh: rh,
-          ax: cx,
-          ay: cy,
-        );
-        final blob = _findDarkBlobInRegion(grid, w, h, clipped);
-        if (!blob.detected) {
-          found.add(null);
-          continue;
-        }
-        final ui = toUi(blob.x, blob.y);
-        // Must stay on the paper / inside the alignment frame — never floor.
-        if (!paperBoundsUi.inflate(0.04).contains(ui)) {
-          found.add(null);
-          continue;
-        }
-        // Stay near the prediction (reject random dark spots).
-        if ((ui - pred).distance > 0.14) {
-          found.add(null);
-          continue;
-        }
-        found.add(ui);
-      }
+      var uiTl = uiOf(0);
+      var uiTr = uiOf(1);
+      var uiBr = uiOf(2);
+      var uiBl = uiOf(3);
 
-      var uiTl = found.isNotEmpty ? found[0] : null;
-      var uiTr = found.length > 1 ? found[1] : null;
-      var uiBl = found.length > 2 ? found[2] : null;
-      var uiBr = found.length > 3 ? found[3] : null;
-
-      // Complete one missing corner from the other three (parallelogram).
       Offset? completeFourth(Offset? a, Offset? b, Offset? c) {
         if (a == null || b == null || c == null) return null;
         final p = Offset(a.dx + c.dx - b.dx, a.dy + c.dy - b.dy);
-        if (!paperBoundsUi.inflate(0.06).contains(p)) {
+        if (p.dx < -0.05 || p.dy < -0.05 || p.dx > 1.05 || p.dy > 1.05) {
           return null;
         }
         return p;
       }
 
-      final hits = [uiTl, uiTr, uiBl, uiBr].whereType<Offset>().length;
-      if (hits == 3) {
-        final oTl = uiTl, oTr = uiTr, oBl = uiBl, oBr = uiBr;
-        if (oTl == null) {
-          uiTl = completeFourth(oTr, oBr, oBl);
-        } else if (oTr == null) {
-          uiTr = completeFourth(oTl, oBl, oBr);
-        } else if (oBl == null) {
-          uiBl = completeFourth(oTl, oTr, oBr);
-        } else if (oBr == null) {
-          uiBr = completeFourth(oTr, oTl, oBl);
+      final found = [uiTl, uiTr, uiBl, uiBr].whereType<Offset>().length;
+      if (found == 3) {
+        if (uiTl == null) {
+          uiTl = completeFourth(uiTr, uiBr, uiBl);
+        } else if (uiTr == null) {
+          uiTr = completeFourth(uiTl, uiBl, uiBr);
+        } else if (uiBl == null) {
+          uiBl = completeFourth(uiTl, uiTr, uiBr);
+        } else if (uiBr == null) {
+          uiBr = completeFourth(uiTr, uiTl, uiBl);
         }
       }
 
@@ -1983,13 +1966,68 @@ class OmrImaging {
       final br = uiBr != null;
 
       Uint8List? preview;
-      if (buildAlignedPreview && tl && tr && bl && br) {
-        final aligned = detectPageCornersFast(
-          frame,
-          targetWidth: 280,
-          buildAlignedPreview: true,
-        );
-        preview = aligned.alignedPreview;
+      Uint8List? gradeLuma;
+      int? gradeW;
+      int? gradeH;
+      List<double>? arucoXy;
+      Uint8List? displayLuma;
+      int? displayW;
+      int? displayH;
+      List<double>? displayXy;
+      final fourDecoded = hits.containsKey(0) &&
+          hits.containsKey(1) &&
+          hits.containsKey(2) &&
+          hits.containsKey(3);
+      if (buildAlignedPreview && fourDecoded) {
+        preview = _alignedPreviewFromLuma(luma, w, h, hits);
+      }
+      if (copyGradeSnapshot && fourDecoded) {
+        // Same buffer and centres as the ALIGNED preview so scoring and
+        // the scored JPEG use that warp, not a second still-photo detect.
+        gradeLuma = Uint8List.fromList(luma);
+        gradeW = w;
+        gradeH = h;
+        arucoXy = [
+          hits[0]!.cx,
+          hits[0]!.cy,
+          hits[1]!.cx,
+          hits[1]!.cy,
+          hits[2]!.cx,
+          hits[2]!.cy,
+          hits[3]!.cx,
+          hits[3]!.cy,
+        ];
+        final dScale = longSide >= 1600 ? 2 : 1;
+        if (dScale == scale) {
+          displayLuma = gradeLuma;
+          displayW = w;
+          displayH = h;
+          displayXy = arucoXy;
+        } else {
+          displayW = max(40, fw ~/ dScale);
+          displayH = max(40, fh ~/ dScale);
+          displayLuma = Uint8List(displayW! * displayH!);
+          for (var yy = 0; yy < displayH!; yy++) {
+            final sy = min(yy * dScale, fh - 1);
+            final dstRow = yy * displayW!;
+            final srcRow = sy * stride;
+            for (var xx = 0; xx < displayW!; xx++) {
+              final idx = srcRow + min(xx * dScale, fw - 1) * pixStride;
+              displayLuma[dstRow + xx] = idx < src.length ? src[idx] : 255;
+            }
+          }
+          final ratio = scale / dScale;
+          displayXy = [
+            hits[0]!.cx * ratio,
+            hits[0]!.cy * ratio,
+            hits[1]!.cx * ratio,
+            hits[1]!.cy * ratio,
+            hits[2]!.cx * ratio,
+            hits[2]!.cy * ratio,
+            hits[3]!.cx * ratio,
+            hits[3]!.cy * ratio,
+          ];
+        }
       }
 
       return (
@@ -2006,11 +2044,130 @@ class OmrImaging {
         brx: uiBr?.dx,
         bry: uiBr?.dy,
         alignedPreview: preview,
+        gradeLuma: gradeLuma,
+        gradeW: gradeW,
+        gradeH: gradeH,
+        arucoXy: arucoXy,
+        displayLuma: displayLuma,
+        displayW: displayW,
+        displayH: displayH,
+        displayXy: displayXy,
       );
     } catch (e) {
       debugPrint('detectFiducialsLive error: $e');
       return fail;
     }
+  }
+
+  static Uint8List? alignedSheetJpeg({
+    required Uint8List luma,
+    required int width,
+    required int height,
+    required List<double> arucoXy,
+    int outW = 1080,
+    int quality = 92,
+    bool bilinear = true,
+  }) {
+    if (arucoXy.length != 8 || width <= 0 || height <= 0) return null;
+    if (luma.length < width * height) return null;
+    final hits = <int, ArucoHit>{
+      0: ArucoHit(0, arucoXy[0], arucoXy[1], 0),
+      1: ArucoHit(1, arucoXy[2], arucoXy[3], 0),
+      2: ArucoHit(2, arucoXy[4], arucoXy[5], 0),
+      3: ArucoHit(3, arucoXy[6], arucoXy[7], 0),
+    };
+    return _alignedPreviewFromLuma(
+      luma,
+      width,
+      height,
+      hits,
+      outW: outW,
+      quality: quality,
+      bilinear: bilinear,
+    );
+  }
+
+  static Uint8List? _alignedPreviewFromLuma(
+    Uint8List luma,
+    int w,
+    int h,
+    Map<int, ArucoHit> hits, {
+    int outW = 140,
+    int quality = 55,
+    bool bilinear = false,
+  }) {
+    // Crop to the ArUco quad plus a small margin. Uniform mm→px keeps
+    // squares/circles; the JPEG aspect is the crop, not 8.5×13.
+    final scale = outW / OmrConstants.cropWmm;
+    final outH = max(1, (OmrConstants.cropHmm * scale).round());
+    final pad = OmrConstants.cropEdgeToCenterMm * scale;
+    final srcPts = [
+      _FPoint(hits[0]!.cx, hits[0]!.cy),
+      _FPoint(hits[1]!.cx, hits[1]!.cy),
+      _FPoint(hits[2]!.cx, hits[2]!.cy),
+      _FPoint(hits[3]!.cx, hits[3]!.cy),
+    ];
+    final dstPts = [
+      _FPoint(pad, pad),
+      _FPoint(outW - pad, pad),
+      _FPoint(outW - pad, outH - pad),
+      _FPoint(pad, outH - pad),
+    ];
+    final mat = _computeHomography(srcPts, dstPts);
+    if (mat == null) return null;
+    final inv = _invert3x3(mat);
+    final out = img.Image(width: outW, height: outH);
+    for (var y = 0; y < outH; y++) {
+      for (var x = 0; x < outW; x++) {
+        final srcXY = _applyHomography(inv, x.toDouble(), y.toDouble());
+        if (bilinear) {
+          if (srcXY.x < 0 ||
+              srcXY.y < 0 ||
+              srcXY.x >= w - 1 ||
+              srcXY.y >= h - 1) {
+            out.setPixel(x, y, img.ColorInt8.rgb(255, 255, 255));
+          } else {
+            final v = _sampleLumaBilinear(luma, w, h, srcXY.x, srcXY.y);
+            out.setPixel(x, y, img.ColorInt8.rgb(v, v, v));
+          }
+        } else {
+          final sx = srcXY.x.round();
+          final sy = srcXY.y.round();
+          if (sx >= 0 && sy >= 0 && sx < w && sy < h) {
+            final v = luma[sy * w + sx];
+            out.setPixel(x, y, img.ColorInt8.rgb(v, v, v));
+          } else {
+            out.setPixel(x, y, img.ColorInt8.rgb(255, 255, 255));
+          }
+        }
+      }
+    }
+    return Uint8List.fromList(img.encodeJpg(out, quality: quality));
+  }
+
+  static int _sampleLumaBilinear(
+    Uint8List luma,
+    int w,
+    int h,
+    double x,
+    double y,
+  ) {
+    final x0 = x.floor();
+    final y0 = y.floor();
+    final x1 = min(x0 + 1, w - 1);
+    final y1 = min(y0 + 1, h - 1);
+    final fx = x - x0;
+    final fy = y - y0;
+    final i00 = luma[y0 * w + x0];
+    final i10 = luma[y0 * w + x1];
+    final i01 = luma[y1 * w + x0];
+    final i11 = luma[y1 * w + x1];
+    return (i00 * (1 - fx) * (1 - fy) +
+            i10 * fx * (1 - fy) +
+            i01 * (1 - fx) * fy +
+            i11 * fx * fy)
+        .round()
+        .clamp(0, 255);
   }
 
   /// Paper guide rectangle in normalised preview coords (matches overlay).
@@ -2073,6 +2230,14 @@ class OmrImaging {
     double? brx,
     double? bry,
     Uint8List? alignedPreview,
+    Uint8List? gradeLuma,
+    int? gradeW,
+    int? gradeH,
+    List<double>? arucoXy,
+    Uint8List? displayLuma,
+    int? displayW,
+    int? displayH,
+    List<double>? displayXy,
   }) detectFiducialsFast(
     CameraImage frame, {
     int scaleDown = 4,

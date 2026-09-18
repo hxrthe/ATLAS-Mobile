@@ -1,5 +1,48 @@
 import 'dart:typed_data';
 import 'dart:ui';
+import 'omr_constants.dart';
+
+/// Locked live-camera luma + ArUco centres used for grading.
+/// Copied from the stream frame that produced the ALIGNED preview so the
+/// scored sheet is not re-detected from a separate [takePicture] JPEG.
+class OmrGradeSnapshot {
+  final Uint8List luma;
+  final int width;
+  final int height;
+  /// Centres for ArUco ids 0,1,2,3 as `[x0,y0,x1,y1,x2,y2,x3,y3]`.
+  final List<double> arucoXy;
+
+  /// Optional higher-res Y plane for the scored-sheet JPEG.
+  final Uint8List? displayLuma;
+  final int? displayWidth;
+  final int? displayHeight;
+  final List<double>? displayArucoXy;
+
+  const OmrGradeSnapshot({
+    required this.luma,
+    required this.width,
+    required this.height,
+    required this.arucoXy,
+    this.displayLuma,
+    this.displayWidth,
+    this.displayHeight,
+    this.displayArucoXy,
+  });
+
+  bool get isComplete =>
+      width > 0 &&
+      height > 0 &&
+      luma.length >= width * height &&
+      arucoXy.length == 8;
+
+  bool get hasDisplayLuma =>
+      displayLuma != null &&
+      displayWidth != null &&
+      displayHeight != null &&
+      displayArucoXy != null &&
+      displayArucoXy!.length == 8 &&
+      displayLuma!.length >= displayWidth! * displayHeight!;
+}
 
 class BubbleReading {
   final int itemNumber;
@@ -84,6 +127,8 @@ class OmrResult {
   final Duration processingTime;
   /// Bird's-eye JPEG of the aligned sheet (for post-capture UI).
   final Uint8List? alignedImageBytes;
+  final int? alignedWidth;
+  final int? alignedHeight;
   /// Per-item markers on the aligned image (normalized 0–1).
   final List<ScoredBubbleMarker> scoredMarkers;
   /// Alignment strategy used (`page_contour`, `fiducial`, `direct`).
@@ -104,6 +149,8 @@ class OmrResult {
     this.flaggedItems = const [],
     this.processingTime = const Duration(),
     this.alignedImageBytes,
+    this.alignedWidth,
+    this.alignedHeight,
     this.scoredMarkers = const [],
     this.alignmentMethod = 'unknown',
     this.lowConfidenceAlignment = false,
@@ -114,21 +161,41 @@ class OmrResult {
   /// Reject grading/save when the sheet was never properly warped.
   bool get isAlignmentUsable =>
       !lowConfidenceAlignment && alignmentMethod != 'direct';
+
+  /// True when [alignedImageBytes] is a long-bond page or ArUco crop warp.
+  bool get isRectifiedSheet {
+    if (alignedImageBytes == null ||
+        alignmentMethod != 'aruco' ||
+        lowConfidenceAlignment) {
+      return false;
+    }
+    final w = alignedWidth ?? 0;
+    final h = alignedHeight ?? 0;
+    if (w < 80 || h < 80) return false;
+    const page = 8.5 / 13.0;
+    final aspect = w / h;
+    return (aspect - page).abs() < 0.12 ||
+        (aspect - OmrConstants.cropAspect).abs() < 0.12;
+  }
 }
 
-/// Circle on the realigned sheet for a graded item.
+/// Circle on the realigned sheet for a graded item or student-ID bubble.
+enum ScoredMarkerKind { correct, wrong, ambiguous, studentId }
+
 class ScoredBubbleMarker {
   final int itemNumber;
   final double nx;
   final double ny;
-  /// true = correct (green); false = wrong or unanswered (red).
-  final bool isCorrect;
+  /// Printed bubble radius in millimetres.
+  final double rMm;
+  final ScoredMarkerKind kind;
 
   const ScoredBubbleMarker({
     required this.itemNumber,
     required this.nx,
     required this.ny,
-    required this.isCorrect,
+    this.rMm = 2.0,
+    this.kind = ScoredMarkerKind.correct,
   });
 }
 
@@ -142,6 +209,7 @@ class CornerLock {
   final CornerId id;
   final bool detected;
   final bool locked;
+  final bool fresh; // decoded on this frame — overlay should follow this
   final int consecutiveFrames;
   final Offset? position; // normalised 0–1 within camera preview
 
@@ -149,6 +217,7 @@ class CornerLock {
     required this.id,
     this.detected = false,
     this.locked = false,
+    this.fresh = false,
     this.consecutiveFrames = 0,
     this.position,
   });
@@ -156,6 +225,7 @@ class CornerLock {
   CornerLock copyWith({
     bool? detected,
     bool? locked,
+    bool? fresh,
     int? consecutiveFrames,
     Offset? position,
   }) {
@@ -163,6 +233,7 @@ class CornerLock {
       id: id,
       detected: detected ?? this.detected,
       locked: locked ?? this.locked,
+      fresh: fresh ?? this.fresh,
       consecutiveFrames: consecutiveFrames ?? this.consecutiveFrames,
       position: position ?? this.position,
     );
@@ -172,11 +243,13 @@ class CornerLock {
 class FiducialLockState {
   final List<CornerLock> corners;
   final bool allLocked;
-  final int lockDuration; // frames all 4 have been stable
+  final bool allFresh;
+  final int lockDuration; // frames all 4 have been live
 
   const FiducialLockState({
     required this.corners,
     this.allLocked = false,
+    this.allFresh = false,
     this.lockDuration = 0,
   });
 
@@ -199,38 +272,44 @@ class FiducialLockState {
 
     for (int i = 0; i < 4; i++) {
       final old = corners[i];
+      final live = detections[i] && positions[i] != null;
       int consec = old.consecutiveFrames;
-      
-      if (detections[i]) {
-        consec = (consec + 3).clamp(0, lockThresholdFrames * 3);
+      Offset? nextPos;
+
+      if (live) {
+        consec = lockThresholdFrames < 2 ? 2 : lockThresholdFrames;
+        final target = positions[i]!;
+        // Follow the marker on every hit. High lerp so the box rides the code
+        // as the camera moves, with just enough smoothing to kill 1-pixel jitter.
+        nextPos = old.position == null
+            ? target
+            : Offset.lerp(old.position!, target, 0.88)!;
       } else {
-        consec = (consec - 1).clamp(0, lockThresholdFrames * 3);
+        // Do not pin a stale screen position — drop quickly so the overlay
+        // cannot sit still while the printed code slides out of it.
+        consec = (consec - 2).clamp(0, 8);
+        nextPos = consec > 0 ? old.position : null;
       }
 
-      // Sticky: keep showing as detected while we still have recent confidence.
-      final isDetected = detections[i] || consec > 0;
-      final locked = consec >= lockThresholdFrames;
-      // Drop stale positions once confidence is gone (avoids green boxes
-      // stuck on screen corners after a bad lock).
-      final Offset? nextPos = detections[i]
-          ? (positions[i] ?? old.position)
-          : (consec > 0 ? (positions[i] ?? old.position) : null);
-
+      final isDetected = nextPos != null;
       newCorners.add(CornerLock(
         id: old.id,
         detected: isDetected,
-        locked: locked,
+        locked: consec >= lockThresholdFrames && isDetected,
+        fresh: live,
         consecutiveFrames: consec,
         position: nextPos,
       ));
     }
 
     final allLockedNow = newCorners.every((c) => c.locked);
-    final newDuration = allLockedNow ? lockDuration + 1 : 0;
+    final allFreshNow = newCorners.every((c) => c.fresh);
+    final newDuration = allFreshNow ? lockDuration + 1 : 0;
 
     return FiducialLockState(
       corners: newCorners,
       allLocked: allLockedNow,
+      allFresh: allFreshNow,
       lockDuration: newDuration,
     );
   }
@@ -290,7 +369,9 @@ class ScannerDiagnostics {
         : DiagnosticLevel.ok;
 
     String message;
-    if (isBlurry) {
+    if (lockedCorners == 4) {
+      message = '';
+    } else if (isBlurry) {
       message = 'Hold still — image is blurry';
     } else if (hasGlare) {
       message = 'Move away from the light';
@@ -393,6 +474,7 @@ class ScanRecord {
     double? maxScore,
     bool? isFlagged,
     String? flagReason,
+    bool clearFlagReason = false,
     List<int>? flaggedItems,
     String? serverScanId,
   }) {
@@ -406,7 +488,8 @@ class ScanRecord {
       scoreRaw: scoreRaw ?? this.scoreRaw,
       maxScore: maxScore ?? this.maxScore,
       isFlagged: isFlagged ?? this.isFlagged,
-      flagReason: flagReason ?? this.flagReason,
+      flagReason:
+          clearFlagReason ? null : (flagReason ?? this.flagReason),
       flaggedItems: flaggedItems ?? this.flaggedItems,
       imagePath: imagePath,
       createdAt: createdAt,

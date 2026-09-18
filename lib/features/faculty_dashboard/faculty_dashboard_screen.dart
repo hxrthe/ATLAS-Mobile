@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
+import '../../core/theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../scanner/scanner_screen.dart';
 import '../grading/grading_repository.dart';
@@ -42,10 +43,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
   late AnimationController _navSlideController;
   late Animation<Offset> _navSlideAnimation;
 
-  final Color primaryRed = const Color(0xFF8B1515);
-  final Color darkRed = const Color(0xFF5A0C0C);
-  final Color textGrey = const Color(0xFF8391A1);
-  final Color backgroundGrey = const Color(0xFFF4F6F9);
+  static const Color _darkRed = Color(0xFF5A0C0C);
 
   @override
   void initState() {
@@ -268,6 +266,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
 
   @override
   Widget build(BuildContext context) {
+    final c = context.atlas;
     final List<Widget> tabs = [
       _buildHomeTab(context),
       CoursesTab(
@@ -284,7 +283,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
     return Listener(
       onPointerDown: (_) => _resetInactivityTimer(),
       child: Scaffold(
-        backgroundColor: backgroundGrey,
+        backgroundColor: context.atlas.scaffold,
         extendBody: true,
         bottomNavigationBar: SlideTransition(
           position: _navSlideAnimation,
@@ -297,7 +296,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
               CircleBorder(),
             ),
             notchMargin: 10.0,
-            color: Colors.white,
+            color: context.atlas.card,
             elevation: 20,
             shadowColor: Colors.black.withValues(alpha: 0.5),
             clipBehavior: Clip.antiAlias,
@@ -327,7 +326,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
-                            color: textGrey,
+                            color: c.textSecondary,
                           ),
                         ),
                       ),
@@ -357,7 +356,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                 _resetInactivityTimer();
                 _navigateToScanner(context, "", "Scanner");
               },
-              backgroundColor: primaryRed,
+              backgroundColor: c.primary,
               shape: const CircleBorder(),
               elevation: 10,
               child: const Icon(
@@ -376,18 +375,21 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
 
   Widget _buildNavItem(int index, IconData icon, String label) {
     final isSelected = _selectedIndex == index;
+    final colors = context.atlas;
+    final active = colors.primary;
+    final inactive = colors.textSecondary;
     return InkWell(
       onTap: () => setState(() => _selectedIndex = index),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, color: isSelected ? primaryRed : textGrey, size: 28),
+          Icon(icon, color: isSelected ? active : inactive, size: 28),
           const SizedBox(height: 2),
           Text(
             label,
             style: TextStyle(
-              color: isSelected ? primaryRed : textGrey,
+              color: isSelected ? active : inactive,
               fontSize: 12,
               fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
             ),
@@ -398,6 +400,8 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
   }
 
   Widget _buildHomeTab(BuildContext context) {
+    final c = context.atlas;
+
     return AtlasPullToRefresh(
       onRefresh: _loadAll,
       enabled: !_loading,
@@ -416,7 +420,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                   children: [
                     const SizedBox(height: 180),
                     Center(
-                      child: Text(_error!, style: TextStyle(color: primaryRed)),
+                      child: Text(_error!, style: TextStyle(color: c.primary)),
                     ),
                   ],
                 )
@@ -439,7 +443,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w700,
-                                  color: textGrey,
+                                  color: c.textSecondary,
                                   letterSpacing: 1.0,
                                 ),
                               ),
@@ -448,7 +452,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                                 style: TextStyle(
                                   fontSize: 24,
                                   fontWeight: FontWeight.w900,
-                                  color: primaryRed,
+                                  color: c.primary,
                                 ),
                               ),
                             ],
@@ -468,7 +472,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                                   color: const Color(0xFF00E676),
                                   shape: BoxShape.circle,
                                   border: Border.all(
-                                    color: backgroundGrey,
+                                    color: c.scaffold,
                                     width: 2,
                                   ),
                                 ),
@@ -484,14 +488,14 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                         padding: const EdgeInsets.all(20),
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
-                            colors: [primaryRed, darkRed],
+                            colors: [c.primary, _darkRed],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
                           borderRadius: BorderRadius.circular(24),
                           boxShadow: [
                             BoxShadow(
-                              color: primaryRed.withValues(alpha: 0.3),
+                              color: c.primary.withValues(alpha: 0.3),
                               blurRadius: 15,
                               offset: const Offset(0, 8),
                             ),
@@ -610,7 +614,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                                   : null,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.white,
-                                foregroundColor: primaryRed,
+                                foregroundColor: c.primary,
                                 minimumSize: const Size(double.infinity, 50),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
@@ -640,7 +644,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w800,
-                                color: textGrey,
+                                color: c.textSecondary,
                                 letterSpacing: 0.5,
                               ),
                             ),
@@ -650,7 +654,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                                 vertical: 4,
                               ),
                               decoration: BoxDecoration(
-                                color: primaryRed,
+                                color: c.primary,
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: Text(
@@ -672,6 +676,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 10),
                             child: _buildTemplateCard(
+                              context,
                               t,
                               isActive: isActive,
                               isFirst: t.hasAnswerKey || t.assessmentId != null,
@@ -688,28 +693,30 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w800,
-                            color: textGrey,
+                            color: c.textSecondary,
                             letterSpacing: 0.5,
                           ),
                         ),
                         const SizedBox(height: 12),
                         ..._courses
                             .where(
-                              (c) =>
-                                  c['course_id'] != _activeCourse?['course_id'],
+                              (course) =>
+                                  course['course_id'] !=
+                                  _activeCourse?['course_id'],
                             )
-                            .map((c) {
+                            .map((course) {
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 10),
                                 child: GestureDetector(
-                                  onTap: () => _switchActive(c['course_id']!),
+                                  onTap: () =>
+                                      _switchActive(course['course_id']!),
                                   child: Container(
                                     padding: const EdgeInsets.all(14),
                                     decoration: BoxDecoration(
-                                      color: Colors.white,
+                                      color: c.card,
                                       borderRadius: BorderRadius.circular(12),
                                       border: Border.all(
-                                        color: const Color(0xFFE8ECF4),
+                                        color: c.border,
                                       ),
                                     ),
                                     child: Row(
@@ -717,7 +724,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                                         Container(
                                           padding: const EdgeInsets.all(10),
                                           decoration: BoxDecoration(
-                                            color: primaryRed.withValues(
+                                            color: c.primary.withValues(
                                               alpha: 0.08,
                                             ),
                                             borderRadius: BorderRadius.circular(
@@ -726,7 +733,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                                           ),
                                           child: Icon(
                                             Icons.swap_horiz,
-                                            color: primaryRed,
+                                            color: c.primary,
                                             size: 18,
                                           ),
                                         ),
@@ -737,18 +744,18 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                                                 CrossAxisAlignment.start,
                                             children: [
                                               Text(
-                                                c['course_code'] ?? '',
-                                                style: const TextStyle(
+                                                course['course_code'] ?? '',
+                                                style: TextStyle(
                                                   fontWeight: FontWeight.bold,
                                                   fontSize: 14,
-                                                  color: Color(0xFF1E232C),
+                                                  color: c.textPrimary,
                                                 ),
                                               ),
                                               Text(
-                                                c['course_title'] ?? '',
+                                                course['course_title'] ?? '',
                                                 style: TextStyle(
                                                   fontSize: 12,
-                                                  color: textGrey,
+                                                  color: c.textSecondary,
                                                 ),
                                               ),
                                             ],
@@ -758,7 +765,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                                           'Switch',
                                           style: TextStyle(
                                             fontSize: 12,
-                                            color: primaryRed,
+                                            color: c.primary,
                                             fontWeight: FontWeight.w600,
                                           ),
                                         ),
@@ -789,7 +796,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w800,
-                              color: textGrey,
+                              color: c.textSecondary,
                               letterSpacing: 0.5,
                             ),
                           ),
@@ -801,7 +808,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           child: Text(
                             'No scans yet. Start scanning to see events.',
-                            style: TextStyle(fontSize: 13, color: textGrey),
+                            style: TextStyle(fontSize: 13, color: c.textSecondary),
                           ),
                         ),
                       ..._systemEvents.map((ev) {
@@ -828,10 +835,10 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                                   children: [
                                     Text(
                                       'Scanned ${ev['template_name'] ?? "sheet"} — ${ev['course_code'] ?? ""} | ${ev['student_id'] ?? "Unknown"} ($score)',
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontWeight: FontWeight.w600,
                                         fontSize: 13,
-                                        color: Colors.black87,
+                                        color: c.textPrimary,
                                       ),
                                     ),
                                     const SizedBox(height: 2),
@@ -839,7 +846,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                                       _timeAgo(ev['created_at'] ?? ''),
                                       style: TextStyle(
                                         fontSize: 11,
-                                        color: textGrey,
+                                        color: c.textSecondary,
                                       ),
                                     ),
                                   ],
@@ -858,16 +865,19 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
   }
 
   Widget _buildTemplateCard(
+    BuildContext context,
     BubbleTemplate t, {
     required bool isActive,
     required bool isFirst,
   }) {
+    final c = context.atlas;
+
     return GestureDetector(
       onTap: () => _switchActive(t.courseId),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: c.card,
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
@@ -877,7 +887,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
             ),
           ],
           border: isFirst
-              ? Border(left: BorderSide(color: primaryRed, width: 4))
+              ? Border(left: BorderSide(color: c.primary, width: 4))
               : null,
         ),
         child: Row(
@@ -885,12 +895,12 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: primaryRed.withValues(alpha: 0.1),
+                color: c.primary.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
                 isFirst ? Icons.description : Icons.format_list_bulleted,
-                color: isFirst ? primaryRed : const Color(0xFFD4811B),
+                color: isFirst ? c.primary : const Color(0xFFD4811B),
               ),
             ),
             const SizedBox(width: 16),
@@ -900,16 +910,16 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                 children: [
                   Text(
                     t.name,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
-                      color: Colors.black87,
+                      color: c.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     '${t.totalItems} items · ${t.numChoices} choices · ${t.hasAnswerKey ? "Key set" : "No key"}',
-                    style: TextStyle(fontSize: 12, color: textGrey),
+                    style: TextStyle(fontSize: 12, color: c.textSecondary),
                   ),
                 ],
               ),
@@ -918,20 +928,20 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF00E676).withValues(alpha: 0.15),
+                  color: c.correct.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(6),
                 ),
-                child: const Text(
+                child: Text(
                   'READY',
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF198754),
+                    color: c.correct,
                   ),
                 ),
               ),
             const SizedBox(width: 8),
-            Icon(Icons.chevron_right, color: Colors.grey.shade400),
+            Icon(Icons.chevron_right, color: c.textSecondary),
           ],
         ),
       ),

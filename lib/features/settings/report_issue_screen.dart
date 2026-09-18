@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/theme/app_theme.dart';
 
 class ReportIssueScreen extends StatefulWidget {
   const ReportIssueScreen({super.key});
@@ -11,11 +12,6 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
   final TextEditingController _issueController = TextEditingController();
   bool _attachLogs = true;
   bool _isSubmitting = false;
-
-  final Color primaryRed = const Color(0xFF8B1515);
-  final Color darkText = const Color(0xFF1E232C);
-  final Color grayText = const Color(0xFF8391A1);
-  final Color borderColor = const Color(0xFFE8ECF4);
 
   @override
   void dispose() {
@@ -40,43 +36,56 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
       setState(() => _isSubmitting = false);
       showDialog(
         context: context,
-        builder: (context) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Icon(Icons.check_circle, color: Colors.green, size: 48),
-          content: const Text(
-            'Issue reported successfully! Our team will review it shortly.',
-            textAlign: TextAlign.center,
-          ),
-          actions: [
-            Center(
-              child: TextButton(
-                onPressed: () {
-                  Navigator.pop(context); // Close dialog
-                  Navigator.pop(context); // Back to Help & Support
-                },
-                child: const Text('OK', style: TextStyle(fontWeight: FontWeight.bold)),
-              ),
+        builder: (dialogContext) {
+          final colors = dialogContext.atlas;
+          return AlertDialog(
+            backgroundColor: colors.card,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Icon(Icons.check_circle, color: colors.correct, size: 48),
+            content: Text(
+              'Issue reported successfully! Our team will review it shortly.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: colors.textPrimary),
             ),
-          ],
-        ),
+            actions: [
+              Center(
+                child: TextButton(
+                  onPressed: () {
+                    Navigator.pop(dialogContext); // Close dialog
+                    Navigator.pop(context); // Back to Help & Support
+                  },
+                  child: Text(
+                    'OK',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: colors.primary,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.atlas;
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: colors.scaffold,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: colors.primary,
+        foregroundColor: colors.onPrimary,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios, color: darkText),
+          icon: const Icon(Icons.arrow_back_ios),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text(
+        title: const Text(
           'Report an Issue',
-          style: TextStyle(color: darkText, fontWeight: FontWeight.bold),
+          style: TextStyle(fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
       ),
@@ -90,7 +99,7 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w800,
-                color: grayText,
+                color: colors.textSecondary,
                 letterSpacing: 0.5,
               ),
             ),
@@ -98,22 +107,24 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
             TextField(
               controller: _issueController,
               maxLines: 8,
+              style: TextStyle(color: colors.textPrimary),
               decoration: InputDecoration(
-                hintText: 'Describe what happened, any error messages, or steps to reproduce the bug...',
-                hintStyle: TextStyle(color: grayText, fontSize: 14),
+                hintText:
+                    'Describe what happened, any error messages, or steps to reproduce the bug...',
+                hintStyle: TextStyle(color: colors.textSecondary, fontSize: 14),
                 filled: true,
-                fillColor: Colors.grey.shade50,
+                fillColor: colors.inputFill,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: borderColor),
+                  borderSide: BorderSide(color: colors.border),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: borderColor),
+                  borderSide: BorderSide(color: colors.border),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: primaryRed),
+                  borderSide: BorderSide(color: colors.primary),
                 ),
               ),
             ),
@@ -121,13 +132,13 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: Colors.grey.shade50,
+                color: colors.cardMuted,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: borderColor),
+                border: Border.all(color: colors.border),
               ),
               child: Row(
                 children: [
-                  Icon(Icons.assignment_outlined, color: grayText),
+                  Icon(Icons.assignment_outlined, color: colors.textSecondary),
                   const SizedBox(width: 16),
                   Expanded(
                     child: Column(
@@ -137,12 +148,12 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
                           'Attach System Logs',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
-                            color: darkText,
+                            color: colors.textPrimary,
                           ),
                         ),
                         Text(
                           'Includes device info & error logs',
-                          style: TextStyle(color: grayText, fontSize: 11),
+                          style: TextStyle(color: colors.textSecondary, fontSize: 11),
                         ),
                       ],
                     ),
@@ -150,7 +161,7 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
                   Checkbox(
                     value: _attachLogs,
                     onChanged: (val) => setState(() => _attachLogs = val ?? true),
-                    activeColor: primaryRed,
+                    activeColor: colors.primary,
                   ),
                 ],
               ),
@@ -159,8 +170,8 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
             ElevatedButton(
               onPressed: _isSubmitting ? null : _submitReport,
               style: ElevatedButton.styleFrom(
-                backgroundColor: primaryRed,
-                foregroundColor: Colors.white,
+                backgroundColor: colors.primary,
+                foregroundColor: colors.onPrimary,
                 padding: const EdgeInsets.symmetric(vertical: 18),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -168,10 +179,13 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
                 elevation: 0,
               ),
               child: _isSubmitting
-                  ? const SizedBox(
+                  ? SizedBox(
                       height: 20,
                       width: 20,
-                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                      child: CircularProgressIndicator(
+                        color: colors.onPrimary,
+                        strokeWidth: 2,
+                      ),
                     )
                   : const Text(
                       'SUBMIT REPORT',
