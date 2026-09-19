@@ -29,6 +29,8 @@ class LiveScanningView extends StatelessWidget {
   final Animation<double>? scoreFlashAnimation;
   final bool readyToCapture;
   final Uint8List? alignedPreviewBytes;
+  final bool torchOn;
+  final VoidCallback? onToggleTorch;
   final VoidCallback? onCapture;
   final VoidCallback onBack;
   final VoidCallback onReviewPapers;
@@ -46,6 +48,8 @@ class LiveScanningView extends StatelessWidget {
     this.scoreFlashAnimation,
     this.readyToCapture = false,
     this.alignedPreviewBytes,
+    this.torchOn = false,
+    this.onToggleTorch,
     this.onCapture,
     required this.onBack,
     required this.onReviewPapers,
@@ -132,9 +136,21 @@ class LiveScanningView extends StatelessWidget {
             ),
           Positioned(
             bottom: 48, left: 0, right: 0,
-            child: _ShutterButton(
-              ready: readyToCapture,
-              onTap: onCapture,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _TorchToggleButton(
+                  isOn: torchOn,
+                  onTap: onToggleTorch,
+                ),
+                const SizedBox(width: 28),
+                _ShutterButton(
+                  ready: readyToCapture,
+                  onTap: onCapture,
+                ),
+                // Balance the row so the shutter stays visually centered.
+                const SizedBox(width: 28 + 52),
+              ],
             ),
           ),
         ],
@@ -574,6 +590,46 @@ class _ScoreFlash extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+// ── Torch toggle (live scanning only) ─────────────────────────────────────
+
+class _TorchToggleButton extends StatelessWidget {
+  final bool isOn;
+  final VoidCallback? onTap;
+  const _TorchToggleButton({required this.isOn, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: Ink(
+          width: 52,
+          height: 52,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: isOn
+                ? Colors.amber.withValues(alpha: 0.9)
+                : Colors.white.withValues(alpha: 0.18),
+            border: Border.all(
+              color: isOn
+                  ? Colors.amber.shade200
+                  : Colors.white.withValues(alpha: 0.45),
+              width: 1.5,
+            ),
+          ),
+          child: Icon(
+            isOn ? Icons.flashlight_on : Icons.flashlight_off,
+            color: isOn ? Colors.black87 : Colors.white,
+            size: 24,
+          ),
+        ),
+      ),
     );
   }
 }

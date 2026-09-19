@@ -56,7 +56,9 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
   Animation<double>? _scoreFlashAnimation;
   String? _scoreFlashText;
 
-  Timer? _torchTimer;
+  /// User preference: restore torch on "Scan next" only if they turned it on live.
+  bool _userWantsTorch = false;
+  bool _torchHardwareOn = false;
   Timer? _resultStatusTimer;
 
   List<ScanRecord> _scanRecords = [];
@@ -134,7 +136,6 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
 
   @override
   void dispose() {
-    _torchTimer?.cancel();
     _resultStatusTimer?.cancel();
     _stopImageStream();
     _controller?.dispose();
@@ -225,28 +226,25 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
               ? ImageFormatGroup.bgra8888 : ImageFormatGroup.nv21,
         );
         await _controller!.initialize();
-        _startTorchAutoToggle();
-        await _syncTorch(); // must complete before starting stream
+        await _applyTorch(false); // start off; user opts in via button
         if (mounted) { setState(() => _isCameraReady = true); _startImageStream(); }
       }
     } catch (e) { debugPrint("Camera init error: $e"); }
   }
 
-  /// Torch ON 6:00 PM – 4:59 AM, OFF 5:00 AM – 5:59 PM.
-  void _startTorchAutoToggle() {
-    _syncTorch(); // immediate
-    _torchTimer = Timer.periodic(const Duration(minutes: 1), (_) => _syncTorch());
+  /// Apply hardware torch. Does not change [_userWantsTorch].
+  Future<void> _applyTorch(bool on) async {
+    if (_controller == null || !_controller!.value.isInitialized) return;
+    try {
+      await _controller!.setFlashMode(on ? FlashMode.torch : FlashMode.off);
+      _torchHardwareOn = on;
+      if (mounted) setState(() {});
+    } catch (_) {}
   }
 
-  Future<void> _syncTorch() async {
-    if (_controller == null || !_controller!.value.isInitialized) return;
-    final hour = DateTime.now().hour;
-    final shouldBeOn = hour >= 18 || hour < 5;
-    try {
-      await _controller!.setFlashMode(
-        shouldBeOn ? FlashMode.torch : FlashMode.off,
-      );
-    } catch (_) {}
+  Future<void> _toggleTorch() async {
+    _userWantsTorch = !_userWantsTorch;
+    await _applyTorch(_userWantsTorch);
   }
 
   Future<void> _startImageStream() async {
@@ -254,7 +252,8 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     try {
       await _controller!.startImageStream(_onFrame);
       _isStreaming = true;
-      _syncTorch(); // re-apply flash after returning to scanner
+      // Restore torch only if the user turned it on during live scanning.
+      await _applyTorch(_userWantsTorch);
     } catch (e) { debugPrint("Image stream error: $e"); }
   }
 
@@ -445,11 +444,12 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       _startResultStatusCycle(); // fallback labels until first milestone
       await Future<void>.delayed(const Duration(milliseconds: 40));
       final image = await _controller!.takePicture();
+      // Kill torch for results UI; preference kept for Scan next.
+      await _applyTorch(false);
       if (!mounted) return;
       setState(() => _resultCapturePath = image.path);
       final jobId = ++_omrJobId;
       _processScanInBackground(image.path, jobId, snapshot);
-      _syncTorch();
     } catch (e) {
       debugPrint("Capture error: $e");
       _isCapturing = false;
@@ -910,7 +910,11 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     } catch (_) { if (mounted) setState(() => _isLoadingRecords = false); }
   }
 
-  void _openReview() { _stopImageStream(); setState(() => _mode = _ScreenMode.review); }
+  void _openReview() {
+    _stopImageStream();
+    _applyTorch(false); // leave live cam dark; preference kept for return
+    setState(() => _mode = _ScreenMode.review);
+  }
   void _closeReview() { setState(() => _mode = _ScreenMode.scanning); _startImageStream(); }
 
   Future<void> _identifyAssessmentFromQr(String assessmentId) async {
@@ -1131,6 +1135,8 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       scoreFlashAnimation: _scoreFlashAnimation,
       readyToCapture: _readyToCapture,
       alignedPreviewBytes: _alignedPreviewBytes,
+      torchOn: _torchHardwareOn,
+      onToggleTorch: _toggleTorch,
       onCapture: _manualCapture,
       onBack: () => Navigator.pop(context),
       onReviewPapers: _openReview,
