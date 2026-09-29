@@ -24,18 +24,27 @@ class GradingRepository {
   }
 
   /// Fetch a template by its linked assessment ID.
-  Future<BubbleTemplate> fetchTemplateByAssessment(String assessmentId) async {
+  Future<BubbleTemplate> fetchTemplateByAssessment(
+    String assessmentId, {
+    String? courseId,
+  }) async {
     final response = await _apiClient.dio.get(
       'grading/bubble/templates/',
-      queryParameters: {'assessment_id': assessmentId},
+      queryParameters: {
+        'assessment_id': assessmentId,
+        if (courseId != null && courseId.isNotEmpty) 'course_id': courseId,
+      },
     );
 
     final data = response.data;
-    if (data['success'] != true || (data['templates'] as List).isEmpty) {
+    final templates = (data['templates'] as List? ?? [])
+        .map((t) => BubbleTemplate.fromJson(Map<String, dynamic>.from(t as Map)))
+        .where((t) => t.assessmentId == assessmentId)
+        .toList();
+    if (data['success'] != true || templates.isEmpty) {
       throw Exception(data['detail'] ?? 'Template for assessment not found.');
     }
-
-    return BubbleTemplate.fromJson(data['templates'][0]);
+    return templates.first;
   }
 
   /// Fetch a single template detail (includes answer_key and layout_metadata).
@@ -140,10 +149,15 @@ class GradingRepository {
       'flag_reason': ?truncatedReason,
     });
 
-    final postResp = await _apiClient.dio.post(
-      'grading/bubble/scans/',
-      data: formData,
-    );
+    final Response postResp;
+    try {
+      postResp = await _apiClient.dio.post(
+        'grading/bubble/scans/',
+        data: formData,
+      );
+    } on DioException catch (e) {
+      throw _sectionErrorOr(e);
+    }
     if (postResp.data['success'] != true) {
       throw Exception(postResp.data['detail'] ?? 'Upload failed.');
     }
@@ -157,18 +171,23 @@ class GradingRepository {
     final source = postResp.data['source']?.toString();
     if (source != 'client_graded') {
       final scanId = scanJson['scan_id'];
-      final patchResp = await _apiClient.dio.patch(
-        '/grading/bubble/scans/$scanId/',
-        data: <String, dynamic>{
-          if (studentId != null &&
-              studentId.isNotEmpty &&
-              studentId != 'Unknown')
-            'student_identifier': studentId,
-          'responses': responses,
-          'is_flagged': ?isFlagged,
-          'flag_reason': ?truncatedReason,
-        },
-      );
+      final Response patchResp;
+      try {
+        patchResp = await _apiClient.dio.patch(
+          '/grading/bubble/scans/$scanId/',
+          data: <String, dynamic>{
+            if (studentId != null &&
+                studentId.isNotEmpty &&
+                studentId != 'Unknown')
+              'student_identifier': studentId,
+            'responses': responses,
+            'is_flagged': ?isFlagged,
+            'flag_reason': ?truncatedReason,
+          },
+        );
+      } on DioException catch (e) {
+        throw _sectionErrorOr(e);
+      }
       if (patchResp.data['success'] != true) {
         throw Exception(patchResp.data['detail'] ?? 'Score update failed.');
       }
@@ -176,6 +195,83 @@ class GradingRepository {
     }
 
     return BubbleScan.fromJson(scanJson);
+  }
+
+  Object _sectionErrorOr(DioException e) {
+    final body = e.response?.data;
+    if (e.response?.statusCode == 409 && body is Map) {
+      final detail = body['detail']?.toString() ?? 'Student is not on any section.';
+      if (body['code'] == 'student_not_in_section') {
+        return StudentNotInSectionException(body['student_id']?.toString(), detail);
+      }
+      if (body['code'] == 'student_in_other_section' && body['block'] is Map) {
+        return StudentInOtherSectionException(
+          StudentBlock.fromJson(Map<String, dynamic>.from(body['block'] as Map)),
+          detail,
+        );
+      }
+    }
+    return e;
+  }
+
+  /// Students assigned to a section (keyed by student ID) and the selectable sections.
+  Future<({Map<String, StudentBlock> blocks, List<SectionOption> sections})>
+      fetchSectionedBlocks({String? studentId}) async {
+    try {
+      final response = await _apiClient.dio.get(
+        'grading/blocks/',
+        queryParameters: {'student_id': ?studentId},
+      );
+      final blocks = response.data['blocks'] as List<dynamic>? ?? [];
+      final sections = response.data['sections'] as List<dynamic>? ?? [];
+      return (
+        blocks: {
+          for (final b in blocks)
+            (b['student_id'] ?? '').toString():
+                StudentBlock.fromJson(Map<String, dynamic>.from(b as Map)),
+        },
+        sections: sections
+            .map((s) => SectionOption.fromJson(Map<String, dynamic>.from(s as Map)))
+            .toList(),
+      );
+    } on DioException catch (e) {
+      throw _sectionErrorOr(e);
+    }
+  }
+
+  /// Add a student ID to a section (by [sectionId], or by a new [sectionName])
+  /// and link that section to [courseId].
+  Future<StudentBlock> addStudentToSection({
+    required String studentId,
+    String? sectionId,
+    String? sectionName,
+    String? gradeLevel,
+    String? courseId,
+  }) async {
+    try {
+      final response = await _apiClient.dio.post(
+        'grading/blocks/',
+        data: {
+          'student_id': studentId,
+          if (sectionId != null && sectionId.isNotEmpty) 'section_id': sectionId,
+          if (sectionName != null && sectionName.isNotEmpty) 'section': sectionName,
+          if (gradeLevel != null && gradeLevel.isNotEmpty) 'grade_level': gradeLevel,
+          if (courseId != null && courseId.isNotEmpty) 'course_id': courseId,
+        },
+      );
+      return StudentBlock.fromJson(
+        Map<String, dynamic>.from(response.data['block'] as Map),
+      );
+    } on DioException catch (e) {
+      final mapped = _sectionErrorOr(e);
+      if (mapped is DioException) {
+        final body = mapped.response?.data;
+        if (body is Map && body['detail'] != null) {
+          throw Exception(body['detail'].toString());
+        }
+      }
+      throw mapped;
+    }
   }
 
   /// Batch-upload locally-graded scans when connectivity is available.
@@ -270,7 +366,8 @@ class GradingRepository {
     final response = await _apiClient.dio.get('auth/dashboard/summary/');
     final data = response.data;
 
-    final recent = data['recent'] as List<dynamic>? ?? [];
+    final recent =
+        data['courses'] as List<dynamic>? ?? data['recent'] as List<dynamic>? ?? [];
     return recent
         .map((item) => {
               'course_id': item['course_id'] ?? '',
@@ -298,6 +395,42 @@ class GradingRepository {
               'status': a['status'] ?? '',
             })
         .toList();
+  }
+
+  /// Scans on the faculty's courses between [from] and [to] (inclusive days),
+  /// newest first, with section, score and pass/fail.
+  Future<List<Map<String, dynamic>>> fetchScansInRange({
+    DateTime? from,
+    DateTime? to,
+    int limit = 500,
+  }) async {
+    String day(DateTime d) =>
+        '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    try {
+      final response = await _apiClient.dio.get(
+        'grading/scans/recent/',
+        queryParameters: {
+          'date_from': ?(from == null ? null : day(from)),
+          'date_to': ?(to == null ? null : day(to)),
+          'limit': limit,
+        },
+      );
+      return (response.data['scans'] as List<dynamic>? ?? [])
+          .map((s) => Map<String, dynamic>.from(s as Map))
+          .toList();
+    } on DioException catch (e) {
+      if (e.response?.statusCode != 404) rethrow;
+      final start = from == null ? null : DateTime(from.year, from.month, from.day);
+      final end = to == null ? null : DateTime(to.year, to.month, to.day + 1);
+      final all = await fetchRecentScans(limit: limit);
+      return all.where((s) {
+        final at = DateTime.tryParse(s['created_at']?.toString() ?? '')?.toLocal();
+        if (at == null) return false;
+        if (start != null && at.isBefore(start)) return false;
+        if (end != null && !at.isBefore(end)) return false;
+        return true;
+      }).toList();
+    }
   }
 
   /// Fetch all scans (with timestamp) across templates for system events.
@@ -350,11 +483,12 @@ class GradingRepository {
         .toList();
   }
 
-  /// Fetch distinct sections for faculty's students from student_data.
-  Future<List<String>> fetchSections() async {
+  /// Distinct sections (from `blocks`) of students in the faculty's courses.
+  Future<List<String>> fetchSections({String? courseId}) async {
     try {
       final response = await _apiClient.dio.get(
         'grading/sections/',
+        queryParameters: {'course_id': ?courseId},
       );
       final data = response.data;
       final sections = data['sections'] as List<dynamic>? ?? [];
@@ -364,20 +498,44 @@ class GradingRepository {
     }
   }
 
-  /// Fetch item analysis (difficulty & discrimination) for a template from bubble_sheet_scans.
-  Future<List<Map<String, dynamic>>> fetchItemAnalysis(String templateId) async {
+  /// Descriptive analytics for the Reports tab (pass rates, Bloom, item analysis).
+  Future<Map<String, dynamic>> fetchReports({
+    String? courseId,
+    String? assessmentId,
+    String? gradeLevel,
+    String? section,
+  }) async {
     final response = await _apiClient.dio.get(
-      'grading/bubble/templates/$templateId/item-analysis/',
+      'grading/reports/',
+      queryParameters: {
+        'course_id': ?courseId,
+        'assessment_id': ?assessmentId,
+        'grade_level': ?gradeLevel,
+        'section': ?section,
+      },
     );
     final data = response.data;
-    final items = data['items'] as List<dynamic>? ?? [];
-    return items
-        .map((i) => {
-              'item_number': i['item_number'] ?? 0,
-              'difficulty': (i['difficulty'] as num?)?.toDouble() ?? 0,
-              'discrimination': (i['discrimination'] as num?)?.toDouble() ?? 0,
-            })
-        .toList();
+    if (data is! Map || data['success'] != true) {
+      throw Exception((data is Map ? data['detail'] : null) ?? 'Failed to load reports.');
+    }
+    return Map<String, dynamic>.from(data);
+  }
+
+  /// Upper/lower 27% item analysis for one template: `summary` (KR-20, means,
+  /// decisions) and per-item `items` (P, D, point-biserial, distractors).
+  Future<Map<String, dynamic>> fetchItemAnalysis(
+    String templateId, {
+    String? gradeLevel,
+    String? section,
+  }) async {
+    final response = await _apiClient.dio.get(
+      'grading/bubble/templates/$templateId/item-analysis/',
+      queryParameters: {
+        'grade_level': ?gradeLevel,
+        'section': ?section,
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
   }
 
   /// Fetch course workspace (all assessments, modules, course info).

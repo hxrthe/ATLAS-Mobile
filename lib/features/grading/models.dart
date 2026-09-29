@@ -92,6 +92,75 @@ class BubblePart {
   }
 }
 
+/// A row of the `blocks` roster: which grade level + section a student ID belongs to.
+class StudentBlock {
+  final String studentId;
+  final String gradeLevel;
+  final String? sectionId;
+  final String section;
+
+  const StudentBlock({
+    required this.studentId,
+    required this.gradeLevel,
+    this.sectionId,
+    required this.section,
+  });
+
+  factory StudentBlock.fromJson(Map<String, dynamic> json) {
+    return StudentBlock(
+      studentId: (json['student_id'] ?? '').toString(),
+      gradeLevel: (json['grade_level'] ?? '').toString(),
+      sectionId: json['section_id']?.toString(),
+      section: (json['section'] ?? '').toString(),
+    );
+  }
+}
+
+/// A row of the `sections` table the faculty can assign students to.
+class SectionOption {
+  final String sectionId;
+  final String name;
+  final List<String> courseIds;
+
+  const SectionOption({
+    required this.sectionId,
+    required this.name,
+    required this.courseIds,
+  });
+
+  factory SectionOption.fromJson(Map<String, dynamic> json) {
+    return SectionOption(
+      sectionId: (json['section_id'] ?? '').toString(),
+      name: (json['section_name'] ?? '').toString(),
+      courseIds: (json['course_ids'] as List<dynamic>? ?? [])
+          .map((c) => c.toString())
+          .toList(),
+    );
+  }
+}
+
+/// Thrown when the server refuses a scan because the student ID is not on any section.
+class StudentNotInSectionException implements Exception {
+  final String? studentId;
+  final String message;
+
+  StudentNotInSectionException(this.studentId, this.message);
+
+  @override
+  String toString() => message;
+}
+
+/// Thrown when adding a student who already belongs to a different section.
+class StudentInOtherSectionException implements Exception {
+  final StudentBlock existing;
+  final String message;
+
+  StudentInOtherSectionException(this.existing, this.message);
+
+  @override
+  String toString() => message;
+}
+
 class BubbleScan {
   final String scanId;
   final String templateId;

@@ -11,6 +11,7 @@ import 'omr_models.dart';
 import 'omr_service.dart';
 import 'scan_history.dart';
 import 'scanner_widgets.dart';
+import 'section_gate_dialog.dart';
 import 'template_cache.dart';
 
 class ScannerScreen extends StatefulWidget {
@@ -63,6 +64,12 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
 
   List<ScanRecord> _scanRecords = [];
   bool _isLoadingRecords = false;
+
+  /// Students already assigned to a section; only these may be recorded.
+  Map<String, StudentBlock> _sectionedBlocks = {};
+  List<SectionOption> _sectionOptions = [];
+  String? _lastGateSectionId;
+  String? _lastGateGradeLevel;
 
   _ScreenMode _mode = _ScreenMode.scanning;
   ScanRecord? _detailRecord;
@@ -132,6 +139,71 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     _loadScanRecords();
     // Background cache of course templates (faster QR match when already known).
     _loadTemplates();
+    _loadSectionedBlocks();
+  }
+
+  Future<void> _loadSectionedBlocks() async {
+    try {
+      final data = await _repository.fetchSectionedBlocks();
+      if (mounted) {
+        setState(() {
+          _sectionedBlocks = data.blocks;
+          _sectionOptions = data.sections;
+        });
+      }
+    } catch (e) {
+      debugPrint('Blocks preload failed: $e');
+    }
+  }
+
+  /// Returns the student ID to record, or null when the scan is disregarded.
+  Future<String?> _gateStudentSection(
+    String? detectedId,
+    BubbleTemplate template,
+  ) async {
+    final id = (detectedId ?? '').trim();
+    if (isUsableStudentId(id)) {
+      if (_sectionedBlocks.containsKey(id)) return id;
+      try {
+        final remote = await _repository.fetchSectionedBlocks(studentId: id);
+        _sectionOptions = remote.sections;
+        if (remote.blocks.containsKey(id)) {
+          _sectionedBlocks.addAll(remote.blocks);
+          return id;
+        }
+      } catch (e) {
+        debugPrint('Block lookup failed: $e');
+      }
+    }
+    if (!mounted) return null;
+    final gate = await showSectionGateDialog(
+      context: context,
+      repository: _repository,
+      detectedId: id,
+      courseId: template.courseId,
+      examLabel: template.name,
+      knownBlocks: _sectionedBlocks,
+      sections: _sectionOptions,
+      lastSectionId: _lastGateSectionId,
+      lastGradeLevel: _lastGateGradeLevel,
+    );
+    if (gate == null) return null;
+    _sectionedBlocks[gate.studentId] = gate.block;
+    final sectionId = gate.block.sectionId;
+    if (sectionId != null &&
+        !_sectionOptions.any((s) => s.sectionId == sectionId)) {
+      _sectionOptions = [
+        ..._sectionOptions,
+        SectionOption(
+          sectionId: sectionId,
+          name: gate.block.section,
+          courseIds: [template.courseId],
+        ),
+      ];
+    }
+    _lastGateSectionId = sectionId;
+    _lastGateGradeLevel = gate.block.gradeLevel;
+    return gate.studentId;
   }
 
   @override
@@ -639,7 +711,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       }
 
       final omrService = OmrService();
-      final result = await omrService.scanImage(
+      var result = await omrService.scanImage(
         imagePath,
         scanTemplate,
         gradeSnapshot: snapshot,
@@ -667,7 +739,23 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
         return;
       }
 
-      final finalStudentId = result.studentIdentifier ?? 'Unknown';
+      // Only students already on a section may be recorded.
+      _resultStatusTimer?.cancel();
+      setState(() {
+        _bindOmrResult(result);
+        _resultStatus = 'Checking student section…';
+      });
+      final gatedId = await _gateStudentSection(result.studentIdentifier, scanTemplate);
+      if (jobId != _omrJobId || !mounted) return;
+      if (gatedId == null) {
+        _scanNext();
+        return;
+      }
+      if (gatedId != result.studentIdentifier) {
+        result = result.withStudentIdentifier(gatedId);
+      }
+
+      final finalStudentId = gatedId;
       final finalAssessmentId =
           result.assessmentId ?? scanTemplate.assessmentId;
 
@@ -841,7 +929,10 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     }
   }
 
-  Future<void> _attemptBackgroundUpload(ScanRecord record) async {
+  Future<void> _attemptBackgroundUpload(
+    ScanRecord record, {
+    bool allowRetry = true,
+  }) async {
     final path = record.imagePath;
     if (path == null || path.isEmpty) {
       if (mounted) {
@@ -885,6 +976,9 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
           _resultStatus = 'Saved to grading results';
         });
       }
+    } on StudentNotInSectionException catch (e) {
+      debugPrint('Upload refused: $e');
+      await _resolveUnsectionedRecord(record, allowRetry: allowRetry);
     } catch (e) {
       debugPrint('Upload graded scan failed: $e');
       if (!mounted || _pendingUploadRecord?.id != record.id) return;
@@ -894,6 +988,55 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
             'Saved on device — upload failed. Tap retry to sync.';
       });
     }
+  }
+
+  /// Server refused the paper because its student is not on a section:
+  /// add the student and re-upload, or discard the local paper.
+  Future<void> _resolveUnsectionedRecord(
+    ScanRecord record, {
+    required bool allowRetry,
+  }) async {
+    _sectionedBlocks.remove(record.studentIdentifier);
+    final template = _templates.cast<BubbleTemplate?>().firstWhere(
+          (t) => t?.templateId == record.templateId,
+          orElse: () => null,
+        ) ??
+        _selectedTemplate;
+    final gatedId = (allowRetry && template != null && mounted)
+        ? await _gateStudentSection(record.studentIdentifier, template)
+        : null;
+
+    if (gatedId == null) {
+      await ScanHistory.removeRecord(record.id);
+      if (!mounted) return;
+      setState(() => _scanRecords.removeWhere((r) => r.id == record.id));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Scan of ${record.studentIdentifier} disregarded — student is not on any section.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      if (_mode == _ScreenMode.result && _pendingUploadRecord?.id == record.id) {
+        _scanNext();
+      }
+      return;
+    }
+
+    final updated = record.copyWith(studentIdentifier: gatedId);
+    await ScanHistory.updateRecord(record.id, {'student_identifier': gatedId});
+    if (!mounted) return;
+    setState(() {
+      final idx = _scanRecords.indexWhere((r) => r.id == record.id);
+      if (idx >= 0) _scanRecords[idx] = updated;
+      if (_pendingUploadRecord?.id == record.id) {
+        _pendingUploadRecord = updated;
+        final last = _lastOmrResult;
+        if (last != null) _lastOmrResult = last.withStudentIdentifier(gatedId);
+      }
+    });
+    await _attemptBackgroundUpload(updated, allowRetry: false);
   }
 
   Future<void> _retryUpload() async {

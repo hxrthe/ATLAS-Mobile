@@ -163,35 +163,142 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
         ],
       ),
       const SizedBox(height: 32),
-      _boneBox(height: 214, radius: 24),
+      _sessionCardBone(),
       const SizedBox(height: 32),
+      _headerBone(titleWidth: 188, badgeWidth: 72),
+      const SizedBox(height: 12),
+      _pendingCardBone(),
+      const SizedBox(height: 32),
+      _boneBox(width: 110, height: 11, radius: 4),
+      const SizedBox(height: 12),
       Row(
         children: [
-          _boneBox(width: 188, height: 11, radius: 4),
-          const Spacer(),
-          _boneBox(width: 78, height: 20, radius: 12),
+          Expanded(child: _boneBox(height: 128, radius: 16)),
+          const SizedBox(width: 10),
+          Expanded(child: _boneBox(height: 128, radius: 16)),
         ],
       ),
-      const SizedBox(height: 12),
-      _boneBox(height: 74, radius: 12),
-      const SizedBox(height: 10),
-      _boneBox(height: 74, radius: 12),
       const SizedBox(height: 32),
-      Row(
-        children: [
-          _boneBox(width: 8, height: 8, radius: 4),
-          const SizedBox(width: 8),
-          _boneBox(width: 118, height: 11, radius: 4),
-        ],
-      ),
-      const SizedBox(height: 12),
-      _eventBone(),
-      const SizedBox(height: 14),
-      _eventBone(),
-      const SizedBox(height: 14),
-      _eventBone(),
+      _eventsCardBone(),
     ];
   }
+
+  Widget _headerBone({required double titleWidth, double badgeWidth = 0}) {
+    return Row(
+      children: [
+        _boneBox(width: titleWidth, height: 11, radius: 4),
+        const Spacer(),
+        if (badgeWidth > 0) _boneBox(width: badgeWidth, height: 20, radius: 12),
+      ],
+    );
+  }
+
+  /// Course code + status pill, title line, then the scan button.
+  Widget _sessionCardBone() {
+    return _cardBone(
+      radius: 22,
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+      children: [
+        Row(
+          children: [
+            _whiteBone(width: 120, height: 26, radius: 6),
+            const Spacer(),
+            _whiteBone(width: 112, height: 26, radius: 13),
+          ],
+        ),
+        const SizedBox(height: 10),
+        _whiteBone(width: 190, height: 12, radius: 4),
+        const SizedBox(height: 16),
+        _whiteBone(width: double.infinity, height: 44, radius: 14),
+      ],
+    );
+  }
+
+  /// Exam name + info button, then one scanned/total bar per section.
+  Widget _pendingCardBone() {
+    return _cardBone(
+      children: [
+        Row(
+          children: [
+            _whiteBone(width: 36, height: 36, radius: 10),
+            const SizedBox(width: 12),
+            _whiteBone(width: 150, height: 13, radius: 4),
+            const Spacer(),
+            _whiteBone(width: 30, height: 30, radius: 15),
+          ],
+        ),
+        for (int i = 0; i < 2; i++) ...[
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              _whiteBone(width: 70, height: 10, radius: 4),
+              const Spacer(),
+              _whiteBone(width: 64, height: 10, radius: 4),
+            ],
+          ),
+          const SizedBox(height: 6),
+          _whiteBone(width: double.infinity, height: 6, radius: 3),
+        ],
+      ],
+    );
+  }
+
+  /// "System events" header with info button, then recent scan rows.
+  Widget _eventsCardBone() {
+    return _cardBone(
+      children: [
+        Row(
+          children: [
+            _whiteBone(width: 8, height: 8, radius: 4),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _whiteBone(width: 110, height: 11, radius: 4),
+                const SizedBox(height: 6),
+                _whiteBone(width: 150, height: 9, radius: 4),
+              ],
+            ),
+            const Spacer(),
+            _whiteBone(width: 30, height: 30, radius: 15),
+          ],
+        ),
+        for (int i = 0; i < 3; i++) ...[
+          const SizedBox(height: 14),
+          _eventBone(color: Colors.white),
+        ],
+      ],
+    );
+  }
+
+  Widget _cardBone({
+    required List<Widget> children,
+    double radius = 16,
+    EdgeInsets padding = const EdgeInsets.all(16),
+  }) {
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: _bone,
+        borderRadius: BorderRadius.circular(radius),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: children,
+      ),
+    );
+  }
+
+  Widget _whiteBone({
+    double? width,
+    required double height,
+    double radius = 8,
+  }) => _boneBox(
+    width: width,
+    height: height,
+    radius: radius,
+    color: Colors.white,
+  );
 
   List<Widget> _coursesBones() {
     return [
@@ -206,30 +313,48 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
 
   List<Widget> _reportsBones() {
     return [
-      _boneBox(width: 220, height: 11, radius: 4),
-      const SizedBox(height: 16),
       Row(
         children: [
-          Expanded(child: _boneBox(height: 40, radius: 10)),
-          const SizedBox(width: 8),
-          Expanded(child: _boneBox(height: 40, radius: 10)),
-          const SizedBox(width: 8),
-          Expanded(child: _boneBox(height: 40, radius: 10)),
+          _boneBox(width: 230, height: 20, radius: 6),
+          const Spacer(),
+          _boneBox(width: 40, height: 40, radius: 12),
         ],
       ),
       const SizedBox(height: 20),
-      _boneBox(height: 168, radius: 16),
-      const SizedBox(height: 24),
-      _boneBox(height: 148, radius: 16),
-      const SizedBox(height: 24),
-      _boneBox(width: 140, height: 11, radius: 4),
-      const SizedBox(height: 12),
-      _boneBox(height: 64, radius: 12),
-      const SizedBox(height: 10),
-      _boneBox(height: 64, radius: 12),
-      const SizedBox(height: 10),
-      _boneBox(height: 64, radius: 12),
+      _reportCardBone(bodyHeight: 120),
+      const SizedBox(height: 16),
+      _reportCardBone(bodyHeight: 110),
+      const SizedBox(height: 16),
+      _reportCardBone(bodyHeight: 130),
+      const SizedBox(height: 16),
+      _reportCardBone(bodyHeight: 150),
+      const SizedBox(height: 16),
+      _reportCardBone(bodyHeight: 70),
     ];
+  }
+
+  /// Compact report card: title + info button, then its illustration.
+  Widget _reportCardBone({required double bodyHeight}) {
+    return _cardBone(
+      children: [
+        Row(
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _whiteBone(width: 140, height: 13, radius: 4),
+                const SizedBox(height: 6),
+                _whiteBone(width: 100, height: 9, radius: 4),
+              ],
+            ),
+            const Spacer(),
+            _whiteBone(width: 30, height: 30, radius: 15),
+          ],
+        ),
+        const SizedBox(height: 16),
+        _whiteBone(width: double.infinity, height: bodyHeight, radius: 12),
+      ],
+    );
   }
 
   List<Widget> _listBones() {
@@ -272,18 +397,23 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
     );
   }
 
-  Widget _eventBone() {
+  Widget _eventBone({Color color = _bone}) {
     return Row(
       children: [
-        _boneBox(width: 36, height: 36, radius: 10),
+        _boneBox(width: 36, height: 36, radius: 10, color: color),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _boneBox(width: double.infinity, height: 12, radius: 4),
+              _boneBox(
+                width: double.infinity,
+                height: 12,
+                radius: 4,
+                color: color,
+              ),
               const SizedBox(height: 8),
-              _boneBox(width: 140, height: 10, radius: 4),
+              _boneBox(width: 140, height: 10, radius: 4, color: color),
             ],
           ),
         ),

@@ -10,6 +10,10 @@ import '../faculty_dashboard/course_detail_screen.dart';
 import '../../core/widgets/user_avatar.dart';
 import '../../core/widgets/atlas_loading_view.dart';
 import '../../core/widgets/atlas_pull_to_refresh.dart';
+import '../../core/widgets/atlas_info_button.dart';
+import '../../core/widgets/pulse_dot.dart';
+import '../settings/account_security_screen.dart';
+import 'home_widgets.dart';
 import 'tabs/courses_tab.dart';
 import 'tabs/reports_tab.dart';
 import 'tabs/settings_tab.dart';
@@ -37,6 +41,9 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
   List<BubbleTemplate> _allTemplates = [];
   List<Map<String, dynamic>> _systemEvents = [];
   String? _activeAssessmentType;
+
+  /// student-scores payload per template id (rows with section + score).
+  Map<String, Map<String, dynamic>> _templateScores = {};
   bool _loading = true;
   String? _error;
 
@@ -129,7 +136,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
       }
       activeCourse ??= courses.isNotEmpty ? courses.first : null;
 
-      final events = await _repo.fetchRecentScans(limit: 20);
+      final events = await _fetchWeekScans();
 
       // Fetch assessment type for the active course
       String? assessmentType;
@@ -154,6 +161,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
           _activeAssessmentType = assessmentType;
           _loading = false;
         });
+        _loadTemplateScores();
       }
     } catch (e) {
       if (mounted) {
@@ -165,11 +173,38 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
     }
   }
 
-  Future<void> _loadEvents() async {
+  Future<List<Map<String, dynamic>>> _fetchWeekScans() async {
     try {
-      final events = await _repo.fetchRecentScans(limit: 20);
-      if (mounted) setState(() => _systemEvents = events);
-    } catch (_) {}
+      final week = rangeFor(ScanRange.week);
+      return await _repo.fetchScansInRange(from: week.start, to: week.end);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> _loadEvents() async {
+    final events = await _fetchWeekScans();
+    if (mounted) setState(() => _systemEvents = events);
+  }
+
+  Future<void> _loadTemplateScores() async {
+    final course = _activeCourse;
+    if (course == null) return;
+    final courseId = course['course_id'].toString();
+    final results = <String, Map<String, dynamic>>{};
+    await Future.wait(
+      _activeTemplates.where((t) => t.assessmentId != null).map((t) async {
+        try {
+          results[t.templateId] = await _repo.fetchStudentScores(
+            courseId,
+            t.assessmentId!,
+          );
+        } catch (_) {}
+      }),
+    );
+    if (mounted && _activeCourse?['course_id'] == courseId) {
+      setState(() => _templateScores = results);
+    }
   }
 
   void _switchActive(String courseId) {
@@ -180,8 +215,18 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
     setState(() {
       _activeCourse = course;
       _activeTemplates = templates;
+      _templateScores = {};
     });
+    _loadTemplateScores();
   }
+
+  List<Map<String, dynamic>> _scoreRows(String templateId) =>
+      ((_templateScores[templateId]?['students'] ??
+                      _templateScores[templateId]?['rows'])
+                  as List<dynamic>? ??
+              [])
+          .map((r) => Map<String, dynamic>.from(r as Map))
+          .toList();
 
   void _openScanner(BuildContext context) {
     if (_activeCourse == null) return;
@@ -287,62 +332,64 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
         extendBody: true,
         bottomNavigationBar: SlideTransition(
           position: _navSlideAnimation,
-          child: BottomAppBar(
-            height: 75,
-            shape: const AutomaticNotchedShape(
-              RoundedRectangleBorder(
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-              ),
-              CircleBorder(),
+          child: CustomPaint(
+            painter: _NavBarShadowPainter(
+              shape: _navBarShape,
+              notchMargin: _navNotchMargin,
+              fabRadius: 36,
+              color: Colors.black.withValues(alpha: 0.18),
             ),
-            notchMargin: 10.0,
-            color: context.atlas.card,
-            elevation: 20,
-            shadowColor: Colors.black.withValues(alpha: 0.5),
-            clipBehavior: Clip.antiAlias,
-            padding: EdgeInsets.zero,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _buildNavItem(0, Icons.home, 'Home'),
-                      _buildNavItem(1, Icons.menu_book, 'Courses'),
-                    ],
+            child: BottomAppBar(
+              height: 75,
+              shape: _navBarShape,
+              notchMargin: _navNotchMargin,
+              color: context.atlas.card,
+              elevation: 0,
+              clipBehavior: Clip.antiAlias,
+              padding: EdgeInsets.zero,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _buildNavItem(0, Icons.home, 'Home'),
+                        _buildNavItem(1, Icons.menu_book, 'Courses'),
+                      ],
+                    ),
                   ),
-                ),
-                // Central part for FAB and label
-                SizedBox(
-                  width: 100,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 6.0),
-                        child: Text(
-                          'Scanner',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: c.textSecondary,
+                  // Central part for FAB and label
+                  SizedBox(
+                    width: 100,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 6.0),
+                          child: Text(
+                            'Scanner',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: c.textSecondary,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _buildNavItem(2, Icons.show_chart, 'Reports'),
-                      _buildNavItem(3, Icons.manage_accounts, 'Settings'),
-                    ],
+                  Expanded(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _buildNavItem(2, Icons.show_chart, 'Reports'),
+                        _buildNavItem(3, Icons.manage_accounts, 'Settings'),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -457,27 +504,22 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                               ),
                             ],
                           ),
-                          Stack(
-                            alignment: Alignment.bottomRight,
-                            children: [
-                              UserAvatar(
+                          Tooltip(
+                            message: 'Account & Security',
+                            child: InkWell(
+                              customBorder: const CircleBorder(),
+                              onTap: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const AccountSecurityScreen(),
+                                ),
+                              ),
+                              child: UserAvatar(
                                 photoUrl: _userPhotoUrl,
                                 name: _userName,
                                 radius: 28,
                               ),
-                              Container(
-                                height: 14,
-                                width: 14,
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF00E676),
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                    color: c.scaffold,
-                                    width: 2,
-                                  ),
-                                ),
-                              ),
-                            ],
+                            ),
                           ),
                         ],
                       ),
@@ -485,14 +527,14 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
 
                       // Active Session Card
                       Container(
-                        padding: const EdgeInsets.all(20),
+                        padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: [c.primary, _darkRed],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
-                          borderRadius: BorderRadius.circular(24),
+                          borderRadius: BorderRadius.circular(22),
                           boxShadow: [
                             BoxShadow(
                               color: c.primary.withValues(alpha: 0.3),
@@ -505,43 +547,50 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(
-                                      0xFFD4811B,
-                                    ).withValues(alpha: 0.9),
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
+                                Expanded(
                                   child: Text(
                                     _activeCourse != null
-                                        ? (_activeTemplates.any(
-                                                (t) =>
-                                                    t.hasAnswerKey ||
-                                                    t.assessmentId != null,
-                                              )
-                                              ? 'ACTIVE SESSION'
-                                              : 'NO ANSWER KEY')
-                                        : 'NO COURSES',
+                                        ? (_activeCourse!['course_code'] ?? '')
+                                        : 'No Courses',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
                                       color: Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: 0.5,
+                                      fontSize: 28,
+                                      fontWeight: FontWeight.w900,
+                                      height: 1.1,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                _sessionBadge(),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    _activeCourse != null
+                                        ? (_activeCourse!['course_title'] ?? '')
+                                        : 'No active teaching load',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
                                     ),
                                   ),
                                 ),
                                 if (_activeAssessmentType != null &&
-                                    _activeAssessmentType!.isNotEmpty)
+                                    _activeAssessmentType!.isNotEmpty) ...[
+                                  const SizedBox(width: 8),
                                   Container(
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 4,
+                                      horizontal: 8,
+                                      vertical: 2,
                                     ),
                                     decoration: BoxDecoration(
                                       color: Colors.white.withValues(
@@ -561,53 +610,10 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                                       ),
                                     ),
                                   ),
+                                ],
                               ],
                             ),
-                            const SizedBox(height: 12),
-                            Text(
-                              _activeCourse != null
-                                  ? (_activeCourse!['course_code'] ?? '')
-                                  : 'No Courses',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 32,
-                                fontWeight: FontWeight.w900,
-                                height: 1.1,
-                              ),
-                            ),
-                            Text(
-                              _activeCourse != null
-                                  ? (_activeCourse!['course_title'] ?? '')
-                                  : 'No active teaching load',
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            if (_activeTemplates.any(
-                              (t) => t.hasAnswerKey || t.assessmentId != null,
-                            ))
-                              Row(
-                                children: [
-                                  const Icon(
-                                    Icons.check_circle,
-                                    color: Color(0xFF00E676),
-                                    size: 16,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    '${_activeTemplates.where((t) => t.hasAnswerKey).length} answer key(s) ready',
-                                    style: const TextStyle(
-                                      color: Color(0xFF00E676),
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            const SizedBox(height: 24),
+                            const SizedBox(height: 14),
                             ElevatedButton.icon(
                               onPressed: _activeCourse != null
                                   ? () => _openScanner(context)
@@ -615,16 +621,16 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.white,
                                 foregroundColor: c.primary,
-                                minimumSize: const Size(double.infinity, 50),
+                                minimumSize: const Size(double.infinity, 44),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                               ),
-                              icon: const Icon(Icons.camera_alt),
+                              icon: const Icon(Icons.camera_alt, size: 20),
                               label: const Text(
                                 'Scan Exam Sheets',
                                 style: TextStyle(
-                                  fontSize: 16,
+                                  fontSize: 15,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -635,7 +641,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                       const SizedBox(height: 32),
 
                       // Pending Assessments
-                      if (_activeTemplates.isNotEmpty) ...[
+                      if (_pendingTemplates.isNotEmpty) ...[
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
@@ -658,7 +664,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: Text(
-                                '${_activeTemplates.length} TEMPLATES',
+                                '${_pendingTemplates.length} PENDING',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 10,
@@ -669,20 +675,12 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                           ],
                         ),
                         const SizedBox(height: 12),
-                        ..._activeTemplates.map((t) {
-                          final isActive = _activeTemplates.any(
-                            (at) => at.hasAnswerKey || at.assessmentId != null,
-                          );
-                          return Padding(
+                        ..._pendingTemplates.map(
+                          (t) => Padding(
                             padding: const EdgeInsets.only(bottom: 10),
-                            child: _buildTemplateCard(
-                              context,
-                              t,
-                              isActive: isActive,
-                              isFirst: t.hasAnswerKey || t.assessmentId != null,
-                            ),
-                          );
-                        }),
+                            child: _buildTemplateCard(context, t),
+                          ),
+                        ),
                         const SizedBox(height: 16),
                       ],
 
@@ -698,164 +696,13 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                           ),
                         ),
                         const SizedBox(height: 12),
-                        ..._courses
-                            .where(
-                              (course) =>
-                                  course['course_id'] !=
-                                  _activeCourse?['course_id'],
-                            )
-                            .map((course) {
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 10),
-                                child: GestureDetector(
-                                  onTap: () =>
-                                      _switchActive(course['course_id']!),
-                                  child: Container(
-                                    padding: const EdgeInsets.all(14),
-                                    decoration: BoxDecoration(
-                                      color: c.card,
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: c.border,
-                                      ),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Container(
-                                          padding: const EdgeInsets.all(10),
-                                          decoration: BoxDecoration(
-                                            color: c.primary.withValues(
-                                              alpha: 0.08,
-                                            ),
-                                            borderRadius: BorderRadius.circular(
-                                              10,
-                                            ),
-                                          ),
-                                          child: Icon(
-                                            Icons.swap_horiz,
-                                            color: c.primary,
-                                            size: 18,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 14),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                course['course_code'] ?? '',
-                                                style: TextStyle(
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 14,
-                                                  color: c.textPrimary,
-                                                ),
-                                              ),
-                                              Text(
-                                                course['course_title'] ?? '',
-                                                style: TextStyle(
-                                                  fontSize: 12,
-                                                  color: c.textSecondary,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        Text(
-                                          'Switch',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: c.primary,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }),
+                        _otherCoursesGrid(),
                       ],
 
                       const SizedBox(height: 32),
 
                       // System Events
-                      Row(
-                        children: [
-                          Container(
-                            height: 8,
-                            width: 8,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFF00E676),
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'SYSTEM EVENTS',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                              color: c.textSecondary,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      if (_systemEvents.isEmpty)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          child: Text(
-                            'No scans yet. Start scanning to see events.',
-                            style: TextStyle(fontSize: 13, color: c.textSecondary),
-                          ),
-                        ),
-                      ..._systemEvents.map((ev) {
-                        final flagged = ev['is_flagged'] == true;
-                        final score = ev['score_percent'] != null
-                            ? '${(ev['score_percent'] as double).toStringAsFixed(0)}%'
-                            : 'N/A';
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 14),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Icon(
-                                flagged ? Icons.flag : Icons.check_circle,
-                                color: flagged
-                                    ? Colors.orange.shade600
-                                    : const Color(0xFF00E676),
-                                size: 18,
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Scanned ${ev['template_name'] ?? "sheet"} — ${ev['course_code'] ?? ""} | ${ev['student_id'] ?? "Unknown"} ($score)',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 13,
-                                        color: c.textPrimary,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      _timeAgo(ev['created_at'] ?? ''),
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: c.textSecondary,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      }),
+                      _buildEventsCard(),
                     ],
                   ),
                 ),
@@ -864,87 +711,425 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
     );
   }
 
-  Widget _buildTemplateCard(
-    BuildContext context,
-    BubbleTemplate t, {
-    required bool isActive,
-    required bool isFirst,
-  }) {
-    final c = context.atlas;
+  /// Exams still waiting on answer sheets; one is done when every student in
+  /// every section has a scan. Kept while its counts are still loading.
+  List<BubbleTemplate> get _pendingTemplates => _activeTemplates.where((t) {
+    if (!_templateScores.containsKey(t.templateId)) return true;
+    final progress = sectionProgress(_scoreRows(t.templateId));
+    if (progress.isEmpty) return true;
+    return progress.any((p) => p.scanned < p.total);
+  }).toList();
 
-    return GestureDetector(
-      onTap: () => _switchActive(t.courseId),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: c.card,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.02),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-          border: isFirst
-              ? Border(left: BorderSide(color: c.primary, width: 4))
-              : null,
-        ),
-        child: Row(
+  bool get _hasActiveSession =>
+      _activeCourse != null &&
+      _activeTemplates.any((t) => t.hasAnswerKey || t.assessmentId != null);
+
+  /// Two-column grid of the faculty's other courses; tapping one makes it active.
+  Widget _otherCoursesGrid() {
+    final c = context.atlas;
+    final others = _courses
+        .where((course) => course['course_id'] != _activeCourse?['course_id'])
+        .toList();
+    const gap = 10.0;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = (constraints.maxWidth - gap) / 2;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
           children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: c.primary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(
-                isFirst ? Icons.description : Icons.format_list_bulleted,
-                color: isFirst ? c.primary : const Color(0xFFD4811B),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    t.name,
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      color: c.textPrimary,
+            for (final course in others)
+              SizedBox(
+                width: width,
+                height: 128,
+                child: Material(
+                  color: c.primary,
+                  borderRadius: BorderRadius.circular(16),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTap: () => _switchActive(course['course_id']!),
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  course['course_code'] ?? '',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 17,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.18),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.swap_horiz,
+                                  color: Colors.white,
+                                  size: 16,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Expanded(
+                            child: Text(
+                              course['course_title'] ?? '',
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12,
+                                height: 1.3,
+                                color: Colors.white.withValues(alpha: 0.9),
+                              ),
+                            ),
+                          ),
+                          const Text(
+                            'Switch',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${t.totalItems} items · ${t.numChoices} choices · ${t.hasAnswerKey ? "Key set" : "No key"}',
-                    style: TextStyle(fontSize: 12, color: c.textSecondary),
-                  ),
-                ],
-              ),
-            ),
-            if (isFirst)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: c.correct.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  'READY',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    color: c.correct,
-                  ),
                 ),
               ),
-            const SizedBox(width: 8),
-            Icon(Icons.chevron_right, color: c.textSecondary),
           ],
-        ),
+        );
+      },
+    );
+  }
+
+  /// White pill on the session card with a pulsing status dot.
+  Widget _sessionBadge() {
+    final c = context.atlas;
+    final active = _hasActiveSession;
+    final label = _activeCourse == null
+        ? 'NO COURSES'
+        : (active ? 'ACTIVE SESSION' : 'NO ANSWER KEY');
+    return Container(
+      padding: const EdgeInsets.fromLTRB(4, 3, 10, 3),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          PulseDot(
+            color: active ? const Color(0xFF00C853) : const Color(0xFFD4811B),
+            animate: active,
+          ),
+          const SizedBox(width: 2),
+          Text(
+            label,
+            style: TextStyle(
+              color: c.primary,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
       ),
     );
   }
+
+  Widget _homeCard({required Widget child}) {
+    final c = context.atlas;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: c.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: c.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+
+  Widget _buildEventsCard() {
+    final c = context.atlas;
+    const shown = 5;
+    final events = _systemEvents.take(shown).toList();
+    return _homeCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              PulseDot(animate: _systemEvents.isNotEmpty),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'SYSTEM EVENTS',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: c.textSecondary,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    Text(
+                      'Scans in the last 7 days · ${_systemEvents.length}',
+                      style: TextStyle(fontSize: 12, color: c.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+              AtlasInfoButton(onTap: () => showScanEventsSheet(context, _repo)),
+            ],
+          ),
+          const SizedBox(height: 6),
+          if (events.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Text(
+                'No scans this week. Tap the info button to browse older scans.',
+                style: TextStyle(fontSize: 13, color: c.textSecondary),
+              ),
+            )
+          else ...[
+            for (var i = 0; i < events.length; i++) ...[
+              if (i > 0) Divider(height: 1, color: c.divider),
+              ScanEventTile(
+                scan: events[i],
+                timeLabel: _timeAgo(events[i]['created_at']?.toString() ?? ''),
+              ),
+            ],
+            if (_systemEvents.length > shown)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  '+${_systemEvents.length - shown} more this week',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: c.primary,
+                  ),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTemplateCard(BuildContext context, BubbleTemplate t) {
+    final c = context.atlas;
+    final ready = t.hasAnswerKey || t.assessmentId != null;
+    final loaded = _templateScores.containsKey(t.templateId);
+    final rows = _scoreRows(t.templateId);
+    final progress = sectionProgress(rows);
+    final totalItems =
+        (_templateScores[t.templateId]?['total_items'] as num?)?.toInt() ??
+        t.totalItems;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: c.card,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: ready
+            ? Border(left: BorderSide(color: c.primary, width: 4))
+            : null,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: c.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  ready ? Icons.description : Icons.format_list_bulleted,
+                  color: ready ? c.primary : const Color(0xFFD4811B),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  t.name,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                    color: c.textPrimary,
+                  ),
+                ),
+              ),
+              if (ready) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: c.correct.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    'READY',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: c.correct,
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(width: 8),
+              AtlasInfoButton(
+                onTap: t.assessmentId == null
+                    ? () {}
+                    : () => showAssessmentScansSheet(
+                        context,
+                        title: t.name,
+                        subtitle:
+                            '${_activeCourse?['course_code'] ?? ''} · $totalItems items',
+                        rows: rows,
+                        totalItems: totalItems,
+                      ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (!loaded)
+            Text(
+              'Loading sections…',
+              style: TextStyle(fontSize: 12, color: c.textSecondary),
+            )
+          else if (progress.isEmpty)
+            Text(
+              'No students on a section for this course yet.',
+              style: TextStyle(fontSize: 12, color: c.textSecondary),
+            )
+          else
+            for (final p in progress)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            p.section,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: c.textPrimary,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          '${p.scanned}/${p.total} scanned',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: p.scanned >= p.total
+                                ? c.correct
+                                : c.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: p.total == 0 ? 0 : p.scanned / p.total,
+                        minHeight: 6,
+                        backgroundColor: c.border,
+                        color: p.scanned >= p.total ? c.correct : c.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+        ],
+      ),
+    );
+  }
+}
+
+const _navBarShape = AutomaticNotchedShape(
+  RoundedRectangleBorder(
+    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+  ),
+  CircleBorder(),
+);
+const _navNotchMargin = 10.0;
+
+/// Soft shadow along the bottom bar's outline, notch included, so the curved
+/// top edge reads against the page without shading inside the notch.
+class _NavBarShadowPainter extends CustomPainter {
+  final NotchedShape shape;
+  final double notchMargin;
+  final double fabRadius;
+  final Color color;
+
+  const _NavBarShadowPainter({
+    required this.shape,
+    required this.notchMargin,
+    required this.fabRadius,
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final guest = Rect.fromCircle(
+      center: Offset(size.width / 2, 0),
+      radius: fabRadius,
+    ).inflate(notchMargin);
+    final path = shape.getOuterPath(Offset.zero & size, guest);
+    canvas.drawPath(
+      path.shift(const Offset(0, -1)),
+      Paint()
+        ..color = color
+        ..maskFilter = const MaskFilter.blur(BlurStyle.outer, 10),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_NavBarShadowPainter old) =>
+      old.color != color ||
+      old.notchMargin != notchMargin ||
+      old.fabRadius != fabRadius;
 }

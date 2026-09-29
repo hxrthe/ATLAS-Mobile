@@ -1,8 +1,7 @@
-import 'dart:convert';
-
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/atlas_filter_chip.dart';
 import '../../core/widgets/atlas_loading_view.dart';
 import '../grading/grading_repository.dart';
 
@@ -39,10 +38,17 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   int _emSubTab = 0;
 
   List<Map<String, dynamic>> _scoreRows = [];
-  List<Map<String, dynamic>> _enrolledStudents = [];
   bool _loadingScores = false;
   String? _scoresError;
+  int _scoreTotalItems = 0;
+  double _scorePassingPercent = 50;
+  List<String> _scoreSections = [];
+  List<String> _scoreGradeLevels = [];
   String? _scoreSectionFilter;
+  String? _scoreGradeFilter;
+  String? _scoreStatusFilter;
+  String _scoreSearch = '';
+  final TextEditingController _scoreSearchCtrl = TextEditingController();
 
   double? _passingScore;
   bool _loadingPassingScore = false;
@@ -54,20 +60,39 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(_onTabChanged);
     _loadWorkspace();
+    _loadSectionCounts();
+  }
+
+  /// Students per section for the header, from the course roster (blocks).
+  Map<String, int>? _sectionCounts;
+
+  Future<void> _loadSectionCounts() async {
+    final students = await _repo.fetchCourseStudents(widget.courseId);
+    final counts = <String, int>{};
+    for (final s in students) {
+      final name = (s['section'] ?? '').toString().trim();
+      final key = name.isEmpty ? 'Unassigned' : name;
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    final sorted = Map.fromEntries(counts.entries.toList()
+      ..sort((a, b) {
+        if (a.key == 'Unassigned') return 1;
+        if (b.key == 'Unassigned') return -1;
+        return a.key.toLowerCase().compareTo(b.key.toLowerCase());
+      }));
+    if (mounted) setState(() => _sectionCounts = sorted);
   }
 
   @override
   void dispose() {
     _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
+    _scoreSearchCtrl.dispose();
     super.dispose();
   }
 
   void _onTabChanged() {
     if (!mounted) return;
-    debugPrint(
-      'Tab changed to: ${_tabController.index}, selectedAssessment: $_selectedAssessmentId, scoreRows: ${_scoreRows.length}',
-    );
     if (_tabController.index == 1 &&
         _scoreRows.isEmpty &&
         !_loadingScores &&
@@ -90,17 +115,13 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
               .toList() ??
           [];
 
-      // Fetch enrolled students from dedicated endpoint
-      final enrolled = await _repo.fetchCourseStudents(widget.courseId);
-
-      String? selId;
-      if (rawAssessments.isNotEmpty)
-        selId = rawAssessments.first['assessment_id']?.toString();
+      final selId = rawAssessments.isNotEmpty
+          ? rawAssessments.first['assessment_id']?.toString()
+          : null;
 
       if (mounted) {
         setState(() {
           _assessments = rawAssessments;
-          _enrolledStudents = enrolled;
           _selectedAssessmentId = selId;
         });
         if (selId != null) {
@@ -182,12 +203,25 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
           (data['students'] as List<dynamic>?) ??
           (data['rows'] as List<dynamic>?) ??
           [];
-      final rows =
-          rawStudents.map((r) => r as Map<String, dynamic>).toList();
-      debugPrint('Score rows: $rows');
+      final rows = rawStudents
+          .map((r) => Map<String, dynamic>.from(r as Map))
+          .toList();
+      List<String> strings(dynamic v) =>
+          (v as List<dynamic>? ?? []).map((e) => e.toString()).toList();
       if (mounted) {
         setState(() {
           _scoreRows = rows;
+          _scoreTotalItems = (data['total_items'] as num?)?.toInt() ?? 0;
+          _scorePassingPercent =
+              (data['passing_percent'] as num?)?.toDouble() ?? 50;
+          _scoreSections = strings(data['sections']);
+          _scoreGradeLevels = strings(data['grade_levels']);
+          if (!_scoreSections.contains(_scoreSectionFilter)) {
+            _scoreSectionFilter = null;
+          }
+          if (!_scoreGradeLevels.contains(_scoreGradeFilter)) {
+            _scoreGradeFilter = null;
+          }
           _loadingScores = false;
         });
       }
@@ -261,51 +295,6 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     }
   }
 
-  /// Extract the student identifier (user_id) from an enrolled student record.
-  String _studentUserId(Map<String, dynamic> student) {
-    return (student['user_id'] ?? student['student_id'] ?? '').toString();
-  }
-
-  /// Parse courses_enrolled which may be a JSON string or already parsed List.
-  List<dynamic> _parseCoursesEnrolled(dynamic raw) {
-    if (raw is List) return raw;
-    if (raw is String) {
-      try {
-        final decoded = jsonDecode(raw);
-        return decoded is List ? decoded : [];
-      } catch (_) {
-        return [];
-      }
-    }
-    return [];
-  }
-
-  /// Extract the section for the current course from a student's data.
-  String _sectionForCourse(Map<String, dynamic> student) {
-    // First try flat 'section' field (if backend flattens it)
-    final flatSection = (student['section'] ?? '').toString().trim();
-    if (flatSection.isNotEmpty) return flatSection;
-
-    // Parse courses_enrolled (may be JSON string or list)
-    final enrolled = _parseCoursesEnrolled(student['courses_enrolled']);
-    for (final entry in enrolled) {
-      if (entry is Map && entry['course_id']?.toString() == widget.courseId) {
-        return (entry['section'] ?? '').toString().trim();
-      }
-    }
-    return '';
-  }
-
-  List<String> _uniqueStudentSections() {
-    final seen = <String>{};
-    for (final s in _enrolledStudents) {
-      final sec = _sectionForCourse(s);
-      if (sec.isNotEmpty) seen.add(sec);
-    }
-    final sorted = seen.toList()..sort();
-    return sorted;
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -325,9 +314,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
           ],
         ),
       ),
-      bottomNavigationBar: _tabController.index == 0
-          ? _buildEMBottomBar()
-          : _buildScoresBottomBar(),
+      bottomNavigationBar: _buildAssessmentBar(),
     );
   }
 
@@ -423,13 +410,27 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
             ),
           ),
           const SizedBox(height: 10),
-          Row(
-            children: [
-              _infoChip(Icons.assignment, '${_assessments.length} assessments', onHero),
-              const SizedBox(width: 12),
-              _infoChip(Icons.quiz, '${_items.length} items', onHero),
-            ],
-          ),
+          if (_sectionCounts == null)
+            SizedBox(
+              height: 14,
+              width: 14,
+              child: CircularProgressIndicator(strokeWidth: 1.5, color: onHero),
+            )
+          else if (_sectionCounts!.isEmpty)
+            _infoChip(Icons.groups_2_outlined, 'No sections yet', onHero)
+          else
+            Wrap(
+              spacing: 12,
+              runSpacing: 6,
+              children: [
+                for (final e in _sectionCounts!.entries)
+                  _infoChip(
+                    Icons.groups_2_outlined,
+                    '${e.key} · ${e.value} student${e.value == 1 ? '' : 's'}',
+                    onHero,
+                  ),
+              ],
+            ),
         ],
       ),
     );
@@ -629,28 +630,34 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                       ),
                     const SizedBox(height: 2),
                     Text(
-                      item['question_text'] ?? 'Item $qNum',
-                      style: TextStyle(fontSize: 14, color: c.textPrimary),
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
+                      (item['question_text'] ?? 'Item $qNum').toString(),
+                      style: TextStyle(
+                        fontSize: 14,
+                        height: 1.4,
+                        color: c.textPrimary,
+                      ),
+                      softWrap: true,
                     ),
                     if (choices.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 2,
-                        children: choices
-                            .map(
-                              (choice) => Text(
-                                choice,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: c.textSecondary,
-                                ),
-                              ),
-                            )
-                            .toList(),
-                      ),
+                      const SizedBox(height: 8),
+                      for (final choice in choices)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(
+                            choice,
+                            softWrap: true,
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              height: 1.35,
+                              color: _isKeyChoice(choice, answer)
+                                  ? c.correct
+                                  : c.textSecondary,
+                              fontWeight: _isKeyChoice(choice, answer)
+                                  ? FontWeight.w700
+                                  : FontWeight.w400,
+                            ),
+                          ),
+                        ),
                     ],
                   ],
                 ),
@@ -664,6 +671,15 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
         );
       },
     );
+  }
+
+  bool _isKeyChoice(String choice, String answer) {
+    if (answer.isEmpty) return false;
+    final t = choice.trimLeft().toUpperCase();
+    return t.startsWith('$answer.') ||
+        t.startsWith('$answer)') ||
+        t.startsWith('$answer ') ||
+        t == answer;
   }
 
   Widget _answerBadge(String letter, AtlasColors c) {
@@ -789,6 +805,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     try {
       final template = await _repo.fetchTemplateByAssessment(
         _selectedAssessmentId!,
+        courseId: widget.courseId,
       );
       if (mounted) {
         setState(() {
@@ -814,6 +831,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
       // Always fetch template to guarantee a valid course_id
       final template = await _repo.fetchTemplateByAssessment(
         _selectedAssessmentId!,
+        courseId: widget.courseId,
       );
       final templateId = template.templateId;
       final courseId = template.courseId.isNotEmpty
@@ -1028,6 +1046,122 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
 
   // ═══ Scores Tab ══════════════════════════════════════════════════════
 
+  List<Map<String, dynamic>> get _filteredScoreRows => _scoreRowsFor(
+        section: _scoreSectionFilter,
+        grade: _scoreGradeFilter,
+        status: _scoreStatusFilter,
+      );
+
+  List<Map<String, dynamic>> _scoreRowsFor({
+    String? section,
+    String? grade,
+    String? status,
+  }) {
+    final q = _scoreSearch.trim().toLowerCase();
+    return _scoreRows.where((r) {
+      if (section != null && r['section'] != section) {
+        return false;
+      }
+      if (grade != null && r['grade_level'] != grade) {
+        return false;
+      }
+      final scored = r['score'] != null;
+      switch (status) {
+        case 'passed':
+          if (r['passed'] != true) return false;
+        case 'failed':
+          if (!scored || r['passed'] == true) return false;
+        case 'missing':
+          if (scored) return false;
+      }
+      if (q.isNotEmpty) {
+        final hay = '${r['student_id'] ?? ''} ${r['student_name'] ?? ''}'
+            .toLowerCase();
+        if (!hay.contains(q)) return false;
+      }
+      return true;
+    }).toList();
+  }
+
+  String _fmtNum(num v) =>
+      v == v.roundToDouble() ? v.toInt().toString() : v.toStringAsFixed(1);
+
+  static const _scoreStatusOptions = [
+    FilterOption('passed', 'Passed'),
+    FilterOption('failed', 'Failed'),
+    FilterOption('missing', 'Not yet scanned'),
+  ];
+
+  int get _activeScoreFilters =>
+      [_scoreSectionFilter, _scoreGradeFilter, _scoreStatusFilter]
+          .where((v) => v != null)
+          .length;
+
+  List<({String label, VoidCallback onRemove})> get _appliedScoreChips => [
+        if (_scoreSectionFilter != null)
+          (
+            label: _scoreSectionFilter!,
+            onRemove: () => setState(() => _scoreSectionFilter = null),
+          ),
+        if (_scoreGradeFilter != null)
+          (
+            label: _scoreGradeFilter!,
+            onRemove: () => setState(() => _scoreGradeFilter = null),
+          ),
+        if (_scoreStatusFilter != null)
+          (
+            label: _scoreStatusOptions
+                .firstWhere((o) => o.value == _scoreStatusFilter)
+                .label,
+            onRemove: () => setState(() => _scoreStatusFilter = null),
+          ),
+      ];
+
+  Future<void> _openScoreFilters() async {
+    final result = await showAtlasFilterSheet(
+      context,
+      groups: [
+        FilterGroup(
+          key: 'section',
+          title: 'Section',
+          allLabel: 'All sections',
+          options: _scoreSections.map((s) => FilterOption(s, s)).toList(),
+        ),
+        FilterGroup(
+          key: 'grade',
+          title: 'Grade level',
+          allLabel: 'All levels',
+          options: _scoreGradeLevels.map((g) => FilterOption(g, g)).toList(),
+        ),
+        const FilterGroup(
+          key: 'status',
+          title: 'Status',
+          allLabel: 'All students',
+          options: _scoreStatusOptions,
+        ),
+      ],
+      initial: {
+        'section': _scoreSectionFilter,
+        'grade': _scoreGradeFilter,
+        'status': _scoreStatusFilter,
+      },
+      applyLabel: (d) {
+        final n = _scoreRowsFor(
+          section: d['section'],
+          grade: d['grade'],
+          status: d['status'],
+        ).length;
+        return 'Show $n student${n == 1 ? '' : 's'}';
+      },
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      _scoreSectionFilter = result['section'];
+      _scoreGradeFilter = result['grade'];
+      _scoreStatusFilter = result['status'];
+    });
+  }
+
   Widget _buildScoresTab() {
     final c = context.atlas;
     if (_loadingScores) {
@@ -1045,202 +1179,291 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
         ),
       );
     }
-
-    // Merge enrolled students with scores
-    List<Map<String, dynamic>> displayRows = [];
-
-    debugPrint('=== Scores Tab Debug ===');
-    debugPrint('Enrolled students count: ${_enrolledStudents.length}');
-    debugPrint('Score rows count: ${_scoreRows.length}');
-    debugPrint('Course ID: ${widget.courseId}');
-    if (_enrolledStudents.isNotEmpty) {
-      final first = _enrolledStudents.first;
-      debugPrint('First enrolled student keys: ${first.keys.toList()}');
-      debugPrint('First enrolled student user_id: ${_studentUserId(first)}');
-      debugPrint('First enrolled student sr_code: ${first['sr_code']}');
-      debugPrint(
-        'First enrolled student section: "${_sectionForCourse(first)}"',
-      );
-    }
-    if (_scoreRows.isNotEmpty) {
-      debugPrint('First score row keys: ${_scoreRows.first.keys.toList()}');
-      debugPrint('First score row: ${_scoreRows.first}');
-    }
-    debugPrint('========================');
-
-    // Filter enrolled students by section if applicable
-    List<Map<String, dynamic>> filteredStudents = _enrolledStudents;
-    if (_scoreSectionFilter != null && _scoreSectionFilter!.isNotEmpty) {
-      filteredStudents = filteredStudents
-          .where((s) => _sectionForCourse(s) == _scoreSectionFilter)
-          .toList();
-    }
-
-    for (final student in filteredStudents) {
-      final userId = _studentUserId(student);
-      final srCode = (student['sr_code'] ?? student['sr-code'] ?? userId)
-          .toString();
-      final section = _sectionForCourse(student);
-
-      // Match by platform user UUID or SR code (bubble sheets store SR codes)
-      final scoreMatch = _scoreRows.firstWhere((r) {
-        final sid =
-            (r['student_id'] ?? r['user_id'] ?? r['student_identifier'] ?? '')
-                .toString();
-        return sid == userId || (srCode.isNotEmpty && sid == srCode);
-      }, orElse: () => {});
-
-      if (scoreMatch.isNotEmpty) {
-        displayRows.add(
-          Map<String, dynamic>.from(scoreMatch)
-            ..['section'] = section
-            ..['sr_code'] = srCode,
-        );
-      } else {
-        displayRows.add({
-          'student_id': userId,
-          'sr_code': srCode,
-          'section': section,
-          'score': null,
-          'percent': null,
-          'assessment_title':
-              _assessments.firstWhere(
-                (a) =>
-                    (a['assessment_id'] ?? '').toString() ==
-                    _selectedAssessmentId,
-                orElse: () => {},
-              )['title'] ??
-              'Score',
-        });
-      }
-    }
-
-    // Keep scanned scores that did not match an enrolled student (unknown SR code)
-    final matchedIds = {
-      for (final r in displayRows)
-        (r['student_id'] ?? r['sr_code'] ?? '').toString(),
-    }..removeWhere((id) => id.isEmpty);
-    for (final score in _scoreRows) {
-      final sid =
-          (score['student_id'] ?? score['student_identifier'] ?? '').toString();
-      if (sid.isNotEmpty && matchedIds.contains(sid)) continue;
-      displayRows.add({
-        ...Map<String, dynamic>.from(score),
-        'sr_code': sid.isNotEmpty ? sid : (score['sr_code'] ?? '—'),
-        'section': score['section'] ?? '',
-      });
-      if (sid.isNotEmpty) matchedIds.add(sid);
-    }
-
-    if (displayRows.isEmpty) {
+    if (_selectedAssessmentId == null) {
       return Center(
-        child: Text('No students found', style: TextStyle(color: c.textSecondary)),
+        child: Text('No assessments for this course',
+            style: TextStyle(color: c.textSecondary)),
       );
     }
 
+    final rows = _filteredScoreRows;
+    final scored = rows.where((r) => r['score'] != null).toList();
+    final passed = scored.where((r) => r['passed'] == true).length;
+    final meanScore = scored.isEmpty
+        ? null
+        : scored
+                  .map((r) => (r['score'] as num).toDouble())
+                  .reduce((a, b) => a + b) /
+              scored.length;
+
+    return RefreshIndicator(
+      onRefresh: _loadScores,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _scoreSearchCtrl,
+                  onChanged: (v) => setState(() => _scoreSearch = v),
+                  style: TextStyle(fontSize: 13, color: c.textPrimary),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    hintText: 'Search SR code or name',
+                    hintStyle: TextStyle(color: c.textSecondary, fontSize: 13),
+                    prefixIcon:
+                        Icon(Icons.search, size: 20, color: c.textSecondary),
+                    suffixIcon: _scoreSearch.isEmpty
+                        ? null
+                        : IconButton(
+                            icon: const Icon(Icons.close, size: 18),
+                            onPressed: () {
+                              _scoreSearchCtrl.clear();
+                              setState(() => _scoreSearch = '');
+                            },
+                          ),
+                    filled: true,
+                    fillColor: c.inputFill,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: c.border),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: c.border),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              AtlasFilterButton(
+                activeCount: _activeScoreFilters,
+                onPressed: _openScoreFilters,
+              ),
+            ],
+          ),
+          if (_appliedScoreChips.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            AtlasAppliedChipsRow(
+              chips: _appliedScoreChips,
+              onClearAll: () => setState(() {
+                _scoreSectionFilter = null;
+                _scoreGradeFilter = null;
+                _scoreStatusFilter = null;
+              }),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _scoreStat(
+                'Scanned',
+                '${scored.length}/${rows.length}',
+                c.textPrimary,
+              ),
+              const SizedBox(width: 8),
+              _scoreStat(
+                'Mean score',
+                meanScore == null
+                    ? '—'
+                    : '${_fmtNum(meanScore)}/${_scoreTotalItems == 0 ? '—' : _scoreTotalItems}',
+                c.primary,
+              ),
+              const SizedBox(width: 8),
+              _scoreStat(
+                'Pass rate',
+                scored.isEmpty
+                    ? '—'
+                    : '${(passed / scored.length * 100).toStringAsFixed(0)}%',
+                passed * 2 >= scored.length && scored.isNotEmpty
+                    ? c.pass
+                    : c.fail,
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Passing mark: ${_fmtNum(_scorePassingPercent)}%'
+            '${_scoreTotalItems > 0 ? ' (${_fmtNum(_scorePassingPercent / 100 * _scoreTotalItems)} of $_scoreTotalItems items)' : ''}',
+            style: TextStyle(fontSize: 11, color: c.textSecondary),
+          ),
+          const SizedBox(height: 12),
+          if (rows.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 40),
+              child: Center(
+                child: Text(
+                  _scoreRows.isEmpty
+                      ? 'No students yet. Students appear here once they are on a section that takes this course, or have been scanned.'
+                      : 'No students match these filters.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: c.textSecondary),
+                ),
+              ),
+            )
+          else
+            _buildScoresTable(rows, c),
+        ],
+      ),
+    );
+  }
+
+  Widget _scoreStat(String label, String value, Color color) {
+    final c = context.atlas;
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+        decoration: BoxDecoration(
+          color: c.card,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: c.border),
+        ),
+        child: Column(
+          children: [
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w900,
+                color: color,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(label, style: TextStyle(fontSize: 11, color: c.textSecondary)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScoresTable(List<Map<String, dynamic>> rows, AtlasColors c) {
+    TextStyle head() => TextStyle(
+          fontWeight: FontWeight.bold,
+          fontSize: 12.5,
+          color: c.textPrimary,
+        );
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
-          headingRowColor: WidgetStateProperty.all(
-            c.primary.withValues(alpha: 0.06),
-          ),
-          dataRowColor: WidgetStateProperty.all(c.card),
-          border: TableBorder.all(
-            color: c.border,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          columns: [
-            DataColumn(
-              label: Text(
-                'SR Code',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13,
-                  color: c.textPrimary,
-                ),
-              ),
-            ),
-            DataColumn(
-              label: Text(
-                'Section',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13,
-                  color: c.textPrimary,
-                ),
-              ),
-            ),
-            DataColumn(
-              label: Text(
-                (displayRows.isNotEmpty &&
-                        (displayRows.first['assessment_title'] ?? '')
-                            .toString()
-                            .isNotEmpty)
-                    ? displayRows.first['assessment_title'].toString()
-                    : 'Score',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13,
-                  color: c.textPrimary,
-                ),
-              ),
-            ),
-          ],
-          rows: displayRows.map((r) {
-            final sid = (r['sr_code'] ?? r['student_id'] ?? '').toString();
-            final sec = (r['section'] ?? '').toString();
-            final score = r['score'];
-            final pct = r['percent'];
-            final hasScore = pct != null || score != null;
-            final display = pct != null
-                ? '${(pct as num).toStringAsFixed(0)}%'
-                : score != null
-                ? (score as num).toStringAsFixed(1)
-                : '-';
-            return DataRow(
-              cells: [
-                DataCell(
-                  Text(
-                    sid,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13,
-                      color: c.textPrimary,
-                    ),
-                  ),
-                ),
-                DataCell(
-                  Text(
-                    sec,
-                    style: TextStyle(fontSize: 13, color: c.textSecondary),
-                  ),
-                ),
-                DataCell(
-                  Center(
-                    child: Text(
-                      display,
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        columnSpacing: 18,
+        horizontalMargin: 12,
+        headingRowHeight: 40,
+        dataRowMinHeight: 46,
+        dataRowMaxHeight: 58,
+        headingRowColor:
+            WidgetStateProperty.all(c.primary.withValues(alpha: 0.06)),
+        dataRowColor: WidgetStateProperty.all(c.card),
+        border: TableBorder.all(
+          color: c.border,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        columns: [
+          DataColumn(label: Text('SR Code', style: head())),
+          DataColumn(label: Text('Section', style: head())),
+          DataColumn(label: Text('Grade', style: head())),
+          DataColumn(label: Text('Score', style: head()), numeric: true),
+          DataColumn(label: Text('Status', style: head())),
+        ],
+        rows: rows.map((r) {
+          final sid = (r['student_id'] ?? '').toString();
+          final name = (r['student_name'] ?? '').toString();
+          final score = r['score'] as num?;
+          final max = (r['max_score'] as num?) ?? _scoreTotalItems;
+          final pct = r['percent'] as num?;
+          final passedRow = r['passed'] == true;
+          return DataRow(
+            cells: [
+              DataCell(
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      sid.isEmpty ? '—' : sid,
                       style: TextStyle(
+                        fontWeight: FontWeight.w700,
                         fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        color: hasScore ? c.textPrimary : c.textSecondary,
+                        color: c.textPrimary,
                       ),
                     ),
-                  ),
+                    if (name.isNotEmpty)
+                      Text(name,
+                          style: TextStyle(
+                              fontSize: 11, color: c.textSecondary)),
+                  ],
                 ),
-              ],
-            );
-          }).toList(),
+              ),
+              DataCell(Text((r['section'] ?? '').toString(),
+                  style: TextStyle(fontSize: 12.5, color: c.textSecondary))),
+              DataCell(Text((r['grade_level'] ?? '').toString(),
+                  style: TextStyle(fontSize: 12.5, color: c.textSecondary))),
+              DataCell(
+                score == null
+                    ? Text('—', style: TextStyle(color: c.textSecondary))
+                    : Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            '${_fmtNum(score)} / ${max == 0 ? '—' : _fmtNum(max)}',
+                            style: TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w800,
+                              color: c.textPrimary,
+                            ),
+                          ),
+                          if (pct != null)
+                            Text('${pct.toStringAsFixed(0)}%',
+                                style: TextStyle(
+                                    fontSize: 10.5, color: c.textSecondary)),
+                        ],
+                      ),
+              ),
+              DataCell(_statusPill(
+                score == null
+                    ? 'Not scanned'
+                    : (passedRow ? 'Passed' : 'Failed'),
+                score == null
+                    ? c.textSecondary
+                    : (passedRow ? c.pass : c.fail),
+              )),
+            ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _statusPill(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: color,
         ),
       ),
     );
   }
 
-  // ═══ Bottom Bars ══════════════════════════════════════════════════════
+  // ═══ Bottom Bar ═══════════════════════════════════════════════════════
 
-  Widget _buildEMBottomBar() {
+  Widget _buildAssessmentBar() {
     final c = context.atlas;
+    final ids = _assessments
+        .map((a) => (a['assessment_id'] ?? '').toString())
+        .toSet();
+    final selected = ids.contains(_selectedAssessmentId)
+        ? _selectedAssessmentId
+        : null;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
@@ -1248,142 +1471,40 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
         border: Border(top: BorderSide(color: c.border)),
       ),
       child: SafeArea(
-        child: Row(
-          children: [
-            Expanded(
-              child: DropdownButtonFormField<String>(
-                initialValue: _selectedAssessmentId,
-                decoration: InputDecoration(
-                  labelText: 'Assessment',
-                  labelStyle: TextStyle(color: c.textSecondary),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: c.border),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: c.border),
-                  ),
-                  filled: true,
-                  fillColor: c.inputFill,
-                ),
-                isExpanded: true,
-                style: TextStyle(fontSize: 13, color: c.textPrimary),
-                dropdownColor: c.card,
-                items: _assessments
-                    .map(
-                      (a) => DropdownMenuItem<String>(
-                        value: (a['assessment_id'] ?? '').toString(),
-                        child: Text(
-                          a['title']?.toString() ?? 'Untitled',
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    )
-                    .toList(),
-                onChanged: _onAssessmentChanged,
-              ),
+        child: DropdownButtonFormField<String>(
+          key: ValueKey('assessment-$selected-${_assessments.length}'),
+          initialValue: selected,
+          decoration: InputDecoration(
+            labelText: 'Assessment',
+            labelStyle: TextStyle(color: c.textSecondary),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(color: c.border),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildScoresBottomBar() {
-    final c = context.atlas;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        color: c.card,
-        border: Border(top: BorderSide(color: c.border)),
-      ),
-      child: SafeArea(
-        child: Row(
-          children: [
-            Expanded(
-              child: DropdownButtonFormField<String>(
-                initialValue: _selectedAssessmentId,
-                decoration: InputDecoration(
-                  labelText: 'Assessment',
-                  labelStyle: TextStyle(color: c.textSecondary),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: c.border),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: c.border),
-                  ),
-                  filled: true,
-                  fillColor: c.inputFill,
-                ),
-                isExpanded: true,
-                style: TextStyle(fontSize: 13, color: c.textPrimary),
-                dropdownColor: c.card,
-                items: _assessments
-                    .map(
-                      (a) => DropdownMenuItem<String>(
-                        value: (a['assessment_id'] ?? '').toString(),
-                        child: Text(
-                          a['title']?.toString() ?? 'Untitled',
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    )
-                    .toList(),
-                onChanged: _onAssessmentChanged,
-              ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(color: c.border),
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: DropdownButtonFormField<String>(
-                initialValue: _scoreSectionFilter,
-                decoration: InputDecoration(
-                  labelText: 'Section',
-                  labelStyle: TextStyle(color: c.textSecondary),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
+            filled: true,
+            fillColor: c.inputFill,
+          ),
+          isExpanded: true,
+          style: TextStyle(fontSize: 13, color: c.textPrimary),
+          dropdownColor: c.card,
+          items: _assessments
+              .map(
+                (a) => DropdownMenuItem<String>(
+                  value: (a['assessment_id'] ?? '').toString(),
+                  child: Text(
+                    a['title']?.toString() ?? 'Untitled',
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: c.border),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: c.border),
-                  ),
-                  filled: true,
-                  fillColor: c.inputFill,
                 ),
-                isExpanded: true,
-                style: TextStyle(fontSize: 13, color: c.textPrimary),
-                dropdownColor: c.card,
-                items: [
-                  const DropdownMenuItem<String>(
-                    value: null,
-                    child: Text('All Sections'),
-                  ),
-                  ..._uniqueStudentSections().map(
-                    (s) => DropdownMenuItem<String>(
-                      value: s,
-                      child: Text(s, overflow: TextOverflow.ellipsis),
-                    ),
-                  ),
-                ],
-                onChanged: (v) => setState(() => _scoreSectionFilter = v),
-              ),
-            ),
-          ],
+              )
+              .toList(),
+          onChanged: _onAssessmentChanged,
         ),
       ),
     );

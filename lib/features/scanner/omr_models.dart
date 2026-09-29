@@ -158,6 +158,26 @@ class OmrResult {
 
   double get scoreRaw => correctCount.toDouble();
 
+  OmrResult withStudentIdentifier(String? id) => OmrResult(
+        studentIdentifier: id,
+        assessmentId: assessmentId,
+        responses: responses,
+        readings: readings,
+        correctCount: correctCount,
+        maxScore: maxScore,
+        scorePercent: scorePercent,
+        isFlagged: isFlagged,
+        flagReason: flagReason,
+        flaggedItems: flaggedItems,
+        processingTime: processingTime,
+        alignedImageBytes: alignedImageBytes,
+        alignedWidth: alignedWidth,
+        alignedHeight: alignedHeight,
+        scoredMarkers: scoredMarkers,
+        alignmentMethod: alignmentMethod,
+        lowConfidenceAlignment: lowConfidenceAlignment,
+      );
+
   /// Reject grading/save when the sheet was never properly warped.
   bool get isAlignmentUsable =>
       !lowConfidenceAlignment && alignmentMethod != 'direct';
@@ -468,6 +488,7 @@ class ScanRecord {
   }
 
   ScanRecord copyWith({
+    String? studentIdentifier,
     Map<String, String>? responses,
     double? scorePercent,
     double? scoreRaw,
@@ -482,7 +503,7 @@ class ScanRecord {
       id: id,
       templateId: templateId,
       templateName: templateName,
-      studentIdentifier: studentIdentifier,
+      studentIdentifier: studentIdentifier ?? this.studentIdentifier,
       responses: responses ?? this.responses,
       scorePercent: scorePercent ?? this.scorePercent,
       scoreRaw: scoreRaw ?? this.scoreRaw,
