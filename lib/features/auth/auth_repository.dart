@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/network/api_client.dart';
+import '../../core/network/error_messages.dart';
 
 class AuthRepository {
   final ApiClient _apiClient = ApiClient();
@@ -114,18 +115,10 @@ class AuthRepository {
       return role;
     } on DioException catch (e) {
       if (e.response?.statusCode == 401) {
-        throw Exception('Invalid credentials. Check your email and password.');
-      }
-      if (e.type == DioExceptionType.connectionTimeout ||
-          e.type == DioExceptionType.connectionError ||
-          e.type == DioExceptionType.receiveTimeout) {
-        throw Exception(
-            'Cannot reach the server. Make sure the backend is running.');
+        throw Exception('Incorrect email or password. Please try again.');
       }
       throw Exception(
-          e.response?.data?['detail'] ?? 'Network error. Try again.');
-    } catch (e) {
-      throw Exception(e.toString().replaceAll('Exception: ', ''));
+          friendlyError(e, fallback: 'Could not sign you in. Please try again.'));
     }
   }
 
@@ -138,35 +131,8 @@ class AuthRepository {
     await prefs.remove('user_photo_url');
   }
 
-  /// Extract a human-readable error from a DioException response.
-  String _parseError(DioException e, String fallback) {
-    final data = e.response?.data;
-    if (data == null) {
-      if (e.type == DioExceptionType.connectionTimeout ||
-          e.type == DioExceptionType.connectionError ||
-          e.type == DioExceptionType.receiveTimeout) {
-        return 'Cannot reach the server. Check your connection.';
-      }
-      return fallback;
-    }
-    if (data is Map<String, dynamic>) {
-      // Common single-message keys
-      for (final key in ['detail', 'message', 'error']) {
-        if (data[key] != null) return data[key].toString();
-      }
-      // Nested field errors, e.g. {"email": ["not found"]}
-      for (final entry in data.entries) {
-        if (entry.key == 'status_code' || entry.key == 'success') continue;
-        final value = entry.value;
-        if (value is List && value.isNotEmpty) {
-          return '${entry.key}: ${value.first}';
-        } else if (value is String && value.isNotEmpty) {
-          return value;
-        }
-      }
-    }
-    return fallback;
-  }
+  String _parseError(DioException e, String fallback) =>
+      friendlyError(e, fallback: fallback);
 
   /// Request a password reset code
   Future<void> requestPasswordReset(String email) async {
@@ -321,9 +287,7 @@ class AuthRepository {
     } on GoogleSignInException catch (e) {
       throw Exception(_googleSignInError(e));
     } on DioException catch (e) {
-      throw Exception(_parseError(e, 'Google sign-in failed.'));
-    } catch (e) {
-      throw Exception(e.toString().replaceAll('Exception: ', ''));
+      throw Exception(_parseError(e, 'Google sign-in failed. Please try again.'));
     }
   }
 }

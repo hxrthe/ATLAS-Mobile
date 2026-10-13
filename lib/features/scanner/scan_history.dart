@@ -69,6 +69,7 @@ class ScanHistory {
       imagePath: updates['image_path'] as String? ?? old.imagePath,
       createdAt: old.createdAt,
       serverScanId: updates['server_scan_id'] as String? ?? old.serverScanId,
+      isQuickExam: old.isQuickExam,
     );
 
     all[idx] = updated;

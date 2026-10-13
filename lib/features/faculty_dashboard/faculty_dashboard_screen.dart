@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
+import '../../core/network/error_messages.dart';
 import '../../core/theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../scanner/scanner_screen.dart';
 import '../grading/grading_repository.dart';
 import '../grading/models.dart';
+import '../grading/scan_events.dart';
 import '../faculty_dashboard/course_detail_screen.dart';
 import '../../core/widgets/user_avatar.dart';
 import '../../core/widgets/atlas_loading_view.dart';
@@ -13,6 +15,7 @@ import '../../core/widgets/atlas_pull_to_refresh.dart';
 import '../../core/widgets/atlas_info_button.dart';
 import '../../core/widgets/pulse_dot.dart';
 import '../settings/account_security_screen.dart';
+import '../quick_exam/quick_exam_entry_card.dart';
 import 'home_widgets.dart';
 import 'tabs/courses_tab.dart';
 import 'tabs/reports_tab.dart';
@@ -26,12 +29,20 @@ class FacultyDashboardScreen extends StatefulWidget {
 }
 
 class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   int _selectedIndex = 0;
   String _userName = 'Instructor';
   String? _userPhotoUrl;
   Timer? _inactivityTimer;
   Timer? _eventsTimer;
+
+  /// Fingerprint of the last fetched scans; a change triggers a progress refresh.
+  String? _scansSignature;
+  bool _liveInFlight = false;
+  bool _childPageOpen = false;
+  bool _refreshingScores = false;
+  bool _scoresRefreshQueued = false;
+  StreamSubscription<ScanSavedEvent>? _scanEventsSub;
 
   // Real data
   final GradingRepository _repo = GradingRepository();
@@ -63,16 +74,47 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
         Tween<Offset>(begin: Offset.zero, end: const Offset(0, 1.5)).animate(
           CurvedAnimation(parent: _navSlideController, curve: Curves.easeInOut),
         );
+    WidgetsBinding.instance.addObserver(this);
+    _scanEventsSub = ScanEvents.stream.listen(_applyLocalScan);
     _initLoad();
     _resetInactivityTimer();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _scanEventsSub?.cancel();
     _inactivityTimer?.cancel();
     _eventsTimer?.cancel();
     _navSlideController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (_childPageOpen) return;
+      _startLiveUpdates();
+      _refreshLive();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _stopLiveUpdates();
+    }
+  }
+
+  /// Polls at the same 30s cadence the events list always used, so live
+  /// progress adds no extra periodic requests.
+  void _startLiveUpdates() {
+    _eventsTimer?.cancel();
+    _eventsTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _refreshLive(),
+    );
+  }
+
+  void _stopLiveUpdates() {
+    _eventsTimer?.cancel();
+    _eventsTimer = null;
   }
 
   void _resetInactivityTimer() {
@@ -102,15 +144,14 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
     });
 
     await _loadAll();
-    // Refresh events periodically
-    _eventsTimer = Timer.periodic(
-      const Duration(seconds: 30),
-      (_) => _loadEvents(),
-    );
+    if (mounted) _startLiveUpdates();
   }
 
   Future<void> _loadAll() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final courses = await _repo.fetchFacultyCourses();
       final allTemplates = <BubbleTemplate>[];
@@ -158,6 +199,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
           _activeTemplates = activeTemplates;
           _allTemplates = allTemplates;
           _systemEvents = events;
+          _scansSignature = _signatureOf(events);
           _activeAssessmentType = assessmentType;
           _loading = false;
         });
@@ -167,7 +209,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
       if (mounted) {
         setState(() {
           _loading = false;
-          _error = e.toString().replaceAll('Exception: ', '');
+          _error = friendlyError(e, fallback: 'Could not load your dashboard. Please try again.');
         });
       }
     }
@@ -182,28 +224,97 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
     }
   }
 
-  Future<void> _loadEvents() async {
-    final events = await _fetchWeekScans();
-    if (mounted) setState(() => _systemEvents = events);
+  /// Marks the student as scanned on the pending-assessment card right away,
+  /// using what the scanner already knows; the periodic check confirms it later.
+  void _applyLocalScan(ScanSavedEvent e) {
+    final payload = _templateScores[e.templateId];
+    if (!mounted || payload == null) return;
+    final key = payload['students'] is List ? 'students' : 'rows';
+    final rows = ((payload[key] as List<dynamic>?) ?? [])
+        .map((r) => Map<String, dynamic>.from(r as Map))
+        .toList();
+    final idx = rows.indexWhere(
+      (r) => (r['student_id'] ?? '').toString() == e.studentId,
+    );
+    final score = e.score ?? 0;
+    if (idx >= 0) {
+      rows[idx]['score'] = score;
+      if (e.maxScore != null) rows[idx]['max_score'] = e.maxScore;
+    } else if (e.section != null && e.section!.isNotEmpty) {
+      rows.add({
+        'student_id': e.studentId,
+        'section': e.section,
+        'score': score,
+        'max_score': ?e.maxScore,
+      });
+    } else {
+      return;
+    }
+    setState(() {
+      _templateScores = {
+        ..._templateScores,
+        e.templateId: {...payload, key: rows},
+      };
+    });
+  }
+
+  String _signatureOf(List<Map<String, dynamic>> scans) =>
+      scans.map((s) => s.toString()).join('|');
+
+  /// Background refresh of recent scans (one request). Section progress is
+  /// re-fetched only when those scans changed (new, edited or deleted), so the
+  /// page never reloads and idle polling stays a single lightweight call.
+  Future<void> _refreshLive() async {
+    if (!mounted || _loading || _liveInFlight) return;
+    _liveInFlight = true;
+    try {
+      final events = await _fetchWeekScans();
+      if (!mounted) return;
+      final signature = _signatureOf(events);
+      final changed = signature != _scansSignature;
+      setState(() {
+        _systemEvents = events;
+        _scansSignature = signature;
+      });
+      if (changed) _loadTemplateScores();
+    } finally {
+      _liveInFlight = false;
+    }
   }
 
   Future<void> _loadTemplateScores() async {
+    if (_refreshingScores) {
+      _scoresRefreshQueued = true;
+      return;
+    }
     final course = _activeCourse;
     if (course == null) return;
-    final courseId = course['course_id'].toString();
-    final results = <String, Map<String, dynamic>>{};
-    await Future.wait(
-      _activeTemplates.where((t) => t.assessmentId != null).map((t) async {
+    _refreshingScores = true;
+    try {
+      final courseId = course['course_id'].toString();
+      final results = <String, Map<String, dynamic>>{};
+      // One exam at a time so the backend never gets a burst of requests.
+      for (final t in _activeTemplates.where((t) => t.assessmentId != null)) {
+        if (!mounted || _activeCourse?['course_id'] != courseId) return;
         try {
           results[t.templateId] = await _repo.fetchStudentScores(
             courseId,
             t.assessmentId!,
           );
-        } catch (_) {}
-      }),
-    );
-    if (mounted && _activeCourse?['course_id'] == courseId) {
-      setState(() => _templateScores = results);
+        } catch (_) {
+          final previous = _templateScores[t.templateId];
+          if (previous != null) results[t.templateId] = previous;
+        }
+      }
+      if (mounted && _activeCourse?['course_id'] == courseId) {
+        setState(() => _templateScores = results);
+      }
+    } finally {
+      _refreshingScores = false;
+      if (_scoresRefreshQueued && mounted) {
+        _scoresRefreshQueued = false;
+        _loadTemplateScores();
+      }
     }
   }
 
@@ -244,6 +355,8 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
   ) async {
     // Pause inactivity timer while scanning
     _inactivityTimer?.cancel();
+    _childPageOpen = true;
+    _stopLiveUpdates();
 
     final effectiveCourseId = courseId.isEmpty ? null : courseId;
     await Navigator.push(
@@ -258,6 +371,10 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
 
     // Resume timer when returning
     _resetInactivityTimer();
+    _childPageOpen = false;
+    if (!mounted) return;
+    _startLiveUpdates();
+    _refreshLive();
   }
 
   void _navigateToCourseDetail(
@@ -267,6 +384,8 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
   ) async {
     await _navSlideController.forward();
     if (!mounted) return;
+    _childPageOpen = true;
+    _stopLiveUpdates();
     await Navigator.push(
       context,
       MaterialPageRoute(
@@ -278,7 +397,11 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
         ),
       ),
     );
+    _childPageOpen = false;
+    if (!mounted) return;
     _navSlideController.reverse();
+    _startLiveUpdates();
+    _refreshLive();
   }
 
   String _timeAgo(String iso) {
@@ -395,9 +518,20 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
         ),
         floatingActionButton: SlideTransition(
           position: _navSlideAnimation,
-          child: SizedBox(
+          child: Container(
             height: 72,
             width: 72,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.22),
+                  blurRadius: 14,
+                  spreadRadius: 1,
+                  offset: const Offset(0, -5),
+                ),
+              ],
+            ),
             child: FloatingActionButton(
               onPressed: () {
                 _resetInactivityTimer();
@@ -466,8 +600,20 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                   physics: const AlwaysScrollableScrollPhysics(),
                   children: [
                     const SizedBox(height: 180),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Text(
+                        _error!,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: c.primary),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     Center(
-                      child: Text(_error!, style: TextStyle(color: c.primary)),
+                      child: ElevatedButton(
+                        onPressed: _loadAll,
+                        child: const Text('Retry'),
+                      ),
                     ),
                   ],
                 )
@@ -638,6 +784,8 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                           ],
                         ),
                       ),
+                      const SizedBox(height: 16),
+                      const QuickExamEntryCard(),
                       const SizedBox(height: 32),
 
                       // Pending Assessments

@@ -84,3 +84,64 @@ class OmrConstants {
     3: 'BL',
   };
 }
+
+/// The ArUco-padded crop of one sheet, in page millimetres. Full-page sheets
+/// use [standard]; compact (half-page) quiz sheets carry their own fiducial
+/// positions in `layout_metadata.fiducials`.
+class OmrFrame {
+  final double originXmm;
+  final double originYmm;
+  final double wMm;
+  final double hMm;
+  final double edgeToCenterMm;
+
+  const OmrFrame._(this.originXmm, this.originYmm, this.wMm, this.hMm, this.edgeToCenterMm);
+
+  static final OmrFrame standard = OmrFrame._(
+    OmrConstants.cropOriginXmm,
+    OmrConstants.cropOriginYmm,
+    OmrConstants.cropWmm,
+    OmrConstants.cropHmm,
+    OmrConstants.cropEdgeToCenterMm,
+  );
+
+  /// Frame of the sheet being scanned (main isolate only; set by the scanner).
+  static OmrFrame active = standard;
+
+  factory OmrFrame.fromLayout(Map<String, dynamic>? layout) {
+    final fids = layout?['fiducials'];
+    if (fids is! List) return standard;
+    Map? corner(String name) {
+      for (final f in fids) {
+        if (f is Map && f['corner'] == name) return f;
+      }
+      return null;
+    }
+
+    final tl = corner('TL'), br = corner('BR');
+    if (tl == null || br == null) return standard;
+    double n(Map m, String k) => (m[k] as num?)?.toDouble() ?? double.nan;
+    final size = n(tl, 'size_mm').isNaN ? OmrConstants.fidSizeMm : n(tl, 'size_mm');
+    final tlx = n(tl, 'x_mm') + size / 2, tly = n(tl, 'y_spec_mm') + size / 2;
+    final brx = n(br, 'x_mm') + size / 2, bry = n(br, 'y_spec_mm') + size / 2;
+    if ([tlx, tly, brx, bry].any((v) => v.isNaN) || brx <= tlx || bry <= tly) {
+      return standard;
+    }
+    final edge = size / 2 + OmrConstants.cropPadMm;
+    return OmrFrame._(
+      tlx - edge,
+      tly - edge,
+      (brx - tlx) + 2 * edge,
+      (bry - tly) + 2 * edge,
+      edge,
+    );
+  }
+
+  double get aspect => wMm / hMm;
+
+  /// Page millimetres → 0..1 within this crop.
+  (double, double) mmToNorm(double xMm, double yMm) => (
+        ((xMm - originXmm) / wMm).clamp(0.0, 1.0),
+        ((yMm - originYmm) / hMm).clamp(0.0, 1.0),
+      );
+}

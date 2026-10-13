@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/network/error_messages.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/atlas_filter_chip.dart';
 import '../grading/grading_repository.dart';
@@ -578,7 +579,7 @@ class _ScanEventsSheetState extends State<_ScanEventsSheet> {
       if (!mounted || id != _requestId) return;
       setState(() {
         _loading = false;
-        _error = e.toString().replaceAll('Exception: ', '');
+        _error = friendlyError(e, fallback: 'Could not load scans. Please try again.');
       });
     }
   }

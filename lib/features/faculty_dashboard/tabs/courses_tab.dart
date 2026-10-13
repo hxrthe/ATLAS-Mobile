@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import '../../grading/grading_repository.dart';
+import '../../../core/network/error_messages.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/atlas_loading_view.dart';
 import '../../../core/widgets/atlas_pull_to_refresh.dart';
+import '../../quick_exam/quick_exam_entry_card.dart';
 
 class CoursesTab extends StatefulWidget {
   final void Function(String courseId, String courseCode, String courseTitle)
@@ -27,7 +29,10 @@ class _CoursesTabState extends State<CoursesTab> {
   }
 
   Future<void> _loadCourses() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final courses = await _repository.fetchFacultyCourses();
       if (mounted) {
@@ -40,7 +45,7 @@ class _CoursesTabState extends State<CoursesTab> {
       if (mounted) {
         setState(() {
           _loading = false;
-          _error = e.toString().replaceAll('Exception: ', '');
+          _error = friendlyError(e, fallback: 'Could not load your courses. Please try again.');
         });
       }
     }
@@ -60,6 +65,18 @@ class _CoursesTabState extends State<CoursesTab> {
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(24.0),
                 children: [
+                  Text(
+                    'QUICK EXAMS',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: c.textSecondary,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const QuickExamEntryCard(),
+                  const SizedBox(height: 28),
                   Text(
                     'COURSE MANAGEMENT',
                     style: TextStyle(

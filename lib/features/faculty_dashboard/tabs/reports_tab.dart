@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../grading/grading_repository.dart';
+import '../../../core/network/error_messages.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/atlas_loading_view.dart';
 import '../../../core/widgets/atlas_pull_to_refresh.dart';
@@ -73,7 +74,7 @@ class _ReportsTabState extends State<ReportsTab> {
       setState(() {
         _loading = false;
         _refreshing = false;
-        _error = e.toString().replaceAll('Exception: ', '');
+        _error = friendlyError(e, fallback: 'Could not load reports. Please try again.');
       });
     }
   }
@@ -537,7 +538,7 @@ class _ReportsTabState extends State<ReportsTab> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(e.toString().replaceAll('Exception: ', '')),
+        content: Text(friendlyError(e, fallback: 'Could not save the passing score. Please try again.')),
         backgroundColor: context.atlas.primary,
       ));
     } finally {

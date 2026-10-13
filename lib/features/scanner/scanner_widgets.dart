@@ -3,6 +3,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart' hide DiagnosticLevel;
 import 'package:flutter/services.dart';
 import '../../core/theme/app_theme.dart';
+import '../grading/answer_key.dart';
 import '../grading/models.dart';
 import 'omr_constants.dart';
 import 'omr_models.dart';
@@ -975,6 +976,7 @@ String? _answerKeyForItem(Map<String, String> answerKey, String item) {
 }
 
 bool _responseMatchesKey(String? resp, String? expected) {
+  if (isBonusKey(expected)) return true;
   if (resp == null || expected == null) return false;
   if (_isAmbiguousResponse(resp)) return false;
   return resp.trim().toUpperCase() == expected.trim().toUpperCase();
@@ -1009,7 +1011,9 @@ bool _responseMatchesKey(String? resp, String? expected) {
       final resp = responses[key] ?? responses[key.padLeft(2, '0')] ?? '?';
       final expected = _answerKeyForItem(answerKey, key);
       final amb = _isAmbiguousResponse(resp) || flagged.contains(i);
-      if (amb) {
+      if (isBonusKey(expected)) {
+        correct++;
+      } else if (amb) {
         ambiguous++;
       } else if (_responseMatchesKey(resp, expected)) {
         correct++;
@@ -1379,8 +1383,9 @@ Widget _omrItemResponsesGrid({
       final resp = responses[item] ?? responses[item.padLeft(2, '0')] ?? '?';
       final display = _displayResponse(resp);
       final expected = _answerKeyForItem(answerKey, item);
-      final amb =
-          _isAmbiguousResponse(resp) || flagged.contains(i + 1) || display == '?';
+      final bonus = isBonusKey(expected);
+      final amb = !bonus &&
+          (_isAmbiguousResponse(resp) || flagged.contains(i + 1) || display == '?');
       final ok = hasKey && !amb && _responseMatchesKey(resp, expected);
 
       late final Color bg, bd, fg;
@@ -1451,7 +1456,7 @@ void _openSheetZoomViewer(
           maxScale: 6,
           child: Center(
             child: AspectRatio(
-              aspectRatio: OmrConstants.cropAspect,
+              aspectRatio: OmrFrame.active.aspect,
               child: ColoredBox(
                 color: Colors.white,
                 child: LayoutBuilder(
@@ -1797,8 +1802,8 @@ class _EditAnswersSheetState extends State<EditAnswersSheet> {
                 final display = _displayResponse(current);
                 final isSelected = _selectedItem == itemNum;
                 final correct = widget.template?.answerKey[itemNum];
-                final amb = _isAmbiguousResponse(current);
-                final ok = !amb && current == correct;
+                final amb = !isBonusKey(correct) && _isAmbiguousResponse(current);
+                final ok = !amb && isKeyCorrect(current, correct);
                 final Color valueColor;
                 if (amb) {
                   valueColor = Colors.orange.shade800;
@@ -2768,7 +2773,7 @@ class _ScanResultViewState extends State<ScanResultView>
               ),
             ),
           AspectRatio(
-            aspectRatio: OmrConstants.cropAspect,
+            aspectRatio: OmrFrame.active.aspect,
             child: GestureDetector(
               onTap: canZoom
                   ? () => _openSheetZoomViewer(
@@ -2952,9 +2957,8 @@ class _ScoredMarkersPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     for (final m in markers) {
-      final crop = OmrConstants.pageNormToCropNorm(m.nx, m.ny);
-      final c = Offset(crop.$1 * size.width, crop.$2 * size.height);
-      final r = (m.rMm / OmrConstants.cropWmm * size.width).clamp(4.0, 22.0);
+      final c = Offset(m.nx * size.width, m.ny * size.height);
+      final r = (m.rMm / OmrFrame.active.wMm * size.width).clamp(4.0, 22.0);
       final color = switch (m.kind) {
         ScoredMarkerKind.studentId => const Color(0xFF9E9E9E),
         ScoredMarkerKind.correct => const Color(0xFF00C853),

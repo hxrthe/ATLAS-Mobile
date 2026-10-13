@@ -51,6 +51,7 @@ class TemplateCache {
     'has_essay': t.hasEssay,
     'essay_lines': t.essayLines,
     'passing_score': t.passingScore,
+    'is_quick_exam': t.isQuickExam,
   };
 
   static BubbleTemplate _fromJson(Map<String, dynamic> j) => BubbleTemplate.fromJson(j);

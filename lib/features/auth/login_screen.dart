@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 
@@ -192,8 +193,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 50),
                       
                       // BIGGER LOGO
-                      Image.asset(
-                        'assets/images/Frame 4.png',
+                      SvgPicture.asset(
+                        'assets/images/atlas_mobile_logo.svg',
                         height: 120, // Increased for a stronger presence
                         fit: BoxFit.contain,
                       ),

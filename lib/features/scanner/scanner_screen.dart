@@ -4,8 +4,13 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../grading/answer_key.dart';
 import '../grading/grading_repository.dart';
 import '../grading/models.dart';
+import '../grading/scan_events.dart';
+import '../quick_exam/quick_exam_models.dart';
+import '../quick_exam/quick_exam_repository.dart';
+import 'omr_constants.dart';
 import 'omr_imaging.dart';
 import 'omr_models.dart';
 import 'omr_service.dart';
@@ -18,10 +23,14 @@ class ScannerScreen extends StatefulWidget {
   final String? preSelectedCourseId;
   final String? preSelectedCourseName;
 
+  /// Quick exam to scan right away (sheets still switch by their QR).
+  final BubbleTemplate? quickExam;
+
   const ScannerScreen({
     super.key,
     this.preSelectedCourseId,
     this.preSelectedCourseName,
+    this.quickExam,
   });
 
   @override
@@ -38,6 +47,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
   static const int _frameSkip = 1;
 
   final GradingRepository _repository = GradingRepository();
+  final QuickExamRepository _quickRepository = QuickExamRepository();
   List<BubbleTemplate> _templates = [];
   BubbleTemplate? _selectedTemplate;
 
@@ -130,8 +140,23 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     super.initState();
     _scoreFlashController = AnimationController(vsync: this, duration: const Duration(milliseconds: 1500));
     _scoreFlashAnimation = CurvedAnimation(parent: _scoreFlashController!, curve: Curves.easeInOut);
+    final quick = widget.quickExam;
+    if (quick != null) {
+      _selectedTemplate = quick;
+      _assessmentIdentified = true;
+      _templates = [quick];
+    }
     _initScanner();
   }
+
+  /// Value printed in a sheet's QR for [t]: `QX:<id>` for quick exams.
+  String? _qrKeyOf(BubbleTemplate? t) {
+    if (t == null) return null;
+    return t.isQuickExam ? '$quickExamQrPrefix${t.templateId}' : t.assessmentId;
+  }
+
+  Future<BubbleTemplate> _fetchQuickTemplate(String examId) async =>
+      (await _quickRepository.fetchExam(examId)).toTemplate();
 
   Future<void> _initScanner() async {
     // Camera first — assessment is chosen by QR on the sheet, not by UI.
@@ -216,11 +241,17 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     super.dispose();
   }
 
+  List<BubbleTemplate> _keepQuick(List<BubbleTemplate> next) => [
+        ...next,
+        ..._templates.where((t) =>
+            t.isQuickExam && !next.any((n) => n.templateId == t.templateId)),
+      ];
+
   Future<void> _loadTemplates() async {
     try {
       final cached = await TemplateCache.load();
       if (cached != null && cached.isNotEmpty && mounted) {
-        setState(() => _templates = cached);
+        setState(() => _templates = _keepQuick(cached));
       }
       await _fetchFromNetwork();
     } catch (e) {
@@ -233,7 +264,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     if (courseId != null && courseId.isNotEmpty) {
       final templates = await _repository.fetchTemplates(courseId);
       await TemplateCache.store(templates);
-      if (mounted) setState(() => _templates = templates);
+      if (mounted) setState(() => _templates = _keepQuick(templates));
       return;
     }
     final courses = await _repository.fetchFacultyCourses();
@@ -241,7 +272,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       final templates =
           await _repository.fetchTemplates(courses.first['course_id']!);
       await TemplateCache.store(templates);
-      if (mounted) setState(() => _templates = templates);
+      if (mounted) setState(() => _templates = _keepQuick(templates));
     }
   }
 
@@ -250,12 +281,16 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     BubbleTemplate bound = seed;
     try {
       // Always pull full detail so layout_metadata.items is present.
-      bound = await _repository.fetchTemplateDetail(seed.templateId);
+      bound = seed.isQuickExam
+          ? await _fetchQuickTemplate(seed.templateId)
+          : await _repository.fetchTemplateDetail(seed.templateId);
     } catch (e) {
       debugPrint('Template detail fetch failed: $e');
     }
 
-    if (bound.answerKey.isEmpty && bound.assessmentId != null) {
+    if (!bound.isQuickExam &&
+        bound.answerKey.isEmpty &&
+        bound.assessmentId != null) {
       try {
         bound = await _repository.syncKeyFromAssessment(bound.templateId);
       } catch (e) {
@@ -347,11 +382,14 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
           _fiducialLock.lockDuration >= 3 ||
           _frameCount % 12 == 0;
 
+      final sheetFrame = OmrFrame.fromLayout(_selectedTemplate?.layoutMetadata);
+      OmrFrame.active = sheetFrame;
       final det = OmrImaging.detectFiducialsLive(
         frame,
         previewSize: _controller?.value.previewSize,
         buildAlignedPreview: wantWarp,
         copyGradeSnapshot: wantWarp,
+        sheetFrame: sheetFrame,
       );
 
       final next = _fiducialLock.update(
@@ -430,7 +468,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
             final rescanLocked = _rescanExpectedAssessmentId != null &&
                 !_sameId(_rescanExpectedAssessmentId, assessmentId);
             if (!rescanLocked) {
-              if (_selectedTemplate?.assessmentId != assessmentId) {
+              if (!_sameId(_qrKeyOf(_selectedTemplate), assessmentId)) {
                 await _identifyAssessmentFromQr(assessmentId);
               } else if (!_assessmentIdentified && mounted) {
                 setState(() => _assessmentIdentified = true);
@@ -502,6 +540,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
             arucoXy: snapshot.hasDisplayLuma
                 ? snapshot.displayArucoXy!
                 : snapshot.arucoXy,
+            frame: OmrFrame.active,
           ) ??
           _alignedPreviewBytes;
       await _stopImageStream();
@@ -556,7 +595,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     final expectedStudent = _lastOmrResult?.studentIdentifier ??
         _pendingUploadRecord?.studentIdentifier;
     final expectedAssessment = _lastOmrResult?.assessmentId ??
-        _selectedTemplate?.assessmentId;
+        _qrKeyOf(_selectedTemplate);
     final replaceId = _pendingUploadRecord?.id;
 
     _omrJobId++;
@@ -663,11 +702,14 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
 
       if (!scanTemplate.hasLayoutItems || scanTemplate.answerKey.isEmpty) {
         try {
-          if (!scanTemplate.hasLayoutItems) {
+          if (scanTemplate.isQuickExam) {
+            scanTemplate = await _fetchQuickTemplate(scanTemplate.templateId);
+          } else if (!scanTemplate.hasLayoutItems) {
             scanTemplate =
                 await _repository.fetchTemplateDetail(scanTemplate.templateId);
           }
-          if (scanTemplate.answerKey.isEmpty &&
+          if (!scanTemplate.isQuickExam &&
+              scanTemplate.answerKey.isEmpty &&
               scanTemplate.assessmentId != null) {
             scanTemplate =
                 await _repository.syncKeyFromAssessment(scanTemplate.templateId);
@@ -739,17 +781,28 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
         return;
       }
 
-      // Only students already on a section may be recorded.
       _resultStatusTimer?.cancel();
-      setState(() {
-        _bindOmrResult(result);
-        _resultStatus = 'Checking student section…';
-      });
-      final gatedId = await _gateStudentSection(result.studentIdentifier, scanTemplate);
-      if (jobId != _omrJobId || !mounted) return;
-      if (gatedId == null) {
-        _scanNext();
-        return;
+      final String gatedId;
+      if (scanTemplate.isQuickExam) {
+        // Quick exams have no class list: record whatever ID the sheet shows.
+        setState(() => _bindOmrResult(result));
+        gatedId = (result.studentIdentifier ?? '').trim().isEmpty
+            ? 'Unknown'
+            : result.studentIdentifier!;
+      } else {
+        // Only students already on a section may be recorded.
+        setState(() {
+          _bindOmrResult(result);
+          _resultStatus = 'Checking student section…';
+        });
+        final sectioned =
+            await _gateStudentSection(result.studentIdentifier, scanTemplate);
+        if (jobId != _omrJobId || !mounted) return;
+        if (sectioned == null) {
+          _scanNext();
+          return;
+        }
+        gatedId = sectioned;
       }
       if (gatedId != result.studentIdentifier) {
         result = result.withStudentIdentifier(gatedId);
@@ -757,7 +810,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
 
       final finalStudentId = gatedId;
       final finalAssessmentId =
-          result.assessmentId ?? scanTemplate.assessmentId;
+          result.assessmentId ?? _qrKeyOf(scanTemplate);
 
       // Rescan lock: must be the same student + assessment sheet.
       if (_isRescanSession) {
@@ -816,8 +869,11 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       // Check for duplicate scan (same student + same assessment)
       final allRecords = await ScanHistory.getAll();
       if (jobId != _omrJobId || !mounted) return;
+      final canMatchStudent =
+          !scanTemplate.isQuickExam || isUsableStudentId(finalStudentId);
       final duplicate = allRecords.where(
         (r) =>
+            canMatchStudent &&
             r.studentIdentifier == finalStudentId &&
             r.templateId == scanTemplate.templateId &&
             r.id != _rescanReplaceRecordId,
@@ -891,6 +947,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
         flaggedItems: result.flaggedItems,
         imagePath: imagePath,
         createdAt: DateTime.now(),
+        isQuickExam: scanTemplate.isQuickExam,
       );
 
       await ScanHistory.addRecord(record);
@@ -911,7 +968,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
           _isCapturing = false;
           _resultProcessing = false;
           _bindOmrResult(result);
-          _resultStatus = 'Uploading to grading results…';
+          _resultStatus = _uploadingLabel(record);
           _uploadStatus = 'uploading';
         });
       }
@@ -929,10 +986,57 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     }
   }
 
+  String _uploadingLabel(ScanRecord record) => record.isQuickExam
+      ? 'Saving to exam records…'
+      : 'Uploading to grading results…';
+
+  Future<void> _attemptQuickUpload(ScanRecord record) async {
+    if (mounted && _pendingUploadRecord?.id == record.id) {
+      setState(() {
+        _uploadStatus = 'uploading';
+        _resultStatus = _uploadingLabel(record);
+      });
+    }
+    try {
+      final sid = record.studentIdentifier;
+      final saved = await _quickRepository.uploadScan(
+        examId: record.templateId,
+        studentId: isUsableStudentId(sid) ? sid : null,
+        responses: record.responses,
+        isFlagged: record.isFlagged,
+        flagReason: record.flagReason,
+      );
+      final scanId = saved.scan.scanId;
+      await ScanHistory.updateRecord(record.id, {'server_scan_id': scanId});
+      if (!mounted) return;
+      setState(() {
+        final idx = _scanRecords.indexWhere((r) => r.id == record.id);
+        if (idx >= 0) {
+          _scanRecords[idx] = _scanRecords[idx].copyWith(serverScanId: scanId);
+        }
+        if (_pendingUploadRecord?.id == record.id) {
+          _pendingUploadRecord = record.copyWith(serverScanId: scanId);
+          _uploadStatus = 'uploaded';
+          _resultStatus = saved.replaced
+              ? 'Replaced earlier exam record'
+              : 'Saved to exam records';
+        }
+      });
+    } catch (e) {
+      debugPrint('Quick exam upload failed: $e');
+      if (!mounted || _pendingUploadRecord?.id != record.id) return;
+      setState(() {
+        _uploadStatus = 'failed';
+        _resultStatus = 'Saved on device — upload failed. Tap retry to sync.';
+      });
+    }
+  }
+
   Future<void> _attemptBackgroundUpload(
     ScanRecord record, {
     bool allowRetry = true,
   }) async {
+    if (record.isQuickExam) return _attemptQuickUpload(record);
     final path = record.imagePath;
     if (path == null || path.isEmpty) {
       if (mounted) {
@@ -962,6 +1066,16 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
         flagReason: record.flagReason,
       );
       await ScanHistory.updateRecord(record.id, {'server_scan_id': scan.scanId});
+      final studentId = scan.studentIdentifier.isNotEmpty
+          ? scan.studentIdentifier
+          : record.studentIdentifier;
+      ScanEvents.emit(ScanSavedEvent(
+        templateId: record.templateId,
+        studentId: studentId,
+        section: _sectionedBlocks[studentId]?.section,
+        score: scan.scoreRaw ?? record.scoreRaw,
+        maxScore: scan.maxScore ?? record.maxScore,
+      ));
       if (mounted) {
         if (_pendingUploadRecord?.id != record.id) return;
         setState(() {
@@ -1067,9 +1181,13 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
 
     try {
       BubbleTemplate? seed;
-      final cached = _templates.where((t) => t.assessmentId == assessmentId);
+      final quickId = quickExamIdFromQr(assessmentId);
+      final cached =
+          _templates.where((t) => _sameId(_qrKeyOf(t), assessmentId));
       if (cached.isNotEmpty) {
         seed = cached.first;
+      } else if (quickId != null) {
+        seed = await _fetchQuickTemplate(quickId);
       } else {
         seed = await _repository.fetchTemplateByAssessment(assessmentId);
       }
@@ -1120,8 +1238,12 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       return;
     }
     try {
-      var bound = await _repository.fetchTemplateDetail(record.templateId);
-      if (bound.answerKey.isEmpty && bound.assessmentId != null) {
+      var bound = record.isQuickExam
+          ? await _fetchQuickTemplate(record.templateId)
+          : await _repository.fetchTemplateDetail(record.templateId);
+      if (!bound.isQuickExam &&
+          bound.answerKey.isEmpty &&
+          bound.assessmentId != null) {
         bound = await _repository.syncKeyFromAssessment(bound.templateId);
       }
       if (!mounted) return;
@@ -1172,10 +1294,11 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       final ambiguous = resp.isEmpty ||
           resp == '?' ||
           resp.replaceAll(RegExp(r'[^A-Za-z]'), '').length > 1;
-      if (ambiguous) {
+      if (isBonusKey(expected)) {
+        correct++;
+      } else if (ambiguous) {
         flagged.add(i);
-      } else if (expected != null &&
-          resp.toUpperCase() == expected.trim().toUpperCase()) {
+      } else if (isKeyCorrect(resp, expected)) {
         correct++;
       }
     }
@@ -1202,7 +1325,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
 
   Future<void> _reScanPaper(ScanRecord record) async {
     await _ensureTemplateForRecord(record);
-    final assessmentId = _selectedTemplate?.assessmentId;
+    final assessmentId = _qrKeyOf(_selectedTemplate);
     _beginRescanSession(
       expectedStudentId: record.studentIdentifier,
       expectedAssessmentId: assessmentId,

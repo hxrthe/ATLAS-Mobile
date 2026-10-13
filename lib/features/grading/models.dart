@@ -13,6 +13,9 @@ class BubbleTemplate {
   final double? passingScore;
   final Map<String, dynamic> layoutMetadata;
 
+  /// Mobile-only quick exam: saved through the quick-exam API, no course or section.
+  final bool isQuickExam;
+
   BubbleTemplate({
     required this.templateId,
     required this.courseId,
@@ -27,12 +30,22 @@ class BubbleTemplate {
     required this.answerKey,
     this.passingScore,
     required this.layoutMetadata,
+    this.isQuickExam = false,
   });
 
   /// Returns true when bubble positions are available for template-based OMR.
   bool get hasLayoutItems {
     final items = layoutMetadata['items'];
     return items is Map && items.isNotEmpty;
+  }
+
+  /// Student ID boxes printed on the sheet.
+  int get idDigits {
+    final explicit = layoutMetadata['num_id_columns'];
+    if (explicit is num) return explicit.toInt();
+    final cols = layoutMetadata['id_columns'];
+    if (cols is Map && cols['num_cols'] is num) return (cols['num_cols'] as num).toInt();
+    return 8;
   }
 
   factory BubbleTemplate.fromJson(Map<String, dynamic> json) {
@@ -53,6 +66,7 @@ class BubbleTemplate {
       answerKey: _parseAnswerKey(json['answer_key']),
       passingScore: (json['passing_score'] as num?)?.toDouble(),
       layoutMetadata: json['layout_metadata'] ?? {},
+      isQuickExam: json['is_quick_exam'] == true,
     );
   }
 

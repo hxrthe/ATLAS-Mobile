@@ -195,7 +195,8 @@ class OmrResult {
     const page = 8.5 / 13.0;
     final aspect = w / h;
     return (aspect - page).abs() < 0.12 ||
-        (aspect - OmrConstants.cropAspect).abs() < 0.12;
+        (aspect - OmrConstants.cropAspect).abs() < 0.12 ||
+        (aspect - OmrFrame.active.aspect).abs() < 0.12;
   }
 }
 
@@ -433,6 +434,7 @@ class ScanRecord {
   final String? imagePath;
   final DateTime createdAt;
   final String? serverScanId; // set after successful upload
+  final bool isQuickExam;
 
   ScanRecord({
     required this.id,
@@ -449,6 +451,7 @@ class ScanRecord {
     this.imagePath,
     required this.createdAt,
     this.serverScanId,
+    this.isQuickExam = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -466,6 +469,7 @@ class ScanRecord {
         'image_path': imagePath,
         'created_at': createdAt.toIso8601String(),
         'server_scan_id': serverScanId,
+        'is_quick_exam': isQuickExam,
       };
 
   factory ScanRecord.fromJson(Map<String, dynamic> json) {
@@ -484,6 +488,7 @@ class ScanRecord {
       imagePath: json['image_path'],
       createdAt: DateTime.tryParse(json['created_at'] ?? '') ?? DateTime.now(),
       serverScanId: json['server_scan_id'],
+      isQuickExam: json['is_quick_exam'] == true,
     );
   }
 
@@ -515,6 +520,7 @@ class ScanRecord {
       imagePath: imagePath,
       createdAt: createdAt,
       serverScanId: serverScanId ?? this.serverScanId,
+      isQuickExam: isQuickExam,
     );
   }
 }

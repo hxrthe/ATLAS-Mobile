@@ -1,4 +1,5 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../core/network/error_messages.dart';
 import '../auth_repository.dart';
 import 'auth_event.dart';
 import 'auth_state.dart';
@@ -16,7 +17,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         );
         emit(AuthSuccess(role: role));
       } catch (e) {
-        emit(AuthFailure(error: e.toString().replaceAll('Exception: ', '')));
+        emit(AuthFailure(
+          error: friendlyError(e, fallback: 'Could not sign you in. Please try again.'),
+        ));
       }
     });
 
@@ -26,7 +29,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         final result = await authRepository.loginWithGoogle();
         emit(AuthSuccess(role: result['role'] as String));
       } catch (e) {
-        emit(AuthFailure(error: e.toString().replaceAll('Exception: ', '')));
+        emit(AuthFailure(
+          error: friendlyError(e, fallback: 'Google sign-in failed. Please try again.'),
+        ));
       }
     });
 
@@ -36,7 +41,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         await authRepository.requestPasswordReset(event.email);
         emit(ForgotPasswordEmailSent(email: event.email));
       } catch (e) {
-        emit(AuthFailure(error: e.toString()));
+        emit(AuthFailure(
+          error: friendlyError(e, fallback: 'Could not send the reset code. Please try again.'),
+        ));
       }
     });
 
@@ -49,7 +56,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         );
         emit(OtpVerified(resetToken: resetToken));
       } catch (e) {
-        emit(AuthFailure(error: e.toString()));
+        emit(AuthFailure(
+          error: friendlyError(e, fallback: 'The code is invalid or has expired.'),
+        ));
       }
     });
 
@@ -62,7 +71,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         );
         emit(PasswordResetSuccess());
       } catch (e) {
-        emit(AuthFailure(error: e.toString()));
+        emit(AuthFailure(
+          error: friendlyError(e, fallback: 'Could not reset your password. Please try again.'),
+        ));
       }
     });
   }

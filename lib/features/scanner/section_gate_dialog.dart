@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/network/error_messages.dart';
 import '../grading/grading_repository.dart';
 import '../grading/models.dart';
 import 'scanner_widgets.dart';
@@ -170,8 +171,10 @@ class _SectionGateDialogState extends State<_SectionGateDialog> {
       if (!mounted) return;
       setState(() {
         _saving = false;
-        _error =
-            'Could not add student: ${e.toString().replaceAll('Exception: ', '')}';
+        _error = friendlyError(
+          e,
+          fallback: 'Could not add the student to the section. Please try again.',
+        );
       });
     }
   }

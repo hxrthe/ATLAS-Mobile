@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import '../../core/network/api_client.dart';
+import '../../core/network/error_messages.dart';
 import 'models.dart';
 
 class GradingRepository {
@@ -330,22 +332,10 @@ class GradingRepository {
       final templateJson = data['template'] ?? data;
       return BubbleTemplate.fromJson(templateJson);
     } catch (e) {
-      // Handle both DioException (from interceptor chain) and plain Exception
-      String detail = 'Failed to update passing score.';
-      if (e is DioException) {
-        final body = e.response?.data;
-        if (body is Map) {
-          detail = body['detail']?.toString() ??
-              body['passing_score']?.toString() ??
-              body.values.first?.toString() ??
-              detail;
-        } else if (e.message != null && e.message!.isNotEmpty) {
-          detail = e.message!;
-        }
-      } else {
-        detail = e.toString().replaceAll('Exception: ', '');
-      }
-      throw Exception(detail);
+      throw Exception(friendlyError(
+        e,
+        fallback: 'Could not save the passing score. Please try again.',
+      ));
     }
   }
 
@@ -536,6 +526,103 @@ class GradingRepository {
       },
     );
     return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  static String? _bodyMessage(dynamic body) {
+    if (body is! Map) return null;
+    final detail = body['detail'];
+    if (detail is String && detail.isNotEmpty) return detail;
+    final errors = body['errors'];
+    if (errors is Map && errors.isNotEmpty) {
+      final first = errors.values.first;
+      if (first is List && first.isNotEmpty) return first.first.toString();
+      return first.toString();
+    }
+    return null;
+  }
+
+  /// Creates an exam on a course from mobile: assessment + items + bubble sheet
+  /// template, in the same tables the web uses.
+  Future<({String assessmentId, BubbleTemplate template, bool layoutReady})>
+      createCourseExam(Map<String, dynamic> body) async {
+    try {
+      final r = await _apiClient.dio.post('grading/course-exams/', data: body);
+      final data = Map<String, dynamic>.from(r.data as Map);
+      return (
+        assessmentId: (data['assessment'] as Map)['assessment_id'].toString(),
+        template: BubbleTemplate.fromJson(
+          Map<String, dynamic>.from(data['template'] as Map),
+        ),
+        layoutReady: data['layout_ready'] == true,
+      );
+    } on DioException catch (e) {
+      final msg = _bodyMessage(e.response?.data);
+      if (msg != null) throw Exception(msg);
+      rethrow;
+    }
+  }
+
+  /// Bubble sheet template for an assessment made on the web without one.
+  Future<BubbleTemplate> createTemplateForAssessment({
+    required String courseId,
+    required String assessmentId,
+    required String name,
+    required int totalItems,
+    int numChoices = 4,
+    int idColumns = 8,
+  }) async {
+    try {
+      final r = await _apiClient.dio.post('grading/bubble/templates/', data: {
+        'course_id': courseId,
+        'assessment_id': assessmentId,
+        'name': name.length > 150 ? name.substring(0, 150) : name,
+        'total_items': totalItems,
+        'num_choices': numChoices,
+        'has_essay': false,
+        'essay_lines': 0,
+        'layout_metadata': {'num_id_columns': idColumns},
+      });
+      return BubbleTemplate.fromJson(
+        Map<String, dynamic>.from((r.data as Map)['template'] as Map),
+      );
+    } on DioException catch (e) {
+      final msg = _bodyMessage(e.response?.data);
+      if (msg != null) throw Exception(msg);
+      rethrow;
+    }
+  }
+
+  /// Changes how many student ID digits the sheet prints, then regenerates the
+  /// layout so the scanner reads the new ID grid. Returns the new sheet PDF.
+  Future<Uint8List> updateTemplateIdDigits(String templateId, int digits) async {
+    final current = await fetchTemplateDetail(templateId);
+    try {
+      await _apiClient.dio.patch(
+        'grading/bubble/templates/$templateId/',
+        data: {
+          'layout_metadata': {
+            ...current.layoutMetadata,
+            'num_id_columns': digits,
+          },
+        },
+      );
+    } on DioException catch (e) {
+      final msg = _bodyMessage(e.response?.data);
+      if (msg != null) throw Exception(msg);
+      rethrow;
+    }
+    return generateTemplatePdf(templateId);
+  }
+
+  /// Printable sheet PDF from the web generator (also refreshes the layout
+  /// the scanner reads).
+  Future<Uint8List> generateTemplatePdf(String templateId) async {
+    final r = await _apiClient.dio.post<List<int>>(
+      'grading/bubble/templates/$templateId/generate-pdf/',
+      data: const <String, dynamic>{},
+      options: Options(responseType: ResponseType.bytes),
+    );
+    return Uint8List.fromList(r.data ?? const []);
   }
 
   /// Fetch course workspace (all assessments, modules, course info).

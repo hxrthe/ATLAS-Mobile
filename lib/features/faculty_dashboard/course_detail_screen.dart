@@ -1,9 +1,15 @@
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import '../../core/network/error_messages.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/atlas_filter_chip.dart';
 import '../../core/widgets/atlas_loading_view.dart';
+import '../../core/widgets/atlas_skeleton.dart';
+import '../../utils/atlas_alerts.dart';
+import '../grading/answer_key.dart';
 import '../grading/grading_repository.dart';
+import '../grading/models.dart';
+import '../grading/sheet_pdf_actions.dart';
+import 'course_exam_create_screen.dart';
 
 class CourseDetailScreen extends StatefulWidget {
   final String courseId;
@@ -33,6 +39,15 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
 
   List<Map<String, dynamic>> _items = [];
   Map<String, String> _localAnswerKey = {};
+
+  /// Key as last loaded/saved on the server; edits are diffed against it.
+  Map<String, String> _savedAnswerKey = {};
+  bool _savingKey = false;
+
+  List<String> get _changedKeyItems => [
+        for (final e in _localAnswerKey.entries)
+          if (e.value.isNotEmpty && _savedAnswerKey[e.key] != e.value) e.key,
+      ];
   bool _loadingEM = true;
   String? _emError;
   int _emSubTab = 0;
@@ -102,7 +117,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     setState(() {});
   }
 
-  Future<void> _loadWorkspace() async {
+  Future<void> _loadWorkspace({String? selectId}) async {
     setState(() {
       _loadingEM = true;
       _emError = null;
@@ -115,14 +130,21 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
               .toList() ??
           [];
 
-      final selId = rawAssessments.isNotEmpty
-          ? rawAssessments.first['assessment_id']?.toString()
-          : null;
+      final wanted = rawAssessments.any(
+        (a) => a['assessment_id']?.toString() == selectId,
+      );
+      final selId = wanted
+          ? selectId
+          : rawAssessments.isNotEmpty
+              ? rawAssessments.first['assessment_id']?.toString()
+              : null;
 
       if (mounted) {
         setState(() {
           _assessments = rawAssessments;
           _selectedAssessmentId = selId;
+          _scoreRows = [];
+          _passingScore = null;
         });
         if (selId != null) {
           await _loadAssessmentItems(selId);
@@ -134,7 +156,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
       if (mounted) {
         setState(() {
           _loadingEM = false;
-          _emError = e.toString().replaceAll('Exception: ', '');
+          _emError = friendlyError(e, fallback: 'Could not load this course. Please try again.');
         });
       }
     }
@@ -161,6 +183,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
         setState(() {
           _items = rawItems;
           _localAnswerKey = key;
+          _savedAnswerKey = Map.of(key);
           _loadingEM = false;
         });
       }
@@ -168,7 +191,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
       if (mounted) {
         setState(() {
           _loadingEM = false;
-          _emError = e.toString().replaceAll('Exception: ', '');
+          _emError = friendlyError(e, fallback: 'Could not load this exam. Please try again.');
         });
       }
     }
@@ -230,62 +253,126 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
       if (mounted) {
         setState(() {
           _loadingScores = false;
-          _scoresError = _friendlyScoresError(e);
+          _scoresError = friendlyError(e, fallback: 'Could not load scores. Please try again.');
         });
       }
     }
   }
 
-  String _friendlyScoresError(Object e) {
-    if (e is DioException) {
-      final data = e.response?.data;
-      if (data is Map && data['detail'] is String) {
-        return data['detail'] as String;
+  /// Saves only the items whose answer changed since the last load/save.
+  Future<void> _saveAnswerKey() async {
+    final changed = _changedKeyItems;
+    if (_selectedAssessmentId == null || changed.isEmpty || _savingKey) return;
+    setState(() => _savingKey = true);
+    var saved = 0;
+    try {
+      for (final itemId in changed) {
+        final answer = _localAnswerKey[itemId]!;
+        await _repo.updateAssessmentItem(itemId, {'correct_answer': answer});
+        _savedAnswerKey[itemId] = answer;
+        saved++;
       }
-      final status = e.response?.statusCode;
-      if (status != null) {
-        return 'Could not load scores (server error $status). Please retry.';
-      }
-      return 'Could not load scores. Check your connection and retry.';
+      if (!mounted) return;
+      setState(() => _savingKey = false);
+      if (_scoreRows.isNotEmpty || _tabController.index == 1) _loadScores();
+      AtlasAlerts.showSuccess(
+        context,
+        'Answer key saved ($saved item${saved == 1 ? '' : 's'}). Scanned sheets were re-scored.',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _savingKey = false);
+      AtlasAlerts.showError(
+        context,
+        saved > 0
+            ? 'Saved $saved of ${changed.length} changes. '
+                '${friendlyError(e, fallback: 'The rest could not be saved.')}'
+            : friendlyError(e, fallback: 'Could not save the answer key. Please try again.'),
+      );
     }
-    return e.toString().replaceAll('Exception: ', '');
   }
 
-  Future<void> _saveAnswerKey() async {
-    if (_selectedAssessmentId == null) return;
+  Future<void> _createExam() async {
+    final newId = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CourseExamCreateScreen(
+          courseId: widget.courseId,
+          courseCode: widget.courseCode,
+          courseTitle: widget.courseTitle,
+        ),
+      ),
+    );
+    if (newId != null && mounted) await _loadWorkspace(selectId: newId);
+  }
+
+  String get _selectedTitle {
+    final match = _assessments.where(
+      (a) => a['assessment_id']?.toString() == _selectedAssessmentId,
+    );
+    return match.isEmpty ? widget.courseCode : (match.first['title'] ?? widget.courseCode).toString();
+  }
+
+  /// Sheet of the selected exam; creates the template first for web exams
+  /// that never had one.
+  bool _sheetBusy = false;
+
+  Future<BubbleTemplate> _ensureTemplate(String assessmentId) async {
     try {
-      for (final item in _items) {
-        final itemId = (item['item_id'] ?? '').toString();
-        final newAnswer = _localAnswerKey[itemId];
-        if (newAnswer != null && newAnswer.isNotEmpty) {
-          await _repo.updateAssessmentItem(itemId, {
-            'correct_answer': newAnswer,
-          });
-        }
-      }
-      if (mounted) {
-        final c = context.atlas;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Answer key saved'),
-            backgroundColor: c.correct,
-          ),
-        );
-      }
+      return await _repo.fetchTemplateByAssessment(
+        assessmentId,
+        courseId: widget.courseId,
+      );
+    } catch (_) {
+      if (_items.isEmpty) throw Exception('This exam has no items yet.');
+      return _repo.createTemplateForAssessment(
+        courseId: widget.courseId,
+        assessmentId: assessmentId,
+        name: _selectedTitle,
+        totalItems: _items.length.clamp(1, 100),
+      );
+    }
+  }
+
+  Future<void> _answerSheet() async {
+    final assessmentId = _selectedAssessmentId;
+    if (assessmentId == null || _sheetBusy) return;
+    setState(() => _sheetBusy = true);
+    BubbleTemplate template;
+    try {
+      template = await _ensureTemplate(assessmentId);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed: $e'),
-            backgroundColor: context.atlas.primary,
-          ),
-        );
+        setState(() => _sheetBusy = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(friendlyError(e, fallback: 'Could not load the answer sheet.')),
+          backgroundColor: context.atlas.primary,
+        ));
       }
+      return;
     }
+    if (!mounted) return;
+    setState(() => _sheetBusy = false);
+    final choice = await pickSheetPdfOptions(
+      context,
+      title: 'Answer sheet',
+      subtitle: '$_selectedTitle · ${template.totalItems} items',
+      idDigits: template.idDigits,
+    );
+    if (choice == null || !mounted) return;
+    await runSheetPdfAction(
+      context,
+      action: choice.action,
+      name: _selectedTitle,
+      build: () => choice.idDigits == template.idDigits
+          ? _repo.generateTemplatePdf(template.templateId)
+          : _repo.updateTemplateIdDigits(template.templateId, choice.idDigits),
+    );
   }
 
+  /// Tap cycles A → B → C → D → Bonus → A.
   void _cycleAnswer(String itemId) {
-    const choices = ['A', 'B', 'C', 'D'];
+    const choices = ['A', 'B', 'C', 'D', bonusKey];
     final cur = _localAnswerKey[itemId] ?? '';
     if (cur.isEmpty) {
       setState(() => _localAnswerKey[itemId] = 'A');
@@ -361,6 +448,15 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
               ),
               overflow: TextOverflow.ellipsis,
             ),
+          ),
+          TextButton.icon(
+            onPressed: _createExam,
+            style: TextButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+            ),
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('New exam'),
           ),
         ],
       ),
@@ -489,6 +585,36 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
         ),
       );
     }
+    if (_assessments.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.assignment_outlined, size: 48, color: c.textSecondary),
+              const SizedBox(height: 12),
+              Text(
+                'No exams in this course yet',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: c.textPrimary),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Paste your questions and answer key to create an exam and its bubble answer sheet.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: c.textSecondary),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: _createExam,
+                icon: const Icon(Icons.add),
+                label: const Text('Create exam'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     if (_items.isEmpty) {
       return Center(
         child: Text(
@@ -505,11 +631,31 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           child: Row(
             children: [
-              _subTabBtn('Questions', 0, c),
-              const SizedBox(width: 8),
-              _subTabBtn('Answer Key', 1, c),
-              const SizedBox(width: 8),
-              _subTabBtn('Passing Score', 2, c),
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _subTabBtn('Questions', 0, c),
+                      const SizedBox(width: 8),
+                      _subTabBtn('Answer Key', 1, c),
+                      const SizedBox(width: 8),
+                      _subTabBtn('Passing Score', 2, c),
+                    ],
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Answer sheet',
+                onPressed: _sheetBusy ? null : _answerSheet,
+                icon: _sheetBusy
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Icon(Icons.download_rounded, color: c.primary),
+              ),
             ],
           ),
         ),
@@ -534,8 +680,9 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     return GestureDetector(
       onTap: () {
         setState(() => _emSubTab = index);
-        if (index == 2 && _passingScore == null && !_loadingPassingScore)
+        if (index == 2 && _passingScore == null && !_loadingPassingScore) {
           _loadPassingScore();
+        }
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -674,7 +821,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   }
 
   bool _isKeyChoice(String choice, String answer) {
-    if (answer.isEmpty) return false;
+    if (answer.isEmpty || isBonusKey(answer)) return false;
     final t = choice.trimLeft().toUpperCase();
     return t.startsWith('$answer.') ||
         t.startsWith('$answer)') ||
@@ -688,10 +835,12 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
       height: 30,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: c.primary,
+        color: isBonusKey(letter) ? c.pass : c.primary,
       ),
       child: Center(
-        child: Text(
+        child: isBonusKey(letter)
+            ? Icon(Icons.star_rounded, size: 18, color: c.onPrimary)
+            : Text(
           letter,
           style: TextStyle(
             fontSize: 14,
@@ -716,6 +865,14 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
 
     return Column(
       children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: Text(
+            'Tap an item to cycle A → B → C → D → Bonus. Bonus gives every paper '
+            'the point. Saving re-scores sheets already scanned.',
+            style: TextStyle(fontSize: 12, color: c.textSecondary),
+          ),
+        ),
         Expanded(
           child: GridView.builder(
             padding: const EdgeInsets.all(16),
@@ -732,7 +889,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
               final itemNum = (item['item_number'] ?? (i + 1)).toString();
               final answer = _localAnswerKey[itemId] ?? '';
               return GestureDetector(
-                onTap: () => _cycleAnswer(itemId),
+                onTap: _savingKey ? null : () => _cycleAnswer(itemId),
                 child: Container(
                   decoration: BoxDecoration(
                     color: answer.isNotEmpty
@@ -756,14 +913,30 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                         ),
                       ),
                       const SizedBox(height: 6),
-                      Text(
-                        answer.isNotEmpty ? answer : '?',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
-                          color: answer.isNotEmpty ? c.primary : c.textSecondary,
+                      if (isBonusKey(answer))
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.star_rounded, size: 22, color: c.pass),
+                            Text(
+                              'Bonus',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                color: c.pass,
+                              ),
+                            ),
+                          ],
+                        )
+                      else
+                        Text(
+                          answer.isNotEmpty ? answer : '?',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                            color: answer.isNotEmpty ? c.primary : c.textSecondary,
+                          ),
                         ),
-                      ),
                     ],
                   ),
                 ),
@@ -776,15 +949,27 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
           child: SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: _saveAnswerKey,
-              icon: const Icon(Icons.save, size: 18),
-              label: const Text(
-                'Save Answer Key',
-                style: TextStyle(fontWeight: FontWeight.bold),
+              onPressed: _savingKey || _changedKeyItems.isEmpty ? null : _saveAnswerKey,
+              icon: _savingKey
+                  ? SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: c.onPrimary),
+                    )
+                  : const Icon(Icons.save, size: 18),
+              label: Text(
+                _savingKey
+                    ? 'Saving…'
+                    : _changedKeyItems.isEmpty
+                        ? 'No changes to save'
+                        : 'Save Answer Key (${_changedKeyItems.length} change${_changedKeyItems.length == 1 ? '' : 's'})',
+                style: const TextStyle(fontWeight: FontWeight.bold),
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: c.primary,
                 foregroundColor: c.onPrimary,
+                disabledBackgroundColor: c.cardMuted,
+                disabledForegroundColor: c.textSecondary,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -855,21 +1040,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
         );
       }
     } catch (e) {
-      String msg;
-      if (e is DioException) {
-        final body = e.response?.data;
-        if (body is Map) {
-          msg =
-              body['detail']?.toString() ??
-              body['passing_score']?.toString() ??
-              body.values.first?.toString() ??
-              'Failed to save';
-        } else {
-          msg = e.message ?? 'Failed to save';
-        }
-      } else {
-        msg = e.toString().replaceAll('Exception: ', '');
-      }
+      final msg = friendlyError(e, fallback: 'Could not save the passing score. Please try again.');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -886,11 +1057,49 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   Widget _buildPassingScorePanel() {
     final c = context.atlas;
     if (_loadingPassingScore) {
-      return const Center(child: CircularProgressIndicator());
+      return SingleChildScrollView(
+        child: Center(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 420),
+            margin: const EdgeInsets.all(16),
+            child: AtlasShimmer(
+              child: Column(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: c.border),
+                    ),
+                    child: const Column(
+                      children: [
+                        SkeletonBox(width: 48, height: 48, radius: 10),
+                        SizedBox(height: 14),
+                        SkeletonBox(width: 190, height: 15, radius: 4),
+                        SizedBox(height: 8),
+                        SkeletonBox(width: 230, height: 11, radius: 4),
+                        SizedBox(height: 26),
+                        SkeletonBox(width: 110, height: 46, radius: 8),
+                        SizedBox(height: 22),
+                        SkeletonBox(height: 8, radius: 4),
+                        SizedBox(height: 22),
+                        SkeletonBox(width: 250, height: 32, radius: 16),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const SkeletonBox(height: 48, radius: 12),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
     }
 
     final current = _passingScore ?? 50;
-    return Center(
+    return SingleChildScrollView(
+      child: Center(
       child: Container(
         constraints: const BoxConstraints(maxWidth: 420),
         margin: const EdgeInsets.all(16),
@@ -1040,6 +1249,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
             ),
           ],
         ),
+      ),
       ),
     );
   }

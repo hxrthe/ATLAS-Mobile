@@ -5,6 +5,7 @@ import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
+import '../grading/answer_key.dart';
 import '../grading/models.dart';
 import 'omr_aruco.dart';
 import 'omr_constants.dart';
@@ -229,10 +230,11 @@ List<Map<String, dynamic>> _buildScoredMarkers({
       ? (grid['bubble_r_mm'] as num?)?.toDouble() ?? 2.0
       : ((layout['bubble_radius_pt'] as num?)?.toDouble() ?? 5.67) * 25.4 / 72.0;
 
-  double pageNx(double cxMm) =>
-      (cxMm / OmrConstants.pageWmm).clamp(0.0, 1.0);
-  double pageNy(double cyMm) =>
-      (cyMm / OmrConstants.pageHmm).clamp(0.0, 1.0);
+  // Marker positions are normalised to the sheet's ArUco crop (the image the
+  // results screen shows), so compact half-page sheets line up too.
+  final frame = OmrFrame.fromLayout(layout);
+  double pageNx(double cxMm) => frame.mmToNorm(cxMm, 0).$1;
+  double pageNy(double cyMm) => frame.mmToNorm(0, cyMm).$2;
 
   final readingByItem = <int, BubbleReading>{
     for (final r in readings) r.itemNumber: r,
@@ -250,10 +252,12 @@ List<Map<String, dynamic>> _buildScoredMarkers({
           detected == null ||
           detected.isEmpty ||
           detected == '?';
-      final isCorrect = !isAmbiguous && detected == correct;
+      final bonus = isBonusKey(correct);
+      final isCorrect = bonus || (!isAmbiguous && detected == correct);
 
       final itemData = items[itemNum];
       if (itemData is! Map) continue;
+      if (bonus && isAmbiguous) continue;
 
       final markChoice = (!isAmbiguous && detected.isNotEmpty)
           ? detected
@@ -269,7 +273,7 @@ List<Map<String, dynamic>> _buildScoredMarkers({
         'nx': pageNx(cxMm),
         'ny': pageNy(cyMm),
         'r_mm': answerRMm,
-        'kind': isAmbiguous
+        'kind': isAmbiguous && !bonus
             ? 'ambiguous'
             : (isCorrect ? 'correct' : 'wrong'),
       });
@@ -482,7 +486,7 @@ class OmrEngine {
     }
     var correct = 0;
     for (final entry in answerKey.entries) {
-      if (responses[entry.key] == entry.value) correct++;
+      if (isKeyCorrect(responses[entry.key], entry.value)) correct++;
     }
     final pct = maxScore > 0 ? (correct / maxScore) * 100.0 : 0.0;
     return (correct, maxScore, pct);

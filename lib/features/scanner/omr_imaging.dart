@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide Image;
 import 'package:image/image.dart' as img;
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
+import '../grading/answer_key.dart';
 import 'omr_models.dart';
 import 'omr_classifier.dart';
 import 'omr_aruco.dart';
@@ -1082,8 +1083,9 @@ class OmrImaging {
     Map<int, ArucoHit>? forcedAruco,
   }) {
     final dpi = OmrConstants.gradingDpi;
-    final originX = OmrConstants.cropOriginXmm;
-    final originY = OmrConstants.cropOriginYmm;
+    final frame = OmrFrame.fromLayout(layout);
+    final originX = frame.originXmm;
+    final originY = frame.originYmm;
 
     ({img.Image gray, img.Image binary})? pack(Map<int, ArucoHit> hits) {
       final wf = warpFromAruco(
@@ -1194,9 +1196,10 @@ class OmrImaging {
     late final int oh;
 
     if (cropToAruco) {
-      ow = (OmrConstants.cropWmm * targetDpi / 25.4).round().clamp(200, 4000);
-      oh = (OmrConstants.cropHmm * targetDpi / 25.4).round().clamp(200, 6000);
-      final pad = OmrConstants.cropEdgeToCenterMm * targetDpi / 25.4;
+      final frame = OmrFrame.fromLayout(layout);
+      ow = (frame.wMm * targetDpi / 25.4).round().clamp(200, 4000);
+      oh = (frame.hMm * targetDpi / 25.4).round().clamp(200, 6000);
+      final pad = frame.edgeToCenterMm * targetDpi / 25.4;
       final corners = [
         _FPoint(pad, pad),
         _FPoint(ow - pad, pad),
@@ -1869,6 +1872,7 @@ class OmrImaging {
     bool buildAlignedPreview = false,
     bool copyGradeSnapshot = false,
     Size? previewSize,
+    OmrFrame? sheetFrame,
   }) {
     const fail = (
       tl: false,
@@ -1979,7 +1983,7 @@ class OmrImaging {
           hits.containsKey(2) &&
           hits.containsKey(3);
       if (buildAlignedPreview && fourDecoded) {
-        preview = _alignedPreviewFromLuma(luma, w, h, hits);
+        preview = _alignedPreviewFromLuma(luma, w, h, hits, frame: sheetFrame);
       }
       if (copyGradeSnapshot && fourDecoded) {
         // Same buffer and centres as the ALIGNED preview so scoring and
@@ -2067,6 +2071,7 @@ class OmrImaging {
     int outW = 1080,
     int quality = 92,
     bool bilinear = true,
+    OmrFrame? frame,
   }) {
     if (arucoXy.length != 8 || width <= 0 || height <= 0) return null;
     if (luma.length < width * height) return null;
@@ -2084,6 +2089,7 @@ class OmrImaging {
       outW: outW,
       quality: quality,
       bilinear: bilinear,
+      frame: frame,
     );
   }
 
@@ -2095,12 +2101,14 @@ class OmrImaging {
     int outW = 140,
     int quality = 55,
     bool bilinear = false,
+    OmrFrame? frame,
   }) {
     // Crop to the ArUco quad plus a small margin. Uniform mm→px keeps
     // squares/circles; the JPEG aspect is the crop, not 8.5×13.
-    final scale = outW / OmrConstants.cropWmm;
-    final outH = max(1, (OmrConstants.cropHmm * scale).round());
-    final pad = OmrConstants.cropEdgeToCenterMm * scale;
+    final f = frame ?? OmrFrame.standard;
+    final scale = outW / f.wMm;
+    final outH = max(1, (f.hMm * scale).round());
+    final pad = f.edgeToCenterMm * scale;
     final srcPts = [
       _FPoint(hits[0]!.cx, hits[0]!.cy),
       _FPoint(hits[1]!.cx, hits[1]!.cy),
@@ -2519,7 +2527,9 @@ class OmrImaging {
       // 3. Determine color
       final isAmbiguous = bestFill < liveThr || (bestFill - secondFill).abs() < 0.08;
       Color color;
-      if (isAmbiguous || correct == null) {
+      if (isBonusKey(correct)) {
+        color = const Color(0xFF00E676); // Green
+      } else if (isAmbiguous || correct == null) {
         color = const Color(0xFFFFD600); // Yellow
       } else if (bestChoice == correct) {
         color = const Color(0xFF00E676); // Green

@@ -1,6 +1,7 @@
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 enum AtlasLoadingLayout { home, courses, reports, list }
 
@@ -122,8 +123,8 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
             fit: BoxFit.contain,
             gaplessPlayback: true,
             filterQuality: FilterQuality.high,
-            errorBuilder: (_, _, _) => Image.asset(
-              'assets/images/ATLAS_Mobile_Logo.png',
+            errorBuilder: (_, _, _) => SvgPicture.asset(
+              'assets/images/atlas_logo_mark.svg',
               height: 72,
               fit: BoxFit.contain,
             ),
@@ -164,18 +165,20 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
       ),
       const SizedBox(height: 32),
       _sessionCardBone(),
+      const SizedBox(height: 16),
+      _quickExamCardBone(),
       const SizedBox(height: 32),
       _headerBone(titleWidth: 188, badgeWidth: 72),
       const SizedBox(height: 12),
       _pendingCardBone(),
-      const SizedBox(height: 32),
+      const SizedBox(height: 26),
       _boneBox(width: 110, height: 11, radius: 4),
       const SizedBox(height: 12),
       Row(
         children: [
-          Expanded(child: _boneBox(height: 128, radius: 16)),
+          Expanded(child: _courseTileBone()),
           const SizedBox(width: 10),
-          Expanded(child: _boneBox(height: 128, radius: 16)),
+          Expanded(child: _courseTileBone()),
         ],
       ),
       const SizedBox(height: 32),
@@ -193,7 +196,7 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
     );
   }
 
-  /// Course code + status pill, title line, then the scan button.
+  /// Course code + status pill, title + assessment-type tag, then the scan button.
   Widget _sessionCardBone() {
     return _cardBone(
       radius: 22,
@@ -201,39 +204,83 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
       children: [
         Row(
           children: [
-            _whiteBone(width: 120, height: 26, radius: 6),
+            _whiteBone(width: 120, height: 28, radius: 6),
             const Spacer(),
-            _whiteBone(width: 112, height: 26, radius: 13),
+            _whiteBone(width: 116, height: 22, radius: 11),
           ],
         ),
-        const SizedBox(height: 10),
-        _whiteBone(width: 190, height: 12, radius: 4),
-        const SizedBox(height: 16),
-        _whiteBone(width: double.infinity, height: 44, radius: 14),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            _whiteBone(width: 170, height: 12, radius: 4),
+            const SizedBox(width: 8),
+            _whiteBone(width: 52, height: 16, radius: 6),
+          ],
+        ),
+        const SizedBox(height: 14),
+        _whiteBone(width: double.infinity, height: 44, radius: 12),
       ],
     );
   }
 
-  /// Exam name + info button, then one scanned/total bar per section.
+  /// Quick exams entry: icon, title + counts, then New / Open buttons.
+  Widget _quickExamCardBone() {
+    return _cardBone(
+      children: [
+        Row(
+          children: [
+            _whiteBone(width: 40, height: 40, radius: 20),
+            const SizedBox(width: 14),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _whiteBone(width: 96, height: 15, radius: 4),
+                const SizedBox(height: 6),
+                _whiteBone(width: 170, height: 11, radius: 4),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(child: _whiteBone(height: 40, radius: 20)),
+            const SizedBox(width: 10),
+            Expanded(child: _whiteBone(height: 40, radius: 20)),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// Exam icon, name, READY tag + info button, then one scanned/total bar per section.
   Widget _pendingCardBone() {
     return _cardBone(
       children: [
         Row(
           children: [
-            _whiteBone(width: 36, height: 36, radius: 10),
-            const SizedBox(width: 12),
-            _whiteBone(width: 150, height: 13, radius: 4),
-            const Spacer(),
-            _whiteBone(width: 30, height: 30, radius: 15),
+            _whiteBone(width: 48, height: 48, radius: 12),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: _whiteBone(width: 140, height: 13, radius: 4),
+              ),
+            ),
+            const SizedBox(width: 6),
+            _whiteBone(width: 46, height: 20, radius: 6),
+            const SizedBox(width: 8),
+            _whiteBone(width: 34, height: 34, radius: 17),
           ],
         ),
+        const SizedBox(height: 12),
         for (int i = 0; i < 2; i++) ...[
-          const SizedBox(height: 14),
+          if (i > 0) const SizedBox(height: 8),
           Row(
             children: [
-              _whiteBone(width: 70, height: 10, radius: 4),
+              _whiteBone(width: 70, height: 12, radius: 4),
               const Spacer(),
-              _whiteBone(width: 64, height: 10, radius: 4),
+              _whiteBone(width: 76, height: 11, radius: 4),
             ],
           ),
           const SizedBox(height: 6),
@@ -243,31 +290,93 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
     );
   }
 
+  /// "Other courses" tile: code + swap icon, title lines, then "Switch".
+  Widget _courseTileBone() {
+    return Container(
+      height: 128,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _bone,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _whiteBone(width: 72, height: 16, radius: 4),
+              const Spacer(),
+              _whiteBone(width: 28, height: 28, radius: 14),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _whiteBone(width: double.infinity, height: 10, radius: 4),
+          const SizedBox(height: 6),
+          _whiteBone(width: 90, height: 10, radius: 4),
+          const Spacer(),
+          _whiteBone(width: 44, height: 11, radius: 4),
+        ],
+      ),
+    );
+  }
+
   /// "System events" header with info button, then recent scan rows.
   Widget _eventsCardBone() {
     return _cardBone(
       children: [
         Row(
           children: [
-            _whiteBone(width: 8, height: 8, radius: 4),
+            _whiteBone(width: 10, height: 10, radius: 5),
             const SizedBox(width: 8),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _whiteBone(width: 110, height: 11, radius: 4),
                 const SizedBox(height: 6),
-                _whiteBone(width: 150, height: 9, radius: 4),
+                _whiteBone(width: 170, height: 10, radius: 4),
               ],
             ),
             const Spacer(),
-            _whiteBone(width: 30, height: 30, radius: 15),
+            _whiteBone(width: 34, height: 34, radius: 17),
           ],
         ),
-        for (int i = 0; i < 3; i++) ...[
-          const SizedBox(height: 14),
-          _eventBone(color: Colors.white),
-        ],
+        const SizedBox(height: 6),
+        for (int i = 0; i < 3; i++) _scanEventBone(),
       ],
+    );
+  }
+
+  /// Status icon; student + score + pass pill; exam — course; time ago.
+  Widget _scanEventBone() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _whiteBone(width: 18, height: 18, radius: 9),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    _whiteBone(width: 120, height: 12, radius: 4),
+                    const Spacer(),
+                    _whiteBone(width: 36, height: 12, radius: 4),
+                    const SizedBox(width: 6),
+                    _whiteBone(width: 46, height: 18, radius: 10),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                _whiteBone(width: 180, height: 10, radius: 4),
+                const SizedBox(height: 5),
+                _whiteBone(width: 64, height: 9, radius: 4),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -394,30 +503,6 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
           ),
         ],
       ),
-    );
-  }
-
-  Widget _eventBone({Color color = _bone}) {
-    return Row(
-      children: [
-        _boneBox(width: 36, height: 36, radius: 10, color: color),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _boneBox(
-                width: double.infinity,
-                height: 12,
-                radius: 4,
-                color: color,
-              ),
-              const SizedBox(height: 8),
-              _boneBox(width: 140, height: 10, radius: 4, color: color),
-            ],
-          ),
-        ),
-      ],
     );
   }
 
