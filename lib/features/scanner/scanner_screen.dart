@@ -93,6 +93,9 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
   /// idle | uploading | uploaded | failed | rejected
   String _uploadStatus = 'idle';
   ScanRecord? _pendingUploadRecord;
+  /// Answer key used for the sheet currently on the result screen.
+  Map<String, String> _resultAnswerKey = const {};
+  int _resultTotalItems = 0;
 
   /// When set, the next capture must match these IDs (Rescan only).
   String? _rescanExpectedStudentId;
@@ -145,8 +148,32 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       _selectedTemplate = quick;
       _assessmentIdentified = true;
       _templates = [quick];
+      // List/hub payloads often omit answer_key — refresh full exam for coloring.
+      if (quick.answerKey.isEmpty || !quick.hasLayoutItems) {
+        _refreshQuickExamSeed(quick.templateId);
+      }
     }
     _initScanner();
+  }
+
+  Future<void> _refreshQuickExamSeed(String examId) async {
+    try {
+      final bound = await _fetchQuickTemplate(examId);
+      if (!mounted) return;
+      if (_selectedTemplate?.templateId != examId) return;
+      setState(() {
+        _selectedTemplate = bound;
+        final idx = _templates.indexWhere((t) => t.templateId == examId);
+        if (idx >= 0) {
+          _templates[idx] = bound;
+        } else {
+          _templates = [bound, ..._templates];
+        }
+      });
+      _updateCachedTemplate(bound);
+    } catch (e) {
+      debugPrint('Quick exam seed refresh failed: $e');
+    }
   }
 
   /// Value printed in a sheet's QR for [t]: `QX:<id>` for quick exams.
@@ -551,6 +578,8 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
         _resultStatus = 'Aligning sheet…';
         _lastOmrResult = null;
         _mode = _ScreenMode.result;
+        final selected = _selectedTemplate;
+        if (selected != null) _snapshotResultKey(selected);
       });
       _startResultStatusCycle(); // fallback labels until first milestone
       await Future<void>.delayed(const Duration(milliseconds: 40));
@@ -589,6 +618,11 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
 
   void _bindOmrResult(OmrResult result) {
     _lastOmrResult = result;
+  }
+
+  void _snapshotResultKey(BubbleTemplate template) {
+    _resultAnswerKey = Map<String, String>.from(template.answerKey);
+    _resultTotalItems = template.totalItems;
   }
 
   Future<void> _rescanCurrent() async {
@@ -636,6 +670,8 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       _resultStatus = '';
       _uploadStatus = 'idle';
       _pendingUploadRecord = null;
+      _resultAnswerKey = const {};
+      _resultTotalItems = 0;
       _fiducialLock = FiducialLockState.initial();
     });
     _startImageStream();
@@ -674,6 +710,8 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       _resultStatus = '';
       _uploadStatus = 'idle';
       _pendingUploadRecord = null;
+      _resultAnswerKey = const {};
+      _resultTotalItems = 0;
       _fiducialLock = FiducialLockState.initial();
     });
     _startImageStream();
@@ -715,12 +753,17 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
                 await _repository.syncKeyFromAssessment(scanTemplate.templateId);
           }
           if (mounted) {
-            setState(() => _selectedTemplate = scanTemplate);
+            setState(() {
+              _selectedTemplate = scanTemplate;
+              _snapshotResultKey(scanTemplate);
+            });
             _updateCachedTemplate(scanTemplate);
           }
         } catch (e) {
           debugPrint('Failed to load template layout/key: $e');
         }
+      } else if (mounted) {
+        setState(() => _snapshotResultKey(scanTemplate));
       }
       if (jobId != _omrJobId || !mounted) return;
 
@@ -939,6 +982,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
         templateName: scanTemplate.name,
         studentIdentifier: finalStudentId,
         responses: result.responses,
+        answerKey: Map<String, String>.from(scanTemplate.answerKey),
         scorePercent: result.scorePercent,
         scoreRaw: result.scoreRaw,
         maxScore: result.maxScore.toDouble(),
@@ -1215,12 +1259,28 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     }
   }
 
-  void _openPaperDetail(ScanRecord record) {
+  Future<void> _openPaperDetail(ScanRecord record) async {
     setState(() {
       _detailRecord = record;
       _mode = _ScreenMode.detail;
     });
-    _ensureTemplateForRecord(record);
+    // Prefer the key snapped at scan time; still refresh template for edits/rescan.
+    if (record.answerKey.isEmpty) {
+      await _ensureTemplateForRecord(record);
+    } else {
+      _ensureTemplateForRecord(record);
+    }
+  }
+
+  bool _treatRecordAsQuickExam(ScanRecord record) {
+    if (record.isQuickExam) return true;
+    if (_selectedTemplate?.templateId == record.templateId &&
+        _selectedTemplate!.isQuickExam) {
+      return true;
+    }
+    return _templates.any(
+      (t) => t.templateId == record.templateId && t.isQuickExam,
+    );
   }
 
   /// Review detail needs the full answer key for correct/incorrect coloring.
@@ -1228,6 +1288,20 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     BubbleTemplate? current = _selectedTemplate;
     if (current?.templateId == record.templateId &&
         current!.answerKey.isNotEmpty) {
+      // Backfill older local records that lacked a snapped key.
+      if (record.answerKey.isEmpty && _detailRecord?.id == record.id) {
+        final filled = record.copyWith(
+          answerKey: Map<String, String>.from(current.answerKey),
+        );
+        await ScanHistory.updateRecord(record.id, filled.toJson());
+        if (mounted) {
+          setState(() {
+            _detailRecord = filled;
+            final idx = _scanRecords.indexWhere((r) => r.id == record.id);
+            if (idx >= 0) _scanRecords[idx] = filled;
+          });
+        }
+      }
       return;
     }
     final cachedIdx =
@@ -1235,12 +1309,34 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     final cached = cachedIdx >= 0 ? _templates[cachedIdx] : null;
     if (cached != null && cached.answerKey.isNotEmpty) {
       if (mounted) setState(() => _selectedTemplate = cached);
+      if (record.answerKey.isEmpty && _detailRecord?.id == record.id) {
+        final filled = record.copyWith(
+          answerKey: Map<String, String>.from(cached.answerKey),
+        );
+        await ScanHistory.updateRecord(record.id, filled.toJson());
+        if (mounted) {
+          setState(() {
+            _detailRecord = filled;
+            final idx = _scanRecords.indexWhere((r) => r.id == record.id);
+            if (idx >= 0) _scanRecords[idx] = filled;
+          });
+        }
+      }
       return;
     }
     try {
-      var bound = record.isQuickExam
-          ? await _fetchQuickTemplate(record.templateId)
-          : await _repository.fetchTemplateDetail(record.templateId);
+      final asQuick = _treatRecordAsQuickExam(record);
+      late BubbleTemplate bound;
+      if (asQuick) {
+        bound = await _fetchQuickTemplate(record.templateId);
+      } else {
+        try {
+          bound = await _repository.fetchTemplateDetail(record.templateId);
+        } catch (_) {
+          // Older quick-exam scans may lack isQuickExam; fall back to quick API.
+          bound = await _fetchQuickTemplate(record.templateId);
+        }
+      }
       if (!bound.isQuickExam &&
           bound.answerKey.isEmpty &&
           bound.assessmentId != null) {
@@ -1258,6 +1354,21 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
         }
       });
       _updateCachedTemplate(bound);
+      if (record.answerKey.isEmpty &&
+          bound.answerKey.isNotEmpty &&
+          _detailRecord?.id == record.id) {
+        final filled = record.copyWith(
+          answerKey: Map<String, String>.from(bound.answerKey),
+        );
+        await ScanHistory.updateRecord(record.id, filled.toJson());
+        if (mounted) {
+          setState(() {
+            _detailRecord = filled;
+            final idx = _scanRecords.indexWhere((r) => r.id == record.id);
+            if (idx >= 0) _scanRecords[idx] = filled;
+          });
+        }
+      }
     } catch (e) {
       debugPrint('Detail template fetch failed: $e');
     }
@@ -1282,7 +1393,9 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
 
   Future<void> _onSaveEditedAnswers(ScanRecord record, Map<String, String> updatedResponses) async {
     int correct = 0;
-    final key = _selectedTemplate?.answerKey ?? {};
+    final key = record.answerKey.isNotEmpty
+        ? record.answerKey
+        : (_selectedTemplate?.answerKey ?? {});
     final total = key.isNotEmpty
         ? key.length
         : (_selectedTemplate?.totalItems ?? updatedResponses.length);
@@ -1357,6 +1470,12 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     }
 
     if (_mode == _ScreenMode.result) {
+      final resultKey = _resultAnswerKey.isNotEmpty
+          ? _resultAnswerKey
+          : (_selectedTemplate?.answerKey ?? const {});
+      final resultTotal = _resultTotalItems > 0
+          ? _resultTotalItems
+          : (_selectedTemplate?.totalItems ?? 0);
       return ScanResultView(
         previewBytes: _resultPreviewBytes,
         fallbackImagePath: _resultCapturePath,
@@ -1365,6 +1484,8 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
         result: _lastOmrResult,
         uploadStatus: _uploadStatus,
         passingScore: _selectedTemplate?.passingScore ?? 50,
+        answerKey: resultKey,
+        totalItems: resultTotal,
         onScanNext: _scanNext,
         onRescan: _rescanCurrent,
         onRetryUpload: _uploadStatus == 'failed' ? _retryUpload : null,

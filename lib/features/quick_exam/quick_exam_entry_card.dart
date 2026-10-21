@@ -5,7 +5,8 @@ import '../../core/widgets/atlas_skeleton.dart';
 import 'quick_exam_hub_screen.dart';
 import 'quick_exam_repository.dart';
 
-/// Entry to the mobile-only Quick Exams hub (Home and Courses tabs).
+/// Entry to the Major Exams hub (Home and Courses tabs) — shortcut for
+/// exams, sheets, keys and records. Detailed work lives in Course / Reports.
 class QuickExamEntryCard extends StatefulWidget {
   const QuickExamEntryCard({super.key});
 
@@ -35,7 +36,7 @@ class _QuickExamEntryCardState extends State<QuickExamEntryCard> {
         _loading = false;
       });
     } catch (e) {
-      debugPrint('Quick exam counts failed: $e');
+      debugPrint('Major exam counts failed: $e');
       if (mounted) setState(() => _loading = false);
     }
   }
@@ -54,8 +55,8 @@ class _QuickExamEntryCardState extends State<QuickExamEntryCard> {
   Widget build(BuildContext context) {
     final c = context.atlas;
     final counts = _exams == null
-        ? '50–100 item exams for your courses'
-        : '$_exams exam${_exams == 1 ? '' : 's'} · $_sheets sheet${_sheets == 1 ? '' : 's'} recorded';
+        ? 'Shortcut for sheets, keys, records & item checks'
+        : '$_exams exam${_exams == 1 ? '' : 's'} · $_sheets sheet${_sheets == 1 ? '' : 's'} · open Course or Reports for detail';
     return Material(
       color: c.card,
       borderRadius: BorderRadius.circular(16),
@@ -83,7 +84,7 @@ class _QuickExamEntryCardState extends State<QuickExamEntryCard> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'New Exams',
+                          'Major Exams',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 16,

@@ -58,6 +58,13 @@ class ScanHistory {
       responses: updates['responses'] is Map<String, String>
           ? Map<String, String>.from(updates['responses'])
           : old.responses,
+      answerKey: updates['answer_key'] is Map
+          ? Map<String, String>.from(
+              (updates['answer_key'] as Map).map(
+                (k, v) => MapEntry(k.toString(), v.toString()),
+              ),
+            )
+          : old.answerKey,
       scorePercent: (updates['score_percent'] as num?)?.toDouble() ?? old.scorePercent,
       scoreRaw: (updates['score_raw'] as num?)?.toDouble() ?? old.scoreRaw,
       maxScore: (updates['max_score'] as num?)?.toDouble() ?? old.maxScore,

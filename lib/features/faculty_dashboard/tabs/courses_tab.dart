@@ -56,6 +56,7 @@ class _CoursesTabState extends State<CoursesTab> {
     final c = context.atlas;
 
     return SafeArea(
+      bottom: false,
       child: AtlasPullToRefresh(
         onRefresh: _loadCourses,
         enabled: !_loading,
@@ -63,10 +64,10 @@ class _CoursesTabState extends State<CoursesTab> {
             ? const AtlasLoadingView(layout: AtlasLoadingLayout.courses)
             : ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(24.0),
+                padding: const EdgeInsets.fromLTRB(24, 24, 24, 56),
                 children: [
                   Text(
-                    'QUICK EXAMS',
+                    'MAJOR EXAMS',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w800,

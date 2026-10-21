@@ -14,6 +14,7 @@ class AtlasColors {
   final Color correct;
   final Color incorrect;
   final Color ambiguous;
+  final Color bonus;
   final Color pass;
   final Color fail;
   final Color inputFill;
@@ -31,12 +32,14 @@ class AtlasColors {
     required this.correct,
     required this.incorrect,
     required this.ambiguous,
+    required this.bonus,
     required this.pass,
     required this.fail,
     required this.inputFill,
     required this.divider,
   });
 
+  // Brand greens match ATLAS web: #14532D / #15803D / #16A34A
   static const light = AtlasColors(
     scaffold: Color(0xFFF4F6F9),
     card: Color(0xFFFFFFFF),
@@ -44,34 +47,36 @@ class AtlasColors {
     textPrimary: Color(0xFF1E232C),
     textSecondary: Color(0xFF8391A1),
     border: Color(0xFFE8ECF4),
-    primary: Color(0xFF8B1515),
+    primary: Color(0xFF15803D),
     onPrimary: Color(0xFFFFFFFF),
-    correct: Color(0xFF2E7D32),
+    correct: Color(0xFF16A34A),
     incorrect: Color(0xFFC62828),
     ambiguous: Color(0xFFE6A23C),
-    pass: Color(0xFF2E7D32),
-    fail: Color(0xFF8B1515),
+    bonus: Color(0xFF2563EB),
+    pass: Color(0xFF16A34A),
+    fail: Color(0xFFB91C1C),
     inputFill: Color(0xFFFFFFFF),
     divider: Color(0xFFE8ECF4),
   );
 
-  /// Matches Scan Result dark palette.
+  /// Dark UI aligned with web dark green shell (#0A0A0B / #052E16 accents).
   static const dark = AtlasColors(
-    scaffold: Color(0xFF0E1116),
-    card: Color(0xFF1A1F27),
-    cardMuted: Color(0xFF2A3038),
-    textPrimary: Color(0xFFFFFFFF),
-    textSecondary: Color(0xB3FFFFFF),
-    border: Color(0xFF2A3038),
-    primary: Color(0xFF8B1515),
+    scaffold: Color(0xFF0A0A0B),
+    card: Color(0xFF151517),
+    cardMuted: Color(0xFF1F2923),
+    textPrimary: Color(0xFFF5F5F5),
+    textSecondary: Color(0xB3F5F5F5),
+    border: Color(0xFF343438),
+    primary: Color(0xFF16A34A),
     onPrimary: Color(0xFFFFFFFF),
-    correct: Color(0xFF81C784),
+    correct: Color(0xFF86EFAC),
     incorrect: Color(0xFFEF9A9A),
     ambiguous: Color(0xFFFFD54F),
-    pass: Color(0xFF00E676),
+    bonus: Color(0xFF60A5FA),
+    pass: Color(0xFF4ADE80),
     fail: Color(0xFFFF5252),
-    inputFill: Color(0xFF1A1F27),
-    divider: Color(0xFF2A3038),
+    inputFill: Color(0xFF151517),
+    divider: Color(0xFF343438),
   );
 
   static AtlasColors of(BuildContext context) {
@@ -86,7 +91,7 @@ extension AtlasThemeX on BuildContext {
 }
 
 class AppTheme {
-  static const _seed = Color(0xFF8B1515);
+  static const _seed = Color(0xFF15803D);
 
   static ThemeData light() {
     final scheme = ColorScheme.fromSeed(

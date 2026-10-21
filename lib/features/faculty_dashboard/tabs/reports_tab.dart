@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../grading/grading_repository.dart';
+import '../../grading/unified_exam.dart';
+import '../../quick_exam/quick_exam_models.dart';
+import '../../quick_exam/quick_exam_repository.dart';
 import '../../../core/network/error_messages.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/atlas_loading_view.dart';
@@ -21,6 +24,7 @@ enum _PassDim { subject, exam, section }
 
 class _ReportsTabState extends State<ReportsTab> {
   final GradingRepository _repo = GradingRepository();
+  final QuickExamRepository _majorRepo = QuickExamRepository();
 
   Map<String, dynamic>? _data;
   bool _loading = true;
@@ -33,6 +37,8 @@ class _ReportsTabState extends State<ReportsTab> {
   String? _assessmentId;
   String? _gradeLevel;
   String? _section;
+  /// When a Major Exam (`qx:…`) is selected, hold its records summary.
+  Map<String, dynamic>? _majorReport;
 
   String? _decisionFilter;
   final Set<int> _expandedItems = {};
@@ -52,14 +58,20 @@ class _ReportsTabState extends State<ReportsTab> {
         _refreshing = true;
       }
       _error = null;
+      _majorReport = null;
     });
     try {
+      if (isMajorExamFilterId(_assessmentId)) {
+        await _loadMajorReport(id);
+        return;
+      }
       final data = await _repo.fetchReports(
         courseId: _courseId,
         assessmentId: _assessmentId,
         gradeLevel: _gradeLevel,
         section: _section,
       );
+      await _mergeMajorExamOptions(data);
       if (!mounted || id != _requestId) return;
       setState(() {
         _data = data;
@@ -75,6 +87,81 @@ class _ReportsTabState extends State<ReportsTab> {
         _loading = false;
         _refreshing = false;
         _error = friendlyError(e, fallback: 'Could not load reports. Please try again.');
+      });
+    }
+  }
+
+  Future<void> _mergeMajorExamOptions(Map<String, dynamic> data) async {
+    try {
+      final majors = await _majorRepo.fetchExams();
+      final options = Map<String, dynamic>.from(
+        (data['options'] as Map?) ?? {},
+      );
+      final assessments = [
+        ...((options['assessments'] as List?) ?? []),
+      ];
+      final existing = {
+        for (final a in assessments)
+          if (a is Map) a['assessment_id']?.toString(),
+      };
+      for (final e in majors) {
+        final fid = majorExamFilterId(e.examId);
+        if (existing.contains(fid)) continue;
+        if (_courseId != null) {
+          // Keep majors that match any course in options when a course filter is set.
+          final courses = (options['courses'] as List?) ?? const [];
+          final course = courses.cast<dynamic>().whereType<Map>().where(
+                (c) => c['course_id']?.toString() == _courseId,
+              );
+          if (course.isNotEmpty) {
+            final code = (course.first['course_code'] ?? '').toString();
+            final title = (course.first['course_title'] ?? '').toString();
+            if (!majorExamMatchesCourse(e,
+                courseCode: code, courseTitle: title)) {
+              continue;
+            }
+          }
+        }
+        assessments.add({
+          'assessment_id': fid,
+          'title': '${e.name} · Major',
+          'course_id': null,
+          'source': 'major',
+        });
+      }
+      options['assessments'] = assessments;
+      data['options'] = options;
+    } catch (e) {
+      debugPrint('Merge major exam options failed: $e');
+    }
+  }
+
+  Future<void> _loadMajorReport(int requestId) async {
+    final examId = majorExamIdFromFilter(_assessmentId)!;
+    try {
+      final exam = await _majorRepo.fetchExam(examId);
+      final records = await _majorRepo.fetchExamRecords(examId);
+      // Keep course filter options available by loading a light reports shell.
+      final shell = await _repo.fetchReports(courseId: _courseId);
+      await _mergeMajorExamOptions(shell);
+      if (!mounted || requestId != _requestId) return;
+      setState(() {
+        _data = shell;
+        _majorReport = {
+          'exam': exam,
+          'records': records,
+        };
+        _loading = false;
+        _refreshing = false;
+        _decisionFilter = null;
+        _expandedItems.clear();
+      });
+    } catch (e) {
+      if (!mounted || requestId != _requestId) return;
+      setState(() {
+        _loading = false;
+        _refreshing = false;
+        _error = friendlyError(e, fallback: 'Could not load major exam report.');
       });
     }
   }
@@ -553,11 +640,13 @@ class _ReportsTabState extends State<ReportsTab> {
     final c = context.atlas;
     if (_loading) {
       return const SafeArea(
+        bottom: false,
         child: AtlasLoadingView(layout: AtlasLoadingLayout.reports),
       );
     }
     if (_data == null) {
       return SafeArea(
+        bottom: false,
         child: AtlasPullToRefresh(
           onRefresh: _load,
           child: ListView(
@@ -588,6 +677,7 @@ class _ReportsTabState extends State<ReportsTab> {
     final count = (summary['count'] as num?)?.toInt() ?? 0;
 
     return SafeArea(
+      bottom: false,
       child: Column(
         children: [
           _buildStickyHeader(),
@@ -596,20 +686,24 @@ class _ReportsTabState extends State<ReportsTab> {
               onRefresh: _load,
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(18, 14, 18, 32),
+                padding: const EdgeInsets.fromLTRB(18, 14, 18, 56),
                 children: [
                   if (_error != null)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 10),
                       child: Text(_error!, style: TextStyle(color: c.primary)),
                     ),
-                  _buildOverview(summary),
-                  if (count > 0) ...[
-                    _buildPassRates(),
-                    _buildDistribution(),
+                  if (_majorReport != null)
+                    _buildMajorExamReport(c)
+                  else ...[
+                    _buildOverview(summary),
+                    if (count > 0) ...[
+                      _buildPassRates(),
+                      _buildDistribution(),
+                    ],
+                    _buildItemAnalysis(),
+                    if (count > 0) _buildBloom(),
                   ],
-                  _buildItemAnalysis(),
-                  if (count > 0) _buildBloom(),
                 ],
               ),
             ),
@@ -721,6 +815,7 @@ class _ReportsTabState extends State<ReportsTab> {
       ),
       builder: (_) => _ReportFilterSheet(
         repo: _repo,
+        majorRepo: _majorRepo,
         initial: _ReportFilters(
           courseId: _courseId,
           assessmentId: _assessmentId,
@@ -768,6 +863,99 @@ class _ReportsTabState extends State<ReportsTab> {
             ],
           ),
         ),
+      ],
+    );
+  }
+
+  Widget _buildMajorExamReport(AtlasColors c) {
+    final exam = _majorReport!['exam'] as QuickExam;
+    final records = _majorReport!['records'] as QuickExamRecords;
+    final avg = records.averagePercent;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ReportCard(
+          title: exam.name,
+          subtitle: '${exam.subjectName} · Major exam',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${records.scanCount} sheet(s) · '
+                '${records.passedCount} passed · '
+                '${records.flaggedCount} flagged',
+                style: TextStyle(color: c.textSecondary, fontSize: 13),
+              ),
+              if (avg != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Mean ${avg.toStringAsFixed(1)}%',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: c.primary,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 10),
+              Text(
+                'Full item analysis and Bloom live under Course Management '
+                'for course exams. Use Major Exams for keys, sheets and records.',
+                style: TextStyle(fontSize: 12.5, color: c.textSecondary),
+              ),
+            ],
+          ),
+        ),
+        if (records.items.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          ReportCard(
+            title: 'Item check',
+            subtitle: 'Share correct among answered sheets',
+            child: Column(
+              children: [
+                for (final it in records.items.take(20))
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 36,
+                          child: Text(
+                            '#${it.item}',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: c.textPrimary,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: LinearProgressIndicator(
+                              value: (it.percentCorrect ?? 0) / 100,
+                              minHeight: 8,
+                              backgroundColor: c.border,
+                              color: c.primary,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          it.percentCorrect == null
+                              ? '—'
+                              : '${it.percentCorrect!.toStringAsFixed(0)}%',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: c.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -1997,11 +2185,13 @@ class _ReportFilters {
 /// count, Reset and "Show results" footer.
 class _ReportFilterSheet extends StatefulWidget {
   final GradingRepository repo;
+  final QuickExamRepository majorRepo;
   final _ReportFilters initial;
   final Map<String, dynamic> initialData;
 
   const _ReportFilterSheet({
     required this.repo,
+    required this.majorRepo,
     required this.initial,
     required this.initialData,
   });
@@ -2032,16 +2222,44 @@ class _ReportFilterSheetState extends State<_ReportFilterSheet> {
   int get _resultCount =>
       ((_preview['summary'] as Map?)?['count'] as num?)?.toInt() ?? 0;
 
+  Future<void> _mergeMajors(Map<String, dynamic> data) async {
+    try {
+      final majors = await widget.majorRepo.fetchExams();
+      final options = Map<String, dynamic>.from(
+        (data['options'] as Map?) ?? {},
+      );
+      final assessments = [...((options['assessments'] as List?) ?? [])];
+      final existing = {
+        for (final a in assessments)
+          if (a is Map) a['assessment_id']?.toString(),
+      };
+      for (final e in majors) {
+        final fid = majorExamFilterId(e.examId);
+        if (existing.contains(fid)) continue;
+        assessments.add({
+          'assessment_id': fid,
+          'title': '${e.name} · Major',
+          'course_id': null,
+          'source': 'major',
+        });
+      }
+      options['assessments'] = assessments;
+      data['options'] = options;
+    } catch (_) {}
+  }
+
   Future<void> _refreshPreview() async {
     final id = ++_previewId;
     setState(() => _previewing = true);
     try {
       final data = await widget.repo.fetchReports(
         courseId: _course,
-        assessmentId: _exam,
+        // Major exam ids are not course assessments — keep options only.
+        assessmentId: isMajorExamFilterId(_exam) ? null : _exam,
         gradeLevel: _grade,
         section: _section,
       );
+      await _mergeMajors(data);
       if (!mounted || id != _previewId) return;
       setState(() {
         _preview = data;
@@ -2062,10 +2280,13 @@ class _ReportFilterSheetState extends State<_ReportFilterSheet> {
 
   void _pickExam(String? v) {
     _exam = v;
-    if (v != null) {
+    if (v != null && !isMajorExamFilterId(v)) {
       final a = _list(_options['assessments'])
           .where((a) => a['assessment_id'] == v);
-      if (a.isNotEmpty) _course = a.first['course_id']?.toString();
+      if (a.isNotEmpty) {
+        final cid = a.first['course_id']?.toString();
+        if (cid != null && cid.isNotEmpty) _course = cid;
+      }
     }
     _grade = null;
     _section = null;

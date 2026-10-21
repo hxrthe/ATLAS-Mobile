@@ -201,7 +201,7 @@ class OmrResult {
 }
 
 /// Circle on the realigned sheet for a graded item or student-ID bubble.
-enum ScoredMarkerKind { correct, wrong, ambiguous, studentId }
+enum ScoredMarkerKind { correct, wrong, ambiguous, bonus, studentId }
 
 class ScoredBubbleMarker {
   final int itemNumber;
@@ -425,6 +425,9 @@ class ScanRecord {
   final String templateName;
   final String studentIdentifier;
   final Map<String, String> responses;
+  /// Snapshot of the answer key used when this sheet was graded.
+  /// Lets Item Responses color correct/incorrect/bonus without a live template fetch.
+  final Map<String, String> answerKey;
   final double? scorePercent;
   final double? scoreRaw;
   final double? maxScore;
@@ -442,6 +445,7 @@ class ScanRecord {
     required this.templateName,
     required this.studentIdentifier,
     required this.responses,
+    this.answerKey = const {},
     this.scorePercent,
     this.scoreRaw,
     this.maxScore,
@@ -460,6 +464,7 @@ class ScanRecord {
         'template_name': templateName,
         'student_identifier': studentIdentifier,
         'responses': responses,
+        'answer_key': answerKey,
         'score_percent': scorePercent,
         'score_raw': scoreRaw,
         'max_score': maxScore,
@@ -479,6 +484,7 @@ class ScanRecord {
       templateName: json['template_name'] ?? '',
       studentIdentifier: json['student_identifier'] ?? 'Unknown',
       responses: Map<String, String>.from(json['responses'] ?? {}),
+      answerKey: _parseStoredAnswerKey(json['answer_key']),
       scorePercent: (json['score_percent'] as num?)?.toDouble(),
       scoreRaw: (json['score_raw'] as num?)?.toDouble(),
       maxScore: (json['max_score'] as num?)?.toDouble(),
@@ -492,9 +498,24 @@ class ScanRecord {
     );
   }
 
+  static Map<String, String> _parseStoredAnswerKey(dynamic raw) {
+    if (raw is! Map) return const {};
+    final out = <String, String>{};
+    raw.forEach((k, v) {
+      final key = k.toString().trim();
+      final val = v.toString().trim().toUpperCase();
+      if (key.isEmpty || val.isEmpty) return;
+      out[key] = val;
+      final asInt = int.tryParse(key);
+      if (asInt != null) out[asInt.toString()] = val;
+    });
+    return out;
+  }
+
   ScanRecord copyWith({
     String? studentIdentifier,
     Map<String, String>? responses,
+    Map<String, String>? answerKey,
     double? scorePercent,
     double? scoreRaw,
     double? maxScore,
@@ -510,6 +531,7 @@ class ScanRecord {
       templateName: templateName,
       studentIdentifier: studentIdentifier ?? this.studentIdentifier,
       responses: responses ?? this.responses,
+      answerKey: answerKey ?? this.answerKey,
       scorePercent: scorePercent ?? this.scorePercent,
       scoreRaw: scoreRaw ?? this.scoreRaw,
       maxScore: maxScore ?? this.maxScore,

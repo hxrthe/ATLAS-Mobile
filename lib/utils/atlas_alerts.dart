@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import '../core/theme/app_theme.dart';
 
 class AtlasAlerts {
-  // Brand Colors
-  static const Color primaryRed = Color(0xFF8B1515);
-  static const Color successGreen = Color(0xFF198754);
+  // Brand + semantic colors (match web greens)
+  static const Color brandPrimary = Color(0xFF15803D);
+  static const Color successGreen = Color(0xFF16A34A);
+  static const Color dangerRed = Color(0xFFB91C1C);
 
   /// 1. SUCCESS SNACKBAR (Slides up from the bottom)
   static void showSuccess(BuildContext context, String message) {
@@ -43,7 +44,7 @@ class AtlasAlerts {
                         color: Colors.white, fontWeight: FontWeight.bold))),
           ],
         ),
-        backgroundColor: primaryRed,
+        backgroundColor: dangerRed,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         margin: const EdgeInsets.all(16),
@@ -60,7 +61,6 @@ class AtlasAlerts {
     required VoidCallback onConfirm,
     bool isDestructive = false,
   }) async {
-    final colors = context.atlas;
     return showDialog(
       context: context,
       builder: (BuildContext dialogContext) {
@@ -70,7 +70,7 @@ class AtlasAlerts {
           title: Text(title,
               style: TextStyle(
                   fontWeight: FontWeight.bold,
-                  color: isDestructive ? primaryRed : d.textPrimary)),
+                  color: isDestructive ? dangerRed : d.textPrimary)),
           content: Text(content, style: TextStyle(color: d.textSecondary)),
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -88,7 +88,7 @@ class AtlasAlerts {
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor:
-                    isDestructive ? primaryRed : colors.textPrimary,
+                    isDestructive ? dangerRed : brandPrimary,
                 foregroundColor: Colors.white,
               ),
               child: Text(confirmText),

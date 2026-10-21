@@ -2524,17 +2524,17 @@ class OmrImaging {
       // Largest-gap thresholding per item
       final liveThr = _largestGap(perItemFills, 0.40);
 
-      // 3. Determine color
+      // 3. Determine color — same categories as result chips / item grid.
       final isAmbiguous = bestFill < liveThr || (bestFill - secondFill).abs() < 0.08;
       Color color;
       if (isBonusKey(correct)) {
-        color = const Color(0xFF00E676); // Green
+        color = const Color(0xFF2563EB); // Bonus
       } else if (isAmbiguous || correct == null) {
-        color = const Color(0xFFFFD600); // Yellow
-      } else if (bestChoice == correct) {
-        color = const Color(0xFF00E676); // Green
+        color = const Color(0xFFE6A23C); // Invalid
+      } else if (bestChoice.toUpperCase() == correct.trim().toUpperCase()) {
+        color = const Color(0xFF16A34A); // Correct
       } else {
-        color = const Color(0xFFFF1744); // Red
+        color = const Color(0xFFC62828); // Incorrect
       }
 
       // Use the chosen bubble position for overlay

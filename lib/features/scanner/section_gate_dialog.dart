@@ -294,7 +294,7 @@ class _SectionGateDialogState extends State<_SectionGateDialog> {
             ),
             if (_error != null) ...[
               const SizedBox(height: 10),
-              Text(_error!, style: const TextStyle(color: primaryRed, fontSize: 12.5)),
+              Text(_error!, style: const TextStyle(color: dangerRed, fontSize: 12.5)),
             ],
             const SizedBox(height: 8),
           ],

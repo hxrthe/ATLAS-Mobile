@@ -3,6 +3,8 @@ import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../theme/app_theme.dart';
+
 enum AtlasLoadingLayout { home, courses, reports, list }
 
 /// Full-page loader: ATLAS logo animation first, then a shimmer skeleton behind it.
@@ -17,12 +19,13 @@ class AtlasLoadingView extends StatefulWidget {
 
 class _AtlasLoadingViewState extends State<AtlasLoadingView>
     with TickerProviderStateMixin {
-  static const _background = Color(0xFFF4F6F9);
-  static const _bone = Color(0xFFE2E8F0);
-
   late final AnimationController _intro;
   late final AnimationController _shimmer;
   late final AnimationController _pulse;
+
+  late Color _background;
+  late Color _bone;
+  late Color _highlight;
 
   late final Animation<double> _logoAppear;
   late final Animation<double> _skeletonOpacity;
@@ -70,13 +73,26 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
 
   @override
   Widget build(BuildContext context) {
+    final c = context.atlas;
+    _background = c.scaffold;
+    _bone = Color.alphaBlend(
+      c.textSecondary.withValues(alpha: context.isDarkTheme ? 0.18 : 0.14),
+      c.card,
+    );
+    _highlight = Color.lerp(_bone, c.card, context.isDarkTheme ? 0.45 : 0.7)!;
+
     return ColoredBox(
       color: _background,
       child: Stack(
         children: [
           FadeTransition(
             opacity: _skeletonOpacity,
-            child: _Shimmer(animation: _shimmer, child: _buildSkeleton()),
+            child: _Shimmer(
+              animation: _shimmer,
+              base: _bone,
+              highlight: _highlight,
+              child: _buildSkeleton(),
+            ),
           ),
           Center(child: _buildLogo()),
         ],
@@ -111,7 +127,7 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
                 width: 48,
                 height: 12,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFB8C0C8).withValues(alpha: 0.55),
+                  color: const Color(0xFF15803D).withValues(alpha: 0.22),
                   borderRadius: BorderRadius.circular(99),
                 ),
               ),
@@ -198,28 +214,49 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
 
   /// Course code + status pill, title + assessment-type tag, then the scan button.
   Widget _sessionCardBone() {
-    return _cardBone(
-      radius: 22,
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
       padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
-      children: [
-        Row(
-          children: [
-            _whiteBone(width: 120, height: 28, radius: 6),
-            const Spacer(),
-            _whiteBone(width: 116, height: 22, radius: 11),
-          ],
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: dark
+              ? const [
+                  Color(0xFF14532D),
+                  Color(0xFF0A0A0B),
+                  Color(0xFF050506),
+                ]
+              : const [
+                  Color(0xFFBBF7D0),
+                  Color(0xFFDCFCE7),
+                  Color(0xFFF0FDF4),
+                ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            _whiteBone(width: 170, height: 12, radius: 4),
-            const SizedBox(width: 8),
-            _whiteBone(width: 52, height: 16, radius: 6),
-          ],
-        ),
-        const SizedBox(height: 14),
-        _whiteBone(width: double.infinity, height: 44, radius: 12),
-      ],
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _whiteBone(width: 120, height: 28, radius: 6),
+              const Spacer(),
+              _whiteBone(width: 116, height: 22, radius: 11),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _whiteBone(width: 170, height: 12, radius: 4),
+              const SizedBox(width: 8),
+              _whiteBone(width: 52, height: 16, radius: 6),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _whiteBone(width: double.infinity, height: 44, radius: 12),
+        ],
+      ),
     );
   }
 
@@ -292,11 +329,24 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
 
   /// "Other courses" tile: code + swap icon, title lines, then "Switch".
   Widget _courseTileBone() {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       height: 128,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: _bone,
+        gradient: LinearGradient(
+          colors: dark
+              ? const [
+                  Color(0xFF14532D),
+                  Color(0xFF0A0A0B),
+                ]
+              : const [
+                  Color(0xFFBBF7D0),
+                  Color(0xFFF0FDF4),
+                ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -402,12 +452,13 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
     double? width,
     required double height,
     double radius = 8,
-  }) => _boneBox(
-    width: width,
-    height: height,
-    radius: radius,
-    color: Colors.white,
-  );
+  }) =>
+      _boneBox(
+        width: width,
+        height: height,
+        radius: radius,
+        color: _highlight,
+      );
 
   List<Widget> _coursesBones() {
     return [
@@ -484,19 +535,19 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
       ),
       child: Row(
         children: [
-          _boneBox(width: 40, height: 40, radius: 20, color: Colors.white),
+          _boneBox(width: 40, height: 40, radius: 20, color: _highlight),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _boneBox(width: 88, height: 14, radius: 4, color: Colors.white),
+                _boneBox(width: 88, height: 14, radius: 4, color: _highlight),
                 const SizedBox(height: 8),
                 _boneBox(
                   width: 160,
                   height: 11,
                   radius: 4,
-                  color: Colors.white,
+                  color: _highlight,
                 ),
               ],
             ),
@@ -510,13 +561,13 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
     double? width,
     required double height,
     double radius = 8,
-    Color color = _bone,
+    Color? color,
   }) {
     return Container(
       width: width,
       height: height,
       decoration: BoxDecoration(
-        color: color,
+        color: color ?? _bone,
         borderRadius: BorderRadius.circular(radius),
       ),
     );
@@ -524,10 +575,17 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
 }
 
 class _Shimmer extends StatelessWidget {
-  const _Shimmer({required this.animation, required this.child});
+  const _Shimmer({
+    required this.animation,
+    required this.child,
+    required this.base,
+    required this.highlight,
+  });
 
   final Animation<double> animation;
   final Widget child;
+  final Color base;
+  final Color highlight;
 
   @override
   Widget build(BuildContext context) {
@@ -541,11 +599,7 @@ class _Shimmer extends StatelessWidget {
             return LinearGradient(
               begin: Alignment(-1.2 + (t * 2.4), -0.3),
               end: Alignment(-0.2 + (t * 2.4), 0.3),
-              colors: const [
-                Color(0xFFE2E8F0),
-                Color(0xFFF8FAFC),
-                Color(0xFFE2E8F0),
-              ],
+              colors: [base, highlight, base],
               stops: const [0.25, 0.5, 0.75],
             ).createShader(bounds);
           },

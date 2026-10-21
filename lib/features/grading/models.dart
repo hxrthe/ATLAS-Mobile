@@ -63,14 +63,16 @@ class BubbleTemplate {
       hasEssay: json['has_essay'] ?? false,
       essayLines: json['essay_lines'] ?? 10,
       hasAnswerKey: json['has_answer_key'] ?? false,
-      answerKey: _parseAnswerKey(json['answer_key']),
+      answerKey: parseAnswerKey(json['answer_key']),
       passingScore: (json['passing_score'] as num?)?.toDouble(),
       layoutMetadata: json['layout_metadata'] ?? {},
       isQuickExam: json['is_quick_exam'] == true,
     );
   }
 
-  static Map<String, String> _parseAnswerKey(dynamic raw) {
+  /// Normalizes answer-key maps from API / cache / scan history.
+  /// Indexes both padded and bare item numbers (e.g. `"01"` and `"1"`).
+  static Map<String, String> parseAnswerKey(dynamic raw) {
     if (raw is! Map) return {};
     final out = <String, String>{};
     raw.forEach((k, v) {

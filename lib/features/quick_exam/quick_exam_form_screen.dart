@@ -4,6 +4,7 @@ import '../../core/network/error_messages.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/atlas_skeleton.dart';
 import '../../utils/atlas_alerts.dart';
+import '../grading/answer_key.dart';
 import 'quick_exam_models.dart';
 import 'quick_exam_repository.dart';
 import 'quick_exam_widgets.dart';
@@ -239,11 +240,13 @@ class _QuickExamFormScreenState extends State<QuickExamFormScreen> {
     };
 
     final content = _content;
+    final allowed = 'ABCD'.substring(0, _choices);
     final key = <String, String>{
       for (final entry in (content?.answerKey ?? const <String, String>{}).entries)
         if ((int.tryParse(entry.key) ?? 0) <= _total &&
-            'ABCD'.substring(0, _choices).contains(entry.value))
-          entry.key: entry.value,
+            (allowed.contains(entry.value.toUpperCase()) ||
+                entry.value.trim() == bonusKey))
+          entry.key: entry.value.trim().toUpperCase(),
     };
     if (content != null) body['questions'] = _fittedQuestions(content);
 
@@ -270,7 +273,7 @@ class _QuickExamFormScreenState extends State<QuickExamFormScreen> {
     final c = context.atlas;
     return Scaffold(
       appBar: AppBar(
-        title: Text(_isEdit ? 'Edit exam' : 'New exam'),
+        title: Text(_isEdit ? 'Edit major exam' : 'New major exam'),
       ),
       body: Form(
         key: _formKey,

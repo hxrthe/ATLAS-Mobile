@@ -45,11 +45,12 @@ class _SettingsTabState extends State<SettingsTab> {
   Widget build(BuildContext context) {
     final colors = context.atlas;
     return SafeArea(
+      bottom: false,
       child: AtlasPullToRefresh(
         onRefresh: _loadUser,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(24.0),
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 56),
           children: [
             Text(
               'ACCOUNT SETTINGS',

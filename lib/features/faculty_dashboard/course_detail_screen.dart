@@ -9,6 +9,9 @@ import '../grading/answer_key.dart';
 import '../grading/grading_repository.dart';
 import '../grading/models.dart';
 import '../grading/sheet_pdf_actions.dart';
+import '../grading/unified_exam.dart';
+import '../quick_exam/quick_exam_models.dart';
+import '../quick_exam/quick_exam_repository.dart';
 import 'course_exam_create_screen.dart';
 
 class CourseDetailScreen extends StatefulWidget {
@@ -31,10 +34,13 @@ class CourseDetailScreen extends StatefulWidget {
 
 class _CourseDetailScreenState extends State<CourseDetailScreen>
     with SingleTickerProviderStateMixin {
-  late final TabController _tabController;
+  late TabController _tabController;
   final GradingRepository _repo = GradingRepository();
+  final QuickExamRepository _majorRepo = QuickExamRepository();
 
   List<Map<String, dynamic>> _assessments = [];
+  /// Major (mobile) exams for this course, keyed by `qx:<id>`.
+  final Map<String, QuickExam> _majorById = {};
   String? _selectedAssessmentId;
 
   List<Map<String, dynamic>> _items = [];
@@ -69,6 +75,14 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   bool _loadingPassingScore = false;
   bool _savingPassingScore = false;
 
+  bool get _hasUploadedQuestions => _items.any(
+        (i) => (i['question_text'] ?? '').toString().trim().isNotEmpty,
+      );
+
+  bool get _showEvaluationTab =>
+      _selectedAssessmentId != null &&
+      (_loadingEM || _hasUploadedQuestions || _emError != null);
+
   @override
   void initState() {
     super.initState();
@@ -76,6 +90,20 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     _tabController.addListener(_onTabChanged);
     _loadWorkspace();
     _loadSectionCounts();
+  }
+
+  void _syncTabController({required bool showEm}) {
+    final len = showEm ? 2 : 1;
+    if (_tabController.length == len) return;
+    final old = _tabController;
+    old.removeListener(_onTabChanged);
+    _tabController = TabController(
+      length: len,
+      vsync: this,
+      initialIndex: 0,
+    );
+    _tabController.addListener(_onTabChanged);
+    old.dispose();
   }
 
   /// Students per section for the header, from the course roster (blocks).
@@ -108,7 +136,8 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
 
   void _onTabChanged() {
     if (!mounted) return;
-    if (_tabController.index == 1 &&
+    final scoresIndex = _showEvaluationTab ? 1 : 0;
+    if (_tabController.index == scoresIndex &&
         _scoreRows.isEmpty &&
         !_loadingScores &&
         _selectedAssessmentId != null) {
@@ -126,9 +155,37 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
       final ws = await _repo.fetchCourseWorkspace(widget.courseId);
       final rawAssessments =
           (ws['assessments'] as List<dynamic>?)
-              ?.map((a) => a as Map<String, dynamic>)
+              ?.map((a) => Map<String, dynamic>.from(a as Map))
               .toList() ??
           [];
+      for (final a in rawAssessments) {
+        a['source'] = 'course';
+      }
+
+      // Major Exams created on mobile for this course/subject.
+      try {
+        final majors = await _majorRepo.fetchExams();
+        _majorById.clear();
+        for (final e in majors) {
+          if (!majorExamMatchesCourse(
+            e,
+            courseCode: widget.courseCode,
+            courseTitle: widget.courseTitle,
+          )) {
+            continue;
+          }
+          final id = majorExamFilterId(e.examId);
+          _majorById[id] = e;
+          rawAssessments.add({
+            'assessment_id': id,
+            'title': '${e.name} · Major',
+            'source': 'major',
+            'total_items': e.totalItems,
+          });
+        }
+      } catch (e) {
+        debugPrint('Major exams for course failed: $e');
+      }
 
       final wanted = rawAssessments.any(
         (a) => a['assessment_id']?.toString() == selectId,
@@ -150,6 +207,8 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
           await _loadAssessmentItems(selId);
         } else {
           setState(() => _loadingEM = false);
+          _syncTabController(showEm: false);
+          setState(() {});
         }
       }
     } catch (e) {
@@ -164,6 +223,10 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
 
   Future<void> _loadAssessmentItems(String assessmentId) async {
     try {
+      if (isMajorExamFilterId(assessmentId)) {
+        await _loadMajorExamItems(assessmentId);
+        return;
+      }
       final detail = await _repo.fetchAssessmentDetail(assessmentId);
       final rawItems =
           (detail['items'] as List<dynamic>?)
@@ -186,6 +249,8 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
           _savedAnswerKey = Map.of(key);
           _loadingEM = false;
         });
+        _syncTabController(showEm: _showEvaluationTab);
+        setState(() {});
       }
     } catch (e) {
       if (mounted) {
@@ -193,8 +258,53 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
           _loadingEM = false;
           _emError = friendlyError(e, fallback: 'Could not load this exam. Please try again.');
         });
+        _syncTabController(showEm: true);
+        setState(() {});
       }
     }
+  }
+
+  Future<void> _loadMajorExamItems(String filterId) async {
+    final examId = majorExamIdFromFilter(filterId)!;
+    var exam = _majorById[filterId];
+    exam ??= await _majorRepo.fetchExam(examId);
+    _majorById[filterId] = exam;
+
+    final rawItems = <Map<String, dynamic>>[];
+    final key = Map<String, String>.from(exam.answerKey);
+    if (exam.questions.isNotEmpty) {
+      for (final q in exam.questions) {
+        rawItems.add({
+          'item_id': q.itemNumber.toString(),
+          'item_number': q.itemNumber,
+          'question_text': q.text,
+          'choices': q.choices,
+          'correct_answer': key[q.itemNumber.toString()] ?? '',
+        });
+      }
+    } else {
+      for (var i = 1; i <= exam.totalItems; i++) {
+        rawItems.add({
+          'item_id': '$i',
+          'item_number': i,
+          'question_text': '',
+          'correct_answer': key['$i'] ?? '',
+        });
+      }
+    }
+
+    if (!mounted) return;
+    final loaded = exam;
+    final showEm = loaded.questions.any((q) => q.text.trim().isNotEmpty);
+    setState(() {
+      _items = rawItems;
+      _localAnswerKey = key;
+      _savedAnswerKey = Map.of(key);
+      _passingScore = loaded.passingPercent;
+      _loadingEM = false;
+    });
+    _syncTabController(showEm: showEm);
+    setState(() {});
   }
 
   Future<void> _onAssessmentChanged(String? newId) async {
@@ -208,7 +318,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
       _loadingPassingScore = false;
     });
     await _loadAssessmentItems(newId);
-    if (_tabController.index == 1) await _loadScores();
+    await _loadScores();
   }
 
   Future<void> _loadScores() async {
@@ -218,6 +328,10 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
       _scoresError = null;
     });
     try {
+      if (isMajorExamFilterId(_selectedAssessmentId)) {
+        await _loadMajorExamScores(_selectedAssessmentId!);
+        return;
+      }
       final data = await _repo.fetchStudentScores(
         widget.courseId,
         _selectedAssessmentId!,
@@ -256,6 +370,47 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
           _scoresError = friendlyError(e, fallback: 'Could not load scores. Please try again.');
         });
       }
+    }
+  }
+
+  Future<void> _loadMajorExamScores(String filterId) async {
+    try {
+      final examId = majorExamIdFromFilter(filterId)!;
+      final records = await _majorRepo.fetchExamRecords(examId);
+      final exam = _majorById[filterId] ?? await _majorRepo.fetchExam(examId);
+      _majorById[filterId] = exam;
+      final rows = [
+        for (final s in records.scans)
+          {
+            'student_identifier': s.studentIdentifier ?? 'Unknown',
+            'student_name': s.studentName ?? '',
+            'score_raw': s.scoreRaw,
+            'score_percent': s.scorePercent,
+            'max_score': s.maxScore,
+            'is_flagged': s.isFlagged,
+            'section': '',
+            'grade_level': '',
+            'passed': s.passed,
+          },
+      ];
+      if (!mounted) return;
+      setState(() {
+        _scoreRows = rows;
+        _scoreTotalItems = exam.totalItems;
+        _scorePassingPercent = exam.passingPercent;
+        _scoreSections = const [];
+        _scoreGradeLevels = const [];
+        _scoreSectionFilter = null;
+        _scoreGradeFilter = null;
+        _loadingScores = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadingScores = false;
+        _scoresError =
+            friendlyError(e, fallback: 'Could not load major exam scores.');
+      });
     }
   }
 
@@ -384,19 +539,23 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
 
   @override
   Widget build(BuildContext context) {
+    final showEm = _showEvaluationTab;
     return Scaffold(
       backgroundColor: context.atlas.scaffold,
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             _buildBreadcrumb(),
             _buildCourseCard(),
-            _buildTabBar(),
+            if (showEm) _buildTabBar(),
             Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: [_buildEMTab(), _buildScoresTab()],
-              ),
+              child: showEm
+                  ? TabBarView(
+                      controller: _tabController,
+                      children: [_buildEMTab(), _buildScoresTab()],
+                    )
+                  : _buildScoresTab(),
             ),
           ],
         ),
@@ -440,7 +599,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
           ),
           Expanded(
             child: Text(
-              '${widget.courseCode} / ${_tabController.index == 0 ? 'Evaluation Materials' : 'Students & Scores'}',
+              '${widget.courseCode} / ${(_showEvaluationTab && _tabController.index == 0) ? 'Evaluation Materials' : 'Students & Scores'}',
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
@@ -465,21 +624,33 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
 
   Widget _buildCourseCard() {
     final c = context.atlas;
-    final onHero = c.onPrimary.withValues(alpha: 0.85);
+    final dark = context.isDarkTheme;
+    // Brand greens only — never the old green→maroon wash.
+    final gradient = dark
+        ? const [Color(0xFF14532D), Color(0xFF0A0A0B), Color(0xFF050506)]
+        : const [Color(0xFFBBF7D0), Color(0xFFDCFCE7), Color(0xFFF0FDF4)];
+    final titleColor = dark ? Colors.white : const Color(0xFF14532D);
+    final subColor =
+        dark ? Colors.white.withValues(alpha: 0.88) : const Color(0xFF15803D);
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [c.primary, const Color(0xFF5A0C0C)],
+          colors: gradient,
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: dark
+              ? Colors.white.withValues(alpha: 0.08)
+              : const Color(0xFF15803D).withValues(alpha: 0.2),
+        ),
         boxShadow: [
           BoxShadow(
-            color: c.primary.withValues(alpha: 0.25),
+            color: c.primary.withValues(alpha: dark ? 0.35 : 0.18),
             blurRadius: 12,
             offset: const Offset(0, 6),
           ),
@@ -493,7 +664,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
             style: TextStyle(
               fontSize: 26,
               fontWeight: FontWeight.w900,
-              color: c.onPrimary,
+              color: titleColor,
             ),
           ),
           const SizedBox(height: 4),
@@ -502,7 +673,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
             style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w500,
-              color: onHero,
+              color: subColor,
             ),
           ),
           const SizedBox(height: 10),
@@ -510,10 +681,10 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
             SizedBox(
               height: 14,
               width: 14,
-              child: CircularProgressIndicator(strokeWidth: 1.5, color: onHero),
+              child: CircularProgressIndicator(strokeWidth: 1.5, color: subColor),
             )
           else if (_sectionCounts!.isEmpty)
-            _infoChip(Icons.groups_2_outlined, 'No sections yet', onHero)
+            _infoChip(Icons.groups_2_outlined, 'No sections yet', subColor)
           else
             Wrap(
               spacing: 12,
@@ -523,7 +694,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
                   _infoChip(
                     Icons.groups_2_outlined,
                     '${e.key} · ${e.value} student${e.value == 1 ? '' : 's'}',
-                    onHero,
+                    subColor,
                   ),
               ],
             ),

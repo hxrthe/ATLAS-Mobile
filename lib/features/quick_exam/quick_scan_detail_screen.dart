@@ -345,7 +345,7 @@ class _QuickScanDetailScreenState extends State<QuickScanDetailScreen> {
     if (correct == null) {
       tone = c.textSecondary;
     } else if (isBonusKey(correct)) {
-      tone = c.correct;
+      tone = c.bonus;
     } else if (blank || r.length > 1) {
       tone = c.ambiguous;
     } else {

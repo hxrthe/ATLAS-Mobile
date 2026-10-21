@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../theme/app_theme.dart';
+
 /// Pull-to-refresh that displaces the page and shows parallel lines + a down
 /// arrow while dragging. No spinner — screens already show [AtlasLoadingView].
 class AtlasPullToRefresh extends StatefulWidget {
@@ -136,9 +138,10 @@ class _AtlasPullToRefreshState extends State<AtlasPullToRefresh>
   Widget build(BuildContext context) {
     final visual = _refreshing ? 0.0 : _visualOffset;
     final progress = (visual / 56).clamp(0.0, 1.0);
-
+    // Transparent so AtlasBrandedBackdrop (dark near-black / light mint) shows
+    // through — never hardcode the light scaffold (breaks dark mode).
     return ColoredBox(
-      color: const Color(0xFFF4F6F9),
+      color: Colors.transparent,
       child: NotificationListener<OverscrollIndicatorNotification>(
         onNotification: (notification) {
           notification.disallowIndicator();
@@ -218,7 +221,8 @@ class _PullToRefreshCue extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = armed ? const Color(0xFF8B1515) : const Color(0xFF8391A1);
+    final colors = context.atlas;
+    final color = armed ? colors.primary : colors.textSecondary;
     return Transform.scale(
       scale: 0.86 + (0.14 * progress),
       child: Column(

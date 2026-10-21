@@ -34,9 +34,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   int _resendCooldown = 30;
   Timer? _cooldownTimer;
 
-  final Color primaryRed = const Color(0xFF8B1515);
-  final Color grayText = const Color(0xFF8391A1);
-  final Color borderColor = const Color(0xFFE8ECF4);
+  static const _leaf = Color(0xFF15803D);
+  static const _darkBg = Color(0xFF0A0A0B);
 
   @override
   void initState() {
@@ -94,13 +93,15 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Auth stays light regardless of app theme mode.
-    return Theme(
-      data: AppTheme.light(),
-      child: Scaffold(
-      backgroundColor: Colors.white,
+    final isDark = context.isDarkTheme;
+    final colors = context.atlas;
+    final bg = isDark ? _darkBg : Colors.white;
+    final accent = isDark ? const Color(0xFF16A34A) : _leaf;
+
+    return Scaffold(
+      backgroundColor: bg,
       appBar: AppBar(
-        backgroundColor: primaryRed,
+        backgroundColor: accent,
         foregroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
@@ -118,7 +119,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             _nextPage();
           } else if (state is PasswordResetSuccess) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Password reset successful. Please login.')),
+              const SnackBar(
+                  content: Text('Password reset successful. Please login.')),
             );
             Navigator.pop(context);
           } else if (state is AuthFailure) {
@@ -132,20 +134,19 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             controller: _pageController,
             physics: const NeverScrollableScrollPhysics(),
             children: [
-              _buildEmailStep(state),
-              _buildOtpStep(state),
-              _buildResetStep(state),
+              _buildEmailStep(state, colors, accent),
+              _buildOtpStep(state, colors, accent),
+              _buildResetStep(state, colors, accent),
             ],
           );
         },
       ),
-    ),
     );
   }
 
   // ── Step 1: Email ──
 
-  Widget _buildEmailStep(AuthState state) {
+  Widget _buildEmailStep(AuthState state, AtlasColors colors, Color accent) {
     return Form(
       key: _emailFormKey,
       child: Padding(
@@ -153,14 +154,18 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
+            Text(
               'Forgot Password?',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: colors.textPrimary,
+              ),
             ),
             const SizedBox(height: 12),
             Text(
               "Don't worry! It occurs. Please enter the email address linked with your account.",
-              style: TextStyle(color: grayText, fontSize: 16),
+              style: TextStyle(color: colors.textSecondary, fontSize: 16),
             ),
             const SizedBox(height: 32),
             TextFormField(
@@ -168,7 +173,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               keyboardType: TextInputType.emailAddress,
               textInputAction: TextInputAction.done,
               autocorrect: false,
-              decoration: _inputDecoration('Enter your email'),
+              style: TextStyle(color: colors.textPrimary),
+              decoration: _inputDecoration('Enter your email', colors, accent),
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
                   return 'Email is required';
@@ -183,6 +189,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             const SizedBox(height: 32),
             _buildButton(
               text: 'Send Code',
+              accent: accent,
               isLoading: state is AuthLoading,
               onPressed: () {
                 if (_emailFormKey.currentState!.validate()) {
@@ -200,7 +207,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   // ── Step 2: OTP ──
 
-  Widget _buildOtpStep(AuthState state) {
+  Widget _buildOtpStep(AuthState state, AtlasColors colors, Color accent) {
     return Form(
       key: _otpFormKey,
       child: Padding(
@@ -208,14 +215,18 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
+            Text(
               'OTP Verification',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: colors.textPrimary,
+              ),
             ),
             const SizedBox(height: 12),
             Text(
               "Enter the verification code we just sent on your email address.",
-              style: TextStyle(color: grayText, fontSize: 16),
+              style: TextStyle(color: colors.textSecondary, fontSize: 16),
             ),
             const SizedBox(height: 32),
             TextFormField(
@@ -223,7 +234,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               keyboardType: TextInputType.number,
               textInputAction: TextInputAction.done,
               maxLength: 6,
-              decoration: _inputDecoration('Enter verification code'),
+              style: TextStyle(color: colors.textPrimary),
+              decoration:
+                  _inputDecoration('Enter verification code', colors, accent),
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
                   return 'OTP is required';
@@ -240,6 +253,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             const SizedBox(height: 24),
             _buildButton(
               text: 'Verify',
+              accent: accent,
               isLoading: state is AuthLoading,
               onPressed: () {
                 if (_otpFormKey.currentState!.validate()) {
@@ -260,14 +274,15 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       child: Text(
                         'Resend Code',
                         style: TextStyle(
-                          color: primaryRed,
+                          color: accent,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
                     )
                   : Text(
                       'Resend code in $_resendCooldown s',
-                      style: TextStyle(color: grayText, fontSize: 14),
+                      style:
+                          TextStyle(color: colors.textSecondary, fontSize: 14),
                     ),
             ),
           ],
@@ -278,7 +293,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   // ── Step 3: New Password ──
 
-  Widget _buildResetStep(AuthState state) {
+  Widget _buildResetStep(AuthState state, AtlasColors colors, Color accent) {
     return Form(
       key: _resetFormKey,
       child: Padding(
@@ -286,27 +301,34 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
+            Text(
               'Create New Password',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: colors.textPrimary,
+              ),
             ),
             const SizedBox(height: 12),
             Text(
               "Your new password must be unique from those previously used.",
-              style: TextStyle(color: grayText, fontSize: 16),
+              style: TextStyle(color: colors.textSecondary, fontSize: 16),
             ),
             const SizedBox(height: 32),
             TextFormField(
               controller: _passwordController,
               obscureText: !_passwordVisible,
               textInputAction: TextInputAction.next,
-              decoration: _inputDecoration('New Password').copyWith(
+              style: TextStyle(color: colors.textPrimary),
+              decoration: _inputDecoration('New Password', colors, accent)
+                  .copyWith(
                 suffixIcon: IconButton(
                   icon: Icon(
                     _passwordVisible ? Icons.visibility_off : Icons.visibility,
-                    color: grayText,
+                    color: colors.textSecondary,
                   ),
-                  onPressed: () => setState(() => _passwordVisible = !_passwordVisible),
+                  onPressed: () =>
+                      setState(() => _passwordVisible = !_passwordVisible),
                 ),
               ),
               validator: (value) {
@@ -324,13 +346,18 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               controller: _confirmPasswordController,
               obscureText: !_confirmPasswordVisible,
               textInputAction: TextInputAction.done,
-              decoration: _inputDecoration('Confirm Password').copyWith(
+              style: TextStyle(color: colors.textPrimary),
+              decoration: _inputDecoration('Confirm Password', colors, accent)
+                  .copyWith(
                 suffixIcon: IconButton(
                   icon: Icon(
-                    _confirmPasswordVisible ? Icons.visibility_off : Icons.visibility,
-                    color: grayText,
+                    _confirmPasswordVisible
+                        ? Icons.visibility_off
+                        : Icons.visibility,
+                    color: colors.textSecondary,
                   ),
-                  onPressed: () => setState(() => _confirmPasswordVisible = !_confirmPasswordVisible),
+                  onPressed: () => setState(
+                      () => _confirmPasswordVisible = !_confirmPasswordVisible),
                 ),
               ),
               validator: (value) {
@@ -346,6 +373,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             const SizedBox(height: 32),
             _buildButton(
               text: 'Reset Password',
+              accent: accent,
               isLoading: state is AuthLoading,
               onPressed: () {
                 if (_resetFormKey.currentState!.validate()) {
@@ -368,22 +396,28 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   // ── Shared Widgets ──
 
-  InputDecoration _inputDecoration(String hintText) {
+  InputDecoration _inputDecoration(
+    String hintText,
+    AtlasColors colors,
+    Color accent,
+  ) {
     return InputDecoration(
       hintText: hintText,
+      hintStyle: TextStyle(color: colors.textSecondary),
       filled: true,
-      fillColor: const Color(0xFFF7F8F9),
+      fillColor: colors.inputFill,
+      counterStyle: TextStyle(color: colors.textSecondary),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
-        borderSide: BorderSide(color: borderColor),
+        borderSide: BorderSide(color: colors.border),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
-        borderSide: BorderSide(color: borderColor),
+        borderSide: BorderSide(color: colors.border),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
-        borderSide: BorderSide(color: primaryRed, width: 1.5),
+        borderSide: BorderSide(color: accent, width: 1.5),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
@@ -399,13 +433,15 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   Widget _buildButton({
     required String text,
+    required Color accent,
     required VoidCallback onPressed,
     bool isLoading = false,
   }) {
     return ElevatedButton(
       onPressed: isLoading ? null : onPressed,
       style: ElevatedButton.styleFrom(
-        backgroundColor: primaryRed,
+        backgroundColor: accent,
+        foregroundColor: Colors.white,
         padding: const EdgeInsets.symmetric(vertical: 16),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),

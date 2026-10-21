@@ -3,11 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../features/auth/login_screen.dart';
 
-/// Render backend (public). For local dev, swap to ngrok or http://10.0.2.2:8000/api/
-const String _renderApiBaseUrl = 'https://atlas-rcch.onrender.com/api/';
+/// Hostinger VPS production API. For local dev, swap to ngrok or http://10.0.2.2:8000/api/
+const String _vpsApiBaseUrl = 'https://atlas-ph.tech/api/';
 
 String _resolveBaseUrl() {
-  return _renderApiBaseUrl;
+  return _vpsApiBaseUrl;
 }
 
 class ApiClient {
@@ -42,7 +42,7 @@ class ApiClient {
           return handler.next(options);
         },
         onError: (DioException e, handler) async {
-          // Retry on connection errors or 502 (Render cold start / wake-up)
+          // Retry on connection errors or transient 502 from the reverse proxy
           final isRetryable = e.type == DioExceptionType.connectionError ||
               e.response?.statusCode == 502;
 

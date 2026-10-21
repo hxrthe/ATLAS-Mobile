@@ -8,7 +8,10 @@ import '../grading/models.dart';
 import 'omr_constants.dart';
 import 'omr_models.dart';
 
-const Color primaryRed = Color(0xFF8B1515);
+const Color primaryGreen = Color(0xFF15803D);
+/// Brand primary — kept as alias so existing call sites stay green.
+const Color primaryRed = primaryGreen;
+const Color dangerRed = Color(0xFFB91C1C);
 const Color darkText = Color(0xFF1E232C);
 const Color grayText = Color(0xFF8391A1);
 const Color borderColor = Color(0xFFE8ECF4);
@@ -757,21 +760,25 @@ class ReviewPapersView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.atlas;
     return Scaffold(
-      backgroundColor: bgGrey,
+      backgroundColor: c.scaffold,
       appBar: AppBar(
-        backgroundColor: primaryRed,
-        foregroundColor: Colors.white,
+        backgroundColor: c.primary,
+        foregroundColor: c.onPrimary,
         title: const Text('Review Papers', style: TextStyle(fontWeight: FontWeight.bold)),
         leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: onBack),
         actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: onRefresh)],
       ),
-      body: _body(),
+      body: _body(context),
     );
   }
 
-  Widget _body() {
-    if (isLoading) return const Center(child: CircularProgressIndicator(color: primaryRed));
+  Widget _body(BuildContext context) {
+    final c = context.atlas;
+    if (isLoading) {
+      return Center(child: CircularProgressIndicator(color: c.primary));
+    }
     if (error != null && records.isEmpty) {
       return Center(
         child: Padding(
@@ -779,30 +786,41 @@ class ReviewPapersView extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline, size: 48, color: primaryRed),
+              Icon(Icons.error_outline, size: 48, color: c.fail),
               const SizedBox(height: 12),
-              Text(error!, textAlign: TextAlign.center, style: const TextStyle(color: primaryRed, fontSize: 14)),
+              Text(
+                error!,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: c.fail, fontSize: 14),
+              ),
             ],
           ),
         ),
       );
     }
     if (records.isEmpty) {
-      return const Center(
+      return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.inbox_outlined, size: 56, color: grayText),
-            SizedBox(height: 12),
-            Text('No papers scanned yet', style: TextStyle(color: grayText, fontSize: 15)),
-            SizedBox(height: 4),
-            Text('Return to scanner and start scanning', style: TextStyle(color: grayText, fontSize: 12)),
+            Icon(Icons.inbox_outlined, size: 56, color: c.textSecondary),
+            const SizedBox(height: 12),
+            Text(
+              'No papers scanned yet',
+              style: TextStyle(color: c.textSecondary, fontSize: 15),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Return to scanner and start scanning',
+              style: TextStyle(color: c.textSecondary, fontSize: 12),
+            ),
           ],
         ),
       );
     }
 
     return RefreshIndicator(
+      color: c.primary,
       onRefresh: () async => onRefresh(),
       child: ListView.separated(
         padding: const EdgeInsets.all(16),
@@ -819,7 +837,7 @@ class ReviewPapersView extends StatelessWidget {
               alignment: Alignment.centerRight,
               padding: const EdgeInsets.only(right: 24),
               decoration: BoxDecoration(
-                color: Colors.red.shade600,
+                color: c.fail,
                 borderRadius: BorderRadius.circular(14),
               ),
               child: const Icon(Icons.delete_outline, color: Colors.white, size: 28),
@@ -837,22 +855,31 @@ class ReviewPapersView extends StatelessWidget {
   }
 
   Future<bool> _confirmDelete(BuildContext context, ScanRecord record) async {
+    final c = context.atlas;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
+        backgroundColor: c.card,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Delete Scan?', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(
+          'Delete Scan?',
+          style: TextStyle(fontWeight: FontWeight.bold, color: c.textPrimary),
+        ),
         content: Text(
           'Delete the scan for ${record.studentIdentifier}?\n\nThis action cannot be undone.',
+          style: TextStyle(color: c.textSecondary),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel', style: TextStyle(color: grayText)),
+            child: Text('Cancel', style: TextStyle(color: c.textSecondary)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete', style: TextStyle(color: primaryRed, fontWeight: FontWeight.bold)),
+            child: Text(
+              'Delete',
+              style: TextStyle(color: c.fail, fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),
@@ -870,13 +897,17 @@ class _ScanRecordCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.atlas;
     final sp = record.scorePercent;
     final scoreStr = sp != null ? '${sp.toStringAsFixed(0)}%' : '\u2014';
     final isUploaded = record.serverScanId != null && record.serverScanId!.isNotEmpty;
-    final scoreColor = sp != null && sp >= 60 ? Colors.green.shade700 : primaryRed;
+    final scoreColor = sp != null && sp >= 60 ? c.pass : c.fail;
+    final iconBg = isUploaded
+        ? c.correct.withValues(alpha: context.isDarkTheme ? 0.18 : 0.12)
+        : c.bonus.withValues(alpha: context.isDarkTheme ? 0.18 : 0.12);
 
     return Material(
-      color: Colors.white,
+      color: c.card,
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
@@ -888,12 +919,12 @@ class _ScanRecordCard extends StatelessWidget {
               Container(
                 width: 44, height: 44,
                 decoration: BoxDecoration(
-                  color: isUploaded ? Colors.green.shade50 : Colors.blue.shade50,
+                  color: iconBg,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
                   isUploaded ? Icons.cloud_done : Icons.phone_android,
-                  color: isUploaded ? Colors.green.shade700 : Colors.blue.shade700,
+                  color: isUploaded ? c.correct : c.bonus,
                   size: 22,
                 ),
               ),
@@ -902,12 +933,18 @@ class _ScanRecordCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(record.studentIdentifier,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: darkText)),
+                    Text(
+                      record.studentIdentifier,
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: c.textPrimary,
+                      ),
+                    ),
                     const SizedBox(height: 2),
                     Text(
                       '${record.templateName} \u00b7 ${_formatTime(record.createdAt)}',
-                      style: const TextStyle(fontSize: 11, color: grayText),
+                      style: TextStyle(fontSize: 11, color: c.textSecondary),
                     ),
                   ],
                 ),
@@ -915,10 +952,16 @@ class _ScanRecordCard extends StatelessWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(scoreStr,
-                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: scoreColor)),
+                  Text(
+                    scoreStr,
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      color: scoreColor,
+                    ),
+                  ),
                   if (record.isFlagged)
-                    const Icon(Icons.flag, color: Colors.orange, size: 16),
+                    Icon(Icons.flag, color: c.ambiguous, size: 16),
                 ],
               ),
             ],
@@ -982,7 +1025,8 @@ bool _responseMatchesKey(String? resp, String? expected) {
   return resp.trim().toUpperCase() == expected.trim().toUpperCase();
 }
 
-({int correct, int incorrect, int ambiguous, int max}) _scoreBreakdown({
+({int correct, int incorrect, int ambiguous, int bonus, int max})
+    _scoreBreakdown({
   required Map<String, String> responses,
   required Map<String, String> answerKey,
   required int totalItems,
@@ -1004,6 +1048,7 @@ bool _responseMatchesKey(String? resp, String? expected) {
   var correct = 0;
   var incorrect = 0;
   var ambiguous = 0;
+  var bonus = 0;
 
   if (answerKey.isNotEmpty) {
     for (var i = 1; i <= max; i++) {
@@ -1012,7 +1057,7 @@ bool _responseMatchesKey(String? resp, String? expected) {
       final expected = _answerKeyForItem(answerKey, key);
       final amb = _isAmbiguousResponse(resp) || flagged.contains(i);
       if (isBonusKey(expected)) {
-        correct++;
+        bonus++;
       } else if (amb) {
         ambiguous++;
       } else if (_responseMatchesKey(resp, expected)) {
@@ -1033,17 +1078,27 @@ bool _responseMatchesKey(String? resp, String? expected) {
   }
 
   // Prefer persisted scan grade when present (authoritative from OMR grade).
+  // Keep bonus count from the key; allocate remaining earned points to correct.
   if (storedCorrect != null && storedMax != null && storedMax > 0) {
     final amb = ambiguous;
-    final c = storedCorrect.clamp(0, storedMax);
-    final inc = (storedMax - c - amb).clamp(0, storedMax);
-    return (correct: c, incorrect: inc, ambiguous: amb, max: storedMax);
+    final earned = storedCorrect.clamp(0, storedMax);
+    final b = bonus.clamp(0, earned);
+    final c = (earned - b).clamp(0, storedMax);
+    final inc = (storedMax - earned - amb).clamp(0, storedMax);
+    return (
+      correct: c,
+      incorrect: inc,
+      ambiguous: amb,
+      bonus: b,
+      max: storedMax,
+    );
   }
 
   return (
     correct: correct,
     incorrect: incorrect,
     ambiguous: ambiguous,
+    bonus: bonus,
     max: max,
   );
 }
@@ -1221,12 +1276,17 @@ Widget _omrScoreSummaryCard({
   required int correct,
   required int incorrect,
   required int ambiguous,
+  int bonus = 0,
   required int max,
   required double pct,
   required Color scoreColor,
 }) {
   final c = context.atlas;
-  final progress = max > 0 ? (correct / max).clamp(0.0, 1.0) : 0.0;
+  // Final score always combines regular correct + bonus points.
+  final earned = correct + bonus;
+  final progress = max > 0 ? (earned / max).clamp(0.0, 1.0) : 0.0;
+  final displayPct =
+      max > 0 ? (earned / max) * 100.0 : pct;
   return Container(
     padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
     decoration: BoxDecoration(
@@ -1257,7 +1317,7 @@ Widget _omrScoreSummaryCard({
             ),
             const Spacer(),
             Text(
-              '$correct / $max',
+              '$earned / $max',
               style: TextStyle(
                 color: scoreColor,
                 fontSize: 36,
@@ -1285,12 +1345,24 @@ Widget _omrScoreSummaryCard({
                 fg: c.incorrect,
               ),
             ),
-            const SizedBox(width: 8),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
             Expanded(
               child: _omrStatChip(
                 label: '$ambiguous Invalid',
                 bg: c.ambiguous.withValues(alpha: 0.15),
                 fg: c.ambiguous,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _omrStatChip(
+                label: '$bonus Bonus',
+                bg: c.bonus.withValues(alpha: 0.15),
+                fg: c.bonus,
               ),
             ),
           ],
@@ -1320,7 +1392,7 @@ Widget _omrScoreSummaryCard({
             ),
             const SizedBox(width: 10),
             Text(
-              '${pct.toStringAsFixed(1)}%',
+              '${displayPct.toStringAsFixed(1)}%',
               style: TextStyle(
                 color: scoreColor,
                 fontSize: 12,
@@ -1361,6 +1433,8 @@ Widget _omrItemResponsesGrid({
   required Map<String, String> answerKey,
   required int totalItems,
   List<int> flaggedItems = const [],
+  /// Fallback category colors when [answerKey] is empty (live scan markers).
+  Map<int, ScoredMarkerKind>? itemKinds,
   VoidCallback? onTapItem,
 }) {
   final c = context.atlas;
@@ -1374,6 +1448,7 @@ Widget _omrItemResponsesGrid({
       : (totalItems > 0 ? totalItems : responses.length);
   final flagged = flaggedItems.toSet();
   final hasKey = answerKey.isNotEmpty;
+  final kinds = itemKinds ?? const <int, ScoredMarkerKind>{};
 
   return Wrap(
     spacing: 6,
@@ -1386,25 +1461,30 @@ Widget _omrItemResponsesGrid({
       final bonus = isBonusKey(expected);
       final amb = !bonus &&
           (_isAmbiguousResponse(resp) || flagged.contains(i + 1) || display == '?');
-      final ok = hasKey && !amb && _responseMatchesKey(resp, expected);
+      final ok = hasKey && !amb && !bonus && _responseMatchesKey(resp, expected);
+      final kind = kinds[i + 1];
 
       late final Color bg, bd, fg;
-      if (amb) {
+      if (bonus || kind == ScoredMarkerKind.bonus) {
+        bg = c.bonus.withValues(alpha: 0.12);
+        bd = c.bonus;
+        fg = c.bonus;
+      } else if (amb || kind == ScoredMarkerKind.ambiguous) {
         bg = c.ambiguous.withValues(alpha: 0.12);
         bd = c.ambiguous;
         fg = c.ambiguous;
-      } else if (!hasKey) {
-        bg = c.cardMuted;
-        bd = c.border;
-        fg = c.textPrimary;
-      } else if (ok) {
+      } else if ((hasKey && ok) || kind == ScoredMarkerKind.correct) {
         bg = c.correct.withValues(alpha: 0.12);
         bd = c.correct;
         fg = c.correct;
-      } else {
+      } else if ((hasKey && !ok) || kind == ScoredMarkerKind.wrong) {
         bg = c.incorrect.withValues(alpha: 0.12);
         bd = c.incorrect;
         fg = c.incorrect;
+      } else {
+        bg = c.cardMuted;
+        bd = c.border;
+        fg = c.textPrimary;
       }
 
       return GestureDetector(
@@ -1423,7 +1503,7 @@ Widget _omrItemResponsesGrid({
                   style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
-                      color: c.textSecondary)),
+                      color: fg.withValues(alpha: 0.75))),
               const SizedBox(height: 2),
               Text(display,
                   style: TextStyle(
@@ -1471,15 +1551,37 @@ void _openSheetZoomViewer(
                           height: constraints.maxHeight,
                           filterQuality: FilterQuality.high,
                         ),
-                        if (markers.isNotEmpty)
-                          CustomPaint(
-                            painter: _ScoredMarkersPainter(markers: markers),
+                        if (markers.isNotEmpty) ...[
+                          Builder(
+                            builder: (context) {
+                              final ac = context.atlas;
+                              return CustomPaint(
+                                painter: _ScoredMarkersPainter(
+                                  markers: markers,
+                                  correct: ac.correct,
+                                  wrong: ac.incorrect,
+                                  ambiguous: ac.ambiguous,
+                                  bonus: ac.bonus,
+                                  studentId: ac.textSecondary,
+                                ),
+                              );
+                            },
                           ),
-                        if (markers.isNotEmpty)
-                          _ScoredSheetLegend(
-                            sheetWidth: constraints.maxWidth,
-                            sheetHeight: constraints.maxHeight,
+                          Builder(
+                            builder: (context) {
+                              final ac = context.atlas;
+                              return _ScoredSheetLegend(
+                                sheetWidth: constraints.maxWidth,
+                                sheetHeight: constraints.maxHeight,
+                                correct: ac.correct,
+                                wrong: ac.incorrect,
+                                ambiguous: ac.ambiguous,
+                                bonus: ac.bonus,
+                                studentId: ac.textSecondary,
+                              );
+                            },
                           ),
+                        ],
                       ],
                     );
                   },
@@ -1517,8 +1619,13 @@ class PaperDetailView extends StatelessWidget {
     this.onUpload,
   });
 
+  Map<String, String> get _answerKey {
+    if (record.answerKey.isNotEmpty) return record.answerKey;
+    return template?.answerKey ?? const {};
+  }
+
   List<({int item, String reason})> _flaggedRows() {
-    final key = template?.answerKey ?? {};
+    final key = _answerKey;
     final total = key.isNotEmpty
         ? key.length
         : (template?.totalItems ?? record.responses.length);
@@ -1544,7 +1651,7 @@ class PaperDetailView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.atlas;
-    final key = template?.answerKey ?? {};
+    final key = _answerKey;
     final total = template?.totalItems ??
         (key.isNotEmpty ? key.length : record.responses.length);
     final storedMax = record.maxScore?.round();
@@ -1564,10 +1671,10 @@ class PaperDetailView extends StatelessWidget {
       storedCorrect: storedCorrect,
       storedMax: storedMax,
     );
-    final pct = record.scorePercent ??
-        (breakdown.max > 0
-            ? (breakdown.correct / breakdown.max) * 100.0
-            : 0.0);
+    final earned = breakdown.correct + breakdown.bonus;
+    final pct = breakdown.max > 0
+        ? (earned / breakdown.max) * 100.0
+        : (record.scorePercent ?? 0.0);
     final passed = pct >= passingScore;
     final scoreColor = passed ? colors.pass : colors.fail;
     final flagged = _flaggedRows();
@@ -1602,6 +1709,7 @@ class PaperDetailView extends StatelessWidget {
                   correct: breakdown.correct,
                   incorrect: breakdown.incorrect,
                   ambiguous: breakdown.ambiguous,
+                  bonus: breakdown.bonus,
                   max: breakdown.max,
                   pct: pct,
                   scoreColor: scoreColor,
@@ -1801,16 +1909,27 @@ class _EditAnswersSheetState extends State<EditAnswersSheet> {
                 final current = _editable[itemNum] ?? '?';
                 final display = _displayResponse(current);
                 final isSelected = _selectedItem == itemNum;
-                final correct = widget.template?.answerKey[itemNum];
-                final amb = !isBonusKey(correct) && _isAmbiguousResponse(current);
-                final ok = !amb && isKeyCorrect(current, correct);
+                final keyMap = widget.record.answerKey.isNotEmpty
+                    ? widget.record.answerKey
+                    : (widget.template?.answerKey ?? const <String, String>{});
+                final correct = _answerKeyForItem(keyMap, itemNum);
+                final hasKey = keyMap.isNotEmpty;
+                final bonus = isBonusKey(correct);
+                final amb = !bonus && _isAmbiguousResponse(current);
+                final ok =
+                    hasKey && !amb && !bonus && isKeyCorrect(current, correct);
+                final colors = context.atlas;
                 final Color valueColor;
-                if (amb) {
-                  valueColor = Colors.orange.shade800;
+                if (bonus) {
+                  valueColor = colors.bonus;
+                } else if (amb) {
+                  valueColor = colors.ambiguous;
+                } else if (!hasKey) {
+                  valueColor = colors.textPrimary;
                 } else if (ok) {
-                  valueColor = Colors.green.shade700;
+                  valueColor = colors.correct;
                 } else {
-                  valueColor = primaryRed;
+                  valueColor = colors.incorrect;
                 }
 
                 return GestureDetector(
@@ -2368,6 +2487,8 @@ class ScanResultView extends StatefulWidget {
   final String uploadStatus;
   /// Percent threshold for pass/fail score color (template default 50).
   final double passingScore;
+  final Map<String, String> answerKey;
+  final int totalItems;
   final VoidCallback onScanNext;
   final VoidCallback? onRescan;
   final VoidCallback? onRetryUpload;
@@ -2382,6 +2503,8 @@ class ScanResultView extends StatefulWidget {
     this.result,
     this.uploadStatus = 'idle',
     this.passingScore = 50,
+    this.answerKey = const {},
+    this.totalItems = 0,
     required this.onScanNext,
     this.onRescan,
     this.onRetryUpload,
@@ -2473,16 +2596,35 @@ class _ScanResultViewState extends State<ScanResultView>
         !widget.isProcessing &&
         !rejected &&
         result.isAlignmentUsable;
-    final pct = result?.scorePercent ?? 0;
     final raw = result?.correctCount ?? 0;
     final max = result?.maxScore ?? 0;
     final studentId = result?.studentIdentifier ?? '—';
+    final breakdown = result == null
+        ? null
+        : _scoreBreakdown(
+            responses: result.responses,
+            answerKey: widget.answerKey,
+            totalItems: widget.totalItems > 0
+                ? widget.totalItems
+                : (result.maxScore > 0
+                    ? result.maxScore
+                    : result.responses.length),
+            flaggedItems: result.flaggedItems,
+            storedCorrect: result.correctCount,
+            storedMax: result.maxScore,
+          );
+    final correctCount = breakdown?.correct ?? (raw.clamp(0, max));
+    final incorrectCount = breakdown?.incorrect ?? 0;
+    final ambiguousCount = breakdown?.ambiguous ??
+        (result == null ? 0 : _ambiguousReadings(result).length);
+    final bonusCount = breakdown?.bonus ?? 0;
+    final scoreMax = breakdown?.max ?? max;
+    final earned = correctCount + bonusCount;
+    final pct = scoreMax > 0
+        ? (earned / scoreMax) * 100.0
+        : (result?.scorePercent ?? 0);
     final passed = pct >= widget.passingScore;
     final scoreColor = passed ? colors.pass : colors.fail;
-    final ambiguousCount =
-        result == null ? 0 : _ambiguousReadings(result).length;
-    final incorrectCount =
-        result == null ? 0 : (max - raw - ambiguousCount).clamp(0, max);
     final showMarkers = scored && result.scoredMarkers.isNotEmpty;
 
     return Scaffold(
@@ -2573,10 +2715,11 @@ class _ScanResultViewState extends State<ScanResultView>
                     _omrScoreSummaryCard(
                       context: context,
                       studentId: studentId,
-                      correct: raw,
+                      correct: correctCount,
                       incorrect: incorrectCount,
                       ambiguous: ambiguousCount,
-                      max: max,
+                      bonus: bonusCount,
+                      max: scoreMax,
                       pct: pct,
                       scoreColor: scoreColor,
                     ),
@@ -2594,6 +2737,49 @@ class _ScanResultViewState extends State<ScanResultView>
                       markers: result.scoredMarkers,
                       processing: false,
                     ),
+                    if (result.responses.isNotEmpty ||
+                        widget.answerKey.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: colors.card,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: colors.border),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Item Responses',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: colors.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            _omrItemResponsesGrid(
+                              context: context,
+                              responses: result.responses,
+                              answerKey: widget.answerKey,
+                              totalItems: widget.totalItems > 0
+                                  ? widget.totalItems
+                                  : (result.maxScore > 0
+                                      ? result.maxScore
+                                      : result.responses.length),
+                              flaggedItems: result.flaggedItems,
+                              itemKinds: {
+                                for (final m in result.scoredMarkers)
+                                  if (m.kind != ScoredMarkerKind.studentId)
+                                    m.itemNumber: m.kind,
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 10),
                     Text(
                       switch (widget.uploadStatus) {
@@ -2805,12 +2991,24 @@ class _ScanResultViewState extends State<ScanResultView>
                           ),
                         if (showMarkers)
                           CustomPaint(
-                            painter: _ScoredMarkersPainter(markers: markers),
+                            painter: _ScoredMarkersPainter(
+                              markers: markers,
+                              correct: colors.correct,
+                              wrong: colors.incorrect,
+                              ambiguous: colors.ambiguous,
+                              bonus: colors.bonus,
+                              studentId: colors.textSecondary,
+                            ),
                           ),
                         if (showMarkers)
                           _ScoredSheetLegend(
                             sheetWidth: boxW,
                             sheetHeight: boxH,
+                            correct: colors.correct,
+                            wrong: colors.incorrect,
+                            ambiguous: colors.ambiguous,
+                            bonus: colors.bonus,
+                            studentId: colors.textSecondary,
                           ),
                       ],
                     );
@@ -2845,10 +3043,20 @@ class _ScanResultViewState extends State<ScanResultView>
 class _ScoredSheetLegend extends StatelessWidget {
   final double sheetWidth;
   final double sheetHeight;
+  final Color correct;
+  final Color wrong;
+  final Color ambiguous;
+  final Color bonus;
+  final Color studentId;
 
   const _ScoredSheetLegend({
     required this.sheetWidth,
     required this.sheetHeight,
+    required this.correct,
+    required this.wrong,
+    required this.ambiguous,
+    required this.bonus,
+    required this.studentId,
   });
 
   @override
@@ -2864,17 +3072,19 @@ class _ScoredSheetLegend extends StatelessWidget {
           color: Colors.black.withValues(alpha: 0.72),
           borderRadius: BorderRadius.circular(8),
         ),
-        child: const Column(
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            _LegendRow(color: Color(0xFF00C853), label: 'Correct'),
-            SizedBox(height: 3),
-            _LegendRow(color: Color(0xFFE53935), label: 'Incorrect'),
-            SizedBox(height: 3),
-            _LegendRow(color: Color(0xFFFFB300), label: 'Invalid'),
-            SizedBox(height: 3),
-            _LegendRow(color: Color(0xFF9E9E9E), label: 'Student ID'),
+            _LegendRow(color: correct, label: 'Correct'),
+            const SizedBox(height: 3),
+            _LegendRow(color: wrong, label: 'Incorrect'),
+            const SizedBox(height: 3),
+            _LegendRow(color: ambiguous, label: 'Invalid'),
+            const SizedBox(height: 3),
+            _LegendRow(color: bonus, label: 'Bonus'),
+            const SizedBox(height: 3),
+            _LegendRow(color: studentId, label: 'Student ID'),
           ],
         ),
       ),
@@ -2952,7 +3162,20 @@ class _ScannerSweepPainter extends CustomPainter {
 
 class _ScoredMarkersPainter extends CustomPainter {
   final List<ScoredBubbleMarker> markers;
-  _ScoredMarkersPainter({required this.markers});
+  final Color correct;
+  final Color wrong;
+  final Color ambiguous;
+  final Color bonus;
+  final Color studentId;
+
+  _ScoredMarkersPainter({
+    required this.markers,
+    required this.correct,
+    required this.wrong,
+    required this.ambiguous,
+    required this.bonus,
+    required this.studentId,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -2960,10 +3183,11 @@ class _ScoredMarkersPainter extends CustomPainter {
       final c = Offset(m.nx * size.width, m.ny * size.height);
       final r = (m.rMm / OmrFrame.active.wMm * size.width).clamp(4.0, 22.0);
       final color = switch (m.kind) {
-        ScoredMarkerKind.studentId => const Color(0xFF9E9E9E),
-        ScoredMarkerKind.correct => const Color(0xFF00C853),
-        ScoredMarkerKind.wrong => const Color(0xFFE53935),
-        ScoredMarkerKind.ambiguous => const Color(0xFFFFB300),
+        ScoredMarkerKind.studentId => studentId,
+        ScoredMarkerKind.correct => correct,
+        ScoredMarkerKind.wrong => wrong,
+        ScoredMarkerKind.ambiguous => ambiguous,
+        ScoredMarkerKind.bonus => bonus,
       };
       canvas.drawCircle(
         c,
@@ -2978,5 +3202,10 @@ class _ScoredMarkersPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ScoredMarkersPainter old) =>
-      old.markers != markers;
+      old.markers != markers ||
+      old.correct != correct ||
+      old.wrong != wrong ||
+      old.ambiguous != ambiguous ||
+      old.bonus != bonus ||
+      old.studentId != studentId;
 }

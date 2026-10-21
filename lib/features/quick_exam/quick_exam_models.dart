@@ -123,12 +123,7 @@ class QuickExam {
   String get choiceRange => 'A–${'ABCD'[numChoices - 1]}';
 
   factory QuickExam.fromJson(Map<String, dynamic> j) {
-    final key = <String, String>{};
-    if (j['answer_key'] is Map) {
-      (j['answer_key'] as Map).forEach((k, v) {
-        key[k.toString()] = v.toString().toUpperCase();
-      });
-    }
+    final key = BubbleTemplate.parseAnswerKey(j['answer_key']);
     return QuickExam(
       examId: (j['exam_id'] ?? '').toString(),
       qrPayload: (j['qr_payload'] ?? '$quickExamQrPrefix${j['exam_id']}').toString(),

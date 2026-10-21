@@ -346,7 +346,7 @@ class QuickSheet {
         align: 'center', color: const PdfColor(0.55, 0.55, 0.55));
   }
 
-  static const PdfColor _maroon = PdfColor(0.545, 0.0, 0.0);
+  static const PdfColor _brandGreen = PdfColor(0.082, 0.502, 0.239); // #15803D
   static const PdfColor _darkHdr = PdfColor(0.133, 0.133, 0.133);
   static const PdfColor _border = PdfColor(0.35, 0.35, 0.35);
   static const PdfColor _shade = PdfColor(0.933, 0.933, 0.933);
@@ -415,7 +415,7 @@ class QuickSheet {
     final combWidth = g.idCols * _combW + (g.idCols - 1) * _combGap;
     _text(c, bold, 8, 'STUDENT ID', _pt(_combX0 + combWidth / 2),
         sy(combY - 4),
-        align: 'center', color: _maroon);
+        align: 'center', color: _brandGreen);
     for (var i = 0; i < g.idCols; i++) {
       final bx = _combX0 + i * (_combW + _combGap);
       _rect(c, _pt(bx), sy(combY + _combH), _pt(_combW), _pt(_combH),

@@ -240,29 +240,66 @@ List<Map<String, dynamic>> _buildScoredMarkers({
     for (final r in readings) r.itemNumber: r,
   };
 
+  String? responseFor(String itemKey, int itemNo) {
+    final direct = responses[itemKey];
+    if (direct != null) return direct;
+    final asInt = responses[itemNo.toString()];
+    if (asInt != null) return asInt;
+    return responses[itemNo.toString().padLeft(2, '0')];
+  }
+
+  Map? itemLayoutFor(String itemKey, int itemNo) {
+    final items = layout['items'];
+    if (items is! Map) return null;
+    final direct = items[itemKey];
+    if (direct is Map) return direct;
+    final asInt = items[itemNo.toString()];
+    if (asInt is Map) return asInt;
+    final padded = items[itemNo.toString().padLeft(2, '0')];
+    if (padded is Map) return padded;
+    return null;
+  }
+
   final items = layout['items'];
   if (items is Map) {
     for (final entry in answerKey.entries) {
       final itemNum = entry.key;
       final correct = entry.value;
-      final detected = responses[itemNum];
       final itemNo = int.tryParse(itemNum) ?? 0;
+      final detected = responseFor(itemNum, itemNo);
       final reading = readingByItem[itemNo];
-      final isAmbiguous = reading?.isAmbiguous == true ||
-          detected == null ||
-          detected.isEmpty ||
-          detected == '?';
       final bonus = isBonusKey(correct);
-      final isCorrect = bonus || (!isAmbiguous && detected == correct);
+      final isAmbiguous = !bonus &&
+          (reading?.isAmbiguous == true ||
+              detected == null ||
+              detected.trim().isEmpty ||
+              detected.trim() == '?');
+      // Match UI / grade helpers (case-insensitive, bonus = always earned).
+      final isCorrect =
+          bonus || (!isAmbiguous && isKeyCorrect(detected, correct));
 
-      final itemData = items[itemNum];
-      if (itemData is! Map) continue;
-      if (bonus && isAmbiguous) continue;
+      final itemData = itemLayoutFor(itemNum, itemNo);
+      if (itemData == null) continue;
 
-      final markChoice = (!isAmbiguous && detected.isNotEmpty)
-          ? detected
-          : correct;
-      final coord = itemData[markChoice] ?? itemData[correct];
+      // Bonus items mark the selected bubble (or first choice) in blue.
+      final detectedChoice = detected?.trim().toUpperCase();
+      final markChoice = bonus
+          ? (detectedChoice != null &&
+                  detectedChoice.isNotEmpty &&
+                  detectedChoice != '?' &&
+                  itemData.containsKey(detectedChoice)
+              ? detectedChoice
+              : (itemData.keys.isNotEmpty
+                  ? itemData.keys.first.toString()
+                  : correct))
+          : ((!isAmbiguous &&
+                  detectedChoice != null &&
+                  detectedChoice.isNotEmpty)
+              ? detectedChoice
+              : correct.trim().toUpperCase());
+      final coord = itemData[markChoice] ??
+          itemData[correct] ??
+          itemData[correct.trim().toUpperCase()];
       if (coord is! Map) continue;
 
       final cxMm = (coord['cx_mm'] as num?)?.toDouble() ?? 0;
@@ -273,9 +310,11 @@ List<Map<String, dynamic>> _buildScoredMarkers({
         'nx': pageNx(cxMm),
         'ny': pageNy(cyMm),
         'r_mm': answerRMm,
-        'kind': isAmbiguous && !bonus
-            ? 'ambiguous'
-            : (isCorrect ? 'correct' : 'wrong'),
+        'kind': bonus
+            ? 'bonus'
+            : (isAmbiguous
+                ? 'ambiguous'
+                : (isCorrect ? 'correct' : 'wrong')),
       });
     }
   }
@@ -460,9 +499,11 @@ class OmrEngine {
           ny: (m['ny'] as num?)?.toDouble() ?? 0,
           rMm: (m['r_mm'] as num?)?.toDouble() ?? 2.0,
           kind: switch (m['kind']?.toString()) {
-            'id' => ScoredMarkerKind.studentId,
-            'wrong' => ScoredMarkerKind.wrong,
-            'ambiguous' => ScoredMarkerKind.ambiguous,
+            'id' || 'studentId' => ScoredMarkerKind.studentId,
+            'wrong' || 'incorrect' => ScoredMarkerKind.wrong,
+            'ambiguous' || 'invalid' => ScoredMarkerKind.ambiguous,
+            'bonus' => ScoredMarkerKind.bonus,
+            'correct' => ScoredMarkerKind.correct,
             _ => (m['is_correct'] as bool? ?? true)
                 ? ScoredMarkerKind.correct
                 : ScoredMarkerKind.wrong,
@@ -484,12 +525,17 @@ class OmrEngine {
     if (answerKey.isEmpty) {
       return (0, maxScore, 0.0);
     }
-    var correct = 0;
+    // Final score = correct items + bonus items (bonus always earns a point).
+    var earned = 0;
     for (final entry in answerKey.entries) {
-      if (isKeyCorrect(responses[entry.key], entry.value)) correct++;
+      final itemNo = int.tryParse(entry.key) ?? 0;
+      final resp = responses[entry.key] ??
+          responses[itemNo.toString()] ??
+          responses[itemNo.toString().padLeft(2, '0')];
+      if (isKeyCorrect(resp, entry.value)) earned++;
     }
-    final pct = maxScore > 0 ? (correct / maxScore) * 100.0 : 0.0;
-    return (correct, maxScore, pct);
+    final pct = maxScore > 0 ? (earned / maxScore) * 100.0 : 0.0;
+    return (earned, maxScore, pct);
   }
 }
 
