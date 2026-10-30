@@ -127,7 +127,7 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
                 width: 48,
                 height: 12,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF15803D).withValues(alpha: 0.22),
+                  color: const Color(0xFF8E1C1B).withValues(alpha: 0.22),
                   borderRadius: BorderRadius.circular(99),
                 ),
               ),
@@ -221,14 +221,14 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
         gradient: LinearGradient(
           colors: dark
               ? const [
-                  Color(0xFF14532D),
+                  Color(0xFF6E1212),
                   Color(0xFF0A0A0B),
                   Color(0xFF050506),
                 ]
               : const [
-                  Color(0xFFBBF7D0),
-                  Color(0xFFDCFCE7),
-                  Color(0xFFF0FDF4),
+                  Color(0xFFF3B4B3),
+                  Color(0xFFF8D4D3),
+                  Color(0xFFFFF5F5),
                 ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -337,12 +337,12 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
         gradient: LinearGradient(
           colors: dark
               ? const [
-                  Color(0xFF14532D),
+                  Color(0xFF6E1212),
                   Color(0xFF0A0A0B),
                 ]
               : const [
-                  Color(0xFFBBF7D0),
-                  Color(0xFFF0FDF4),
+                  Color(0xFFF3B4B3),
+                  Color(0xFFFFF5F5),
                 ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,

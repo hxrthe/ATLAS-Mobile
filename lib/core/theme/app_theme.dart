@@ -39,7 +39,7 @@ class AtlasColors {
     required this.divider,
   });
 
-  // Brand greens match ATLAS web: #14532D / #15803D / #16A34A
+  // Brand reds match ATLAS web and the logo: #6E1212 / #8E1C1B / #AA2423
   static const light = AtlasColors(
     scaffold: Color(0xFFF4F6F9),
     card: Color(0xFFFFFFFF),
@@ -47,7 +47,7 @@ class AtlasColors {
     textPrimary: Color(0xFF1E232C),
     textSecondary: Color(0xFF8391A1),
     border: Color(0xFFE8ECF4),
-    primary: Color(0xFF15803D),
+    primary: Color(0xFFAA2423),
     onPrimary: Color(0xFFFFFFFF),
     correct: Color(0xFF16A34A),
     incorrect: Color(0xFFC62828),
@@ -59,15 +59,15 @@ class AtlasColors {
     divider: Color(0xFFE8ECF4),
   );
 
-  /// Dark UI aligned with web dark green shell (#0A0A0B / #052E16 accents).
+  /// Dark UI aligned with the web shell (#0A0A0B / #3F0A0A accents).
   static const dark = AtlasColors(
     scaffold: Color(0xFF0A0A0B),
     card: Color(0xFF151517),
-    cardMuted: Color(0xFF1F2923),
+    cardMuted: Color(0xFF291F1F),
     textPrimary: Color(0xFFF5F5F5),
     textSecondary: Color(0xB3F5F5F5),
     border: Color(0xFF343438),
-    primary: Color(0xFF16A34A),
+    primary: Color(0xFFAA2423),
     onPrimary: Color(0xFFFFFFFF),
     correct: Color(0xFF86EFAC),
     incorrect: Color(0xFFEF9A9A),
@@ -91,7 +91,7 @@ extension AtlasThemeX on BuildContext {
 }
 
 class AppTheme {
-  static const _seed = Color(0xFF15803D);
+  static const _seed = Color(0xFFAA2423);
 
   static ThemeData light() {
     final scheme = ColorScheme.fromSeed(

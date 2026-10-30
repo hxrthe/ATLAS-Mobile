@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 
-/// Login-style green grid + radial wash that softens toward the bottom.
+/// Login-style red grid + radial wash that softens toward the bottom.
 ///
 /// Strong at the top (same language as the splash), fades through the middle,
 /// and leaves only a light hint near the bottom.
@@ -26,7 +26,7 @@ class AtlasBrandedBackdrop extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = context.isDarkTheme;
     // True near-black in dark mode; soft off-white in light (login scaffold).
-    final base = isDark ? const Color(0xFF0A0A0B) : const Color(0xFFF7FAF8);
+    final base = isDark ? const Color(0xFF0A0A0B) : const Color(0xFFFBF7F7);
 
     return Stack(
       fit: StackFit.expand,
@@ -75,7 +75,7 @@ class AtlasBrandedBackdrop extends StatelessWidget {
   }
 }
 
-/// Soft grid + radial green glow matching the login auth shell.
+/// Soft grid + radial red glow matching the login auth shell.
 class AtlasBrandedGridPainter extends CustomPainter {
   AtlasBrandedGridPainter({required this.isDark});
 
@@ -94,14 +94,14 @@ class AtlasBrandedGridPainter extends CustomPainter {
         radius: isDark ? 1.15 : 1.2,
         colors: isDark
             ? const [
-                Color(0xFF14532D),
+                Color(0xFF6E1212),
                 Color(0xFF0A0A0B),
                 Color(0xFF050506),
               ]
             : const [
-                Color(0xFFDCFCE7),
-                Color(0xFFF0FDF4),
-                Color(0xFFF7FAF8),
+                Color(0xFFF8D4D3),
+                Color(0xFFFFF5F5),
+                Color(0xFFFBF7F7),
               ],
         stops: const [0.0, 0.45, 1.0],
       ).createShader(Offset.zero & size);
@@ -109,7 +109,7 @@ class AtlasBrandedGridPainter extends CustomPainter {
 
     // Grid: stronger at top, nearly gone at bottom (hint remains).
     final lineColor =
-        isDark ? Colors.white : const Color(0xFF15803D);
+        isDark ? Colors.white : const Color(0xFF8E1C1B);
     final topAlpha = isDark ? 0.07 : 0.08;
     const step = 36.0;
 
@@ -139,13 +139,13 @@ class AtlasBrandedGridPainter extends CustomPainter {
       canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
     }
 
-    // Soft green vignette (login shell).
+    // Soft red vignette (login shell).
     final glow = Paint()
       ..shader = RadialGradient(
         center: Alignment(0.7, isDark ? -0.6 : -0.55),
         radius: 1.05,
         colors: [
-          const Color(0xFF16A34A).withValues(alpha: isDark ? 0.16 : 0.12),
+          const Color(0xFFAA2423).withValues(alpha: isDark ? 0.16 : 0.12),
           Colors.transparent,
         ],
       ).createShader(Offset.zero & size);

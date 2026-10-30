@@ -625,13 +625,13 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   Widget _buildCourseCard() {
     final c = context.atlas;
     final dark = context.isDarkTheme;
-    // Brand greens only — never the old green→maroon wash.
+    // Brand reds only — the logo red, not a mixed wash.
     final gradient = dark
-        ? const [Color(0xFF14532D), Color(0xFF0A0A0B), Color(0xFF050506)]
-        : const [Color(0xFFBBF7D0), Color(0xFFDCFCE7), Color(0xFFF0FDF4)];
-    final titleColor = dark ? Colors.white : const Color(0xFF14532D);
+        ? const [Color(0xFF6E1212), Color(0xFF0A0A0B), Color(0xFF050506)]
+        : const [Color(0xFFF3B4B3), Color(0xFFF8D4D3), Color(0xFFFFF5F5)];
+    final titleColor = dark ? Colors.white : const Color(0xFF6E1212);
     final subColor =
-        dark ? Colors.white.withValues(alpha: 0.88) : const Color(0xFF15803D);
+        dark ? Colors.white.withValues(alpha: 0.88) : const Color(0xFF8E1C1B);
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
@@ -646,7 +646,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
         border: Border.all(
           color: dark
               ? Colors.white.withValues(alpha: 0.08)
-              : const Color(0xFF15803D).withValues(alpha: 0.2),
+              : const Color(0xFF8E1C1B).withValues(alpha: 0.2),
         ),
         boxShadow: [
           BoxShadow(

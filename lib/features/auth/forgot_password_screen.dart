@@ -34,7 +34,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   int _resendCooldown = 30;
   Timer? _cooldownTimer;
 
-  static const _leaf = Color(0xFF15803D);
+  static const _leaf = Color(0xFFAA2423);
   static const _darkBg = Color(0xFF0A0A0B);
 
   @override
@@ -96,7 +96,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     final isDark = context.isDarkTheme;
     final colors = context.atlas;
     final bg = isDark ? _darkBg : Colors.white;
-    final accent = isDark ? const Color(0xFF16A34A) : _leaf;
+    final accent = isDark ? const Color(0xFFAA2423) : _leaf;
 
     return Scaffold(
       backgroundColor: bg,

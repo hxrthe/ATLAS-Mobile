@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import '../core/theme/app_theme.dart';
 
 class AtlasAlerts {
-  // Brand + semantic colors (match web greens)
-  static const Color brandPrimary = Color(0xFF15803D);
+  // Brand red plus semantic success green (match web).
+  static const Color brandPrimary = Color(0xFF8E1C1B);
   static const Color successGreen = Color(0xFF16A34A);
   static const Color dangerRed = Color(0xFFB91C1C);
 

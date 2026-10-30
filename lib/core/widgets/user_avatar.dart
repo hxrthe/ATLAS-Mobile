@@ -15,7 +15,7 @@ class UserAvatar extends StatefulWidget {
     required this.name,
     this.radius = 24,
     this.backgroundColor = const Color(0x1A15803D),
-    this.foregroundColor = const Color(0xFF15803D),
+    this.foregroundColor = const Color(0xFF8E1C1B),
   });
 
   @override

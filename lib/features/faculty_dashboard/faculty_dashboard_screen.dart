@@ -70,12 +70,12 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
 
   /// Splash-style card washes (login backdrop language).
   static const List<Color> _sessionGradientLight = [
-    Color(0xFFBBF7D0),
-    Color(0xFFDCFCE7),
-    Color(0xFFF0FDF4),
+    Color(0xFFF3B4B3),
+    Color(0xFFF8D4D3),
+    Color(0xFFFFF5F5),
   ];
   static const List<Color> _sessionGradientDark = [
-    Color(0xFF14532D),
+    Color(0xFF6E1212),
     Color(0xFF0A0A0B),
     Color(0xFF050506),
   ];
@@ -491,7 +491,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
             // Match branded backdrop base — transparent exposed the black
             // Android/window layer through the nav's rounded corners.
             backgroundColor:
-                isDark ? const Color(0xFF0A0A0B) : const Color(0xFFF7FAF8),
+                isDark ? const Color(0xFF0A0A0B) : const Color(0xFFFBF7F7),
             // Keep body above the bar — extendBody left a sticky card-colored
             // slab behind the nav that content scrolled under.
             extendBody: false,
@@ -647,13 +647,13 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                         builder: (context) {
                           final dark = context.isDarkTheme;
                           final onCard =
-                              dark ? Colors.white : const Color(0xFF14532D);
+                              dark ? Colors.white : const Color(0xFF6E1212);
                           final onCardMuted = dark
                               ? Colors.white70
-                              : const Color(0xFF15803D);
+                              : const Color(0xFF8E1C1B);
                           final chipFill = dark
                               ? Colors.white.withValues(alpha: 0.2)
-                              : const Color(0xFF15803D)
+                              : const Color(0xFF8E1C1B)
                                   .withValues(alpha: 0.14);
                           return Container(
                             padding:
@@ -668,14 +668,14 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                               border: dark
                                   ? null
                                   : Border.all(
-                                      color: const Color(0xFF86EFAC)
+                                      color: const Color(0xFFE24B4A)
                                           .withValues(alpha: 0.7),
                                     ),
                               boxShadow: [
                                 BoxShadow(
                                   color: (dark
-                                          ? const Color(0xFF14532D)
-                                          : const Color(0xFF16A34A))
+                                          ? const Color(0xFF6E1212)
+                                          : const Color(0xFFAA2423))
                                       .withValues(alpha: dark ? 0.45 : 0.22),
                                   blurRadius: 15,
                                   offset: const Offset(0, 8),
@@ -763,7 +763,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: dark
                                         ? Colors.white
-                                        : const Color(0xFF15803D),
+                                        : const Color(0xFF8E1C1B),
                                     foregroundColor: dark
                                         ? c.primary
                                         : Colors.white,
@@ -889,11 +889,11 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
         .toList();
     const gap = 10.0;
     final dark = context.isDarkTheme;
-    final onCard = dark ? Colors.white : const Color(0xFF14532D);
+    final onCard = dark ? Colors.white : const Color(0xFF6E1212);
     final onCardMuted =
-        dark ? Colors.white.withValues(alpha: 0.9) : const Color(0xFF15803D);
+        dark ? Colors.white.withValues(alpha: 0.9) : const Color(0xFF8E1C1B);
     final iconChip =
-        dark ? Colors.white.withValues(alpha: 0.18) : const Color(0xFF15803D).withValues(alpha: 0.14);
+        dark ? Colors.white.withValues(alpha: 0.18) : const Color(0xFF8E1C1B).withValues(alpha: 0.14);
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = (constraints.maxWidth - gap) / 2;
@@ -916,7 +916,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                     border: dark
                         ? null
                         : Border.all(
-                            color: const Color(0xFF86EFAC)
+                            color: const Color(0xFFE24B4A)
                                 .withValues(alpha: 0.7),
                           ),
                   ),
@@ -1332,7 +1332,7 @@ class _DashboardBottomNav extends StatelessWidget {
     // Page-base fill only in the corner cutouts (not card color — that hid
     // the curves; not transparent — that showed a black system rectangle).
     final pageBase =
-        isDark ? const Color(0xFF0A0A0B) : const Color(0xFFF7FAF8);
+        isDark ? const Color(0xFF0A0A0B) : const Color(0xFFFBF7F7);
     return ColoredBox(
       color: pageBase,
       child: CustomPaint(

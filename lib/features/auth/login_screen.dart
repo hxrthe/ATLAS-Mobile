@@ -36,8 +36,8 @@ class _LoginScreenState extends State<LoginScreen>
   bool _prefsReady = false;
 
   static const _prefsGetStartedKey = 'login_get_started_seen';
-  static const _primary = Color(0xFF15803D);
-  static const _leaf = Color(0xFF16A34A);
+  static const _primary = Color(0xFF8E1C1B);
+  static const _leaf = Color(0xFFAA2423);
   static const _radius = 12.0; // web rounded-square (not pill)
 
   @override
@@ -196,9 +196,9 @@ class _LoginScreenState extends State<LoginScreen>
       width: width,
       height: height,
       fit: BoxFit.contain,
-      // Dark mode: force full logo green. Light: keep SVG two-tone (MOBILE near black).
+      // Dark mode: force the full logo red. Light: keep the SVG two-tone (MOBILE near black).
       colorFilter: isDark
-          ? const ColorFilter.mode(Color(0xFF86EFAC), BlendMode.srcIn)
+          ? const ColorFilter.mode(Color(0xFFE24B4A), BlendMode.srcIn)
           : null,
     );
   }
@@ -215,14 +215,14 @@ class _LoginScreenState extends State<LoginScreen>
         keyboard > 0 ? keyboard : (fieldFocused ? size.height * 0.42 : 0.0);
     final isDark = context.isDarkTheme;
 
-    final bg = isDark ? const Color(0xFF0A0A0B) : const Color(0xFFF7FAF8);
+    final bg = isDark ? const Color(0xFF0A0A0B) : const Color(0xFFFBF7F7);
     final card = isDark ? const Color(0xFF121214) : Colors.white;
     final field = isDark ? const Color(0x14FFFFFF) : const Color(0xFFF3F4F6);
     final fieldBorder =
         isDark ? const Color(0x1FFFFFFF) : const Color(0xFFE5E7EB);
     final muted = isDark ? const Color(0x8CF0F0F0) : const Color(0xFF6B7280);
     final text = isDark ? const Color(0xFFF0F0F0) : const Color(0xFF111827);
-    final accent = isDark ? const Color(0xFF86EFAC) : _leaf;
+    final accent = isDark ? const Color(0xFFE24B4A) : _leaf;
     final hintColor =
         isDark ? const Color(0x47FFFFFF) : const Color(0xFF9CA3AF);
     final statusBarColor = isDark ? Colors.transparent : Colors.white;
@@ -332,14 +332,14 @@ class _LoginScreenState extends State<LoginScreen>
                           radius: isDark ? 1.15 : 1.2,
                           colors: isDark
                               ? const [
-                                  Color(0xFF14532D),
+                                  Color(0xFF6E1212),
                                   Color(0xFF0A0A0B),
                                   Color(0xFF050506),
                                 ]
                               : const [
-                                  Color(0xFFDCFCE7),
-                                  Color(0xFFF0FDF4),
-                                  Color(0xFFF7FAF8),
+                                  Color(0xFFF8D4D3),
+                                  Color(0xFFFFF5F5),
+                                  Color(0xFFFBF7F7),
                                 ],
                           stops: const [0.0, 0.45, 1.0],
                         ),
@@ -826,7 +826,7 @@ class _WebGridPainter extends CustomPainter {
     final paint = Paint()
       ..color = isDark
           ? Colors.white.withValues(alpha: 0.035 + 0.015 * progress)
-          : const Color(0xFF15803D).withValues(alpha: 0.045 + 0.02 * progress)
+          : const Color(0xFF8E1C1B).withValues(alpha: 0.045 + 0.02 * progress)
       ..strokeWidth = 1;
 
     const step = 36.0;
@@ -842,7 +842,7 @@ class _WebGridPainter extends CustomPainter {
         center: Alignment(0.7, isDark ? -0.6 : -0.55),
         radius: 1.05,
         colors: [
-          const Color(0xFF16A34A).withValues(alpha: isDark ? 0.14 : 0.10),
+          const Color(0xFFAA2423).withValues(alpha: isDark ? 0.14 : 0.10),
           Colors.transparent,
         ],
       ).createShader(Offset.zero & size);

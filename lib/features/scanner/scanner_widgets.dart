@@ -8,8 +8,8 @@ import '../grading/models.dart';
 import 'omr_constants.dart';
 import 'omr_models.dart';
 
-const Color primaryGreen = Color(0xFF15803D);
-/// Brand primary — kept as alias so existing call sites stay green.
+const Color primaryGreen = Color(0xFFAA2423);
+/// Brand primary. The name is historical; the color is the ATLAS logo red.
 const Color primaryRed = primaryGreen;
 const Color dangerRed = Color(0xFFB91C1C);
 const Color darkText = Color(0xFF1E232C);

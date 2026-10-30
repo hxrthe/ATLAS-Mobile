@@ -346,7 +346,7 @@ class QuickSheet {
         align: 'center', color: const PdfColor(0.55, 0.55, 0.55));
   }
 
-  static const PdfColor _brandGreen = PdfColor(0.082, 0.502, 0.239); // #15803D
+  static const PdfColor _brandGreen = PdfColor(0.082, 0.502, 0.239); // #8E1C1B
   static const PdfColor _darkHdr = PdfColor(0.133, 0.133, 0.133);
   static const PdfColor _border = PdfColor(0.35, 0.35, 0.35);
   static const PdfColor _shade = PdfColor(0.933, 0.933, 0.933);

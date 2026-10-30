@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 /// Pure Flutter ATLAS mark animation (no GIF / no white fringe).
 ///
 /// Draws the brand "A", a rising chart arrow, and document pages with a
-/// looping draw + pulse — matching the old loading video motion in greens.
+/// looping draw + pulse — matching the old loading video motion in the logo red.
 class AtlasLogoMotion extends StatefulWidget {
   const AtlasLogoMotion({
     super.key,
@@ -68,7 +68,7 @@ class _AtlasLogoMotionState extends State<AtlasLogoMotion>
                       width: size * 0.66,
                       height: size * 0.16,
                       decoration: BoxDecoration(
-                        color: const Color(0xFF15803D).withValues(alpha: 0.22),
+                        color: const Color(0xFF8E1C1B).withValues(alpha: 0.22),
                         borderRadius: BorderRadius.circular(99),
                       ),
                     ),
@@ -94,10 +94,10 @@ class _AtlasMarkPainter extends CustomPainter {
 
   final double progress;
 
-  static const _forest = Color(0xFF14532D);
-  static const _primary = Color(0xFF15803D);
-  static const _leaf = Color(0xFF16A34A);
-  static const _mint = Color(0xFF86EFAC);
+  static const _forest = Color(0xFF6E1212);
+  static const _primary = Color(0xFF8E1C1B);
+  static const _leaf = Color(0xFFAA2423);
+  static const _mint = Color(0xFFE24B4A);
 
   @override
   void paint(Canvas canvas, Size size) {
