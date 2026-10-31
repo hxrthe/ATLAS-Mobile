@@ -739,7 +739,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   Widget _buildEMTab() {
     final c = context.atlas;
     if (_loadingEM) {
-      return const AtlasLoadingView(layout: AtlasLoadingLayout.list);
+      return const AtlasLoadingView(layout: AtlasLoadingLayout.questions);
     }
     if (_emError != null) {
       return Center(
@@ -1234,6 +1234,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
             constraints: const BoxConstraints(maxWidth: 420),
             margin: const EdgeInsets.all(16),
             child: AtlasShimmer(
+              showMark: true,
               child: Column(
                 children: [
                   Container(
@@ -1546,7 +1547,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
   Widget _buildScoresTab() {
     final c = context.atlas;
     if (_loadingScores) {
-      return const AtlasLoadingView(layout: AtlasLoadingLayout.list);
+      return const AtlasLoadingView(layout: AtlasLoadingLayout.scores);
     }
     if (_scoresError != null) {
       return Center(

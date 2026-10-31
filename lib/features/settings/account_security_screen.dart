@@ -91,7 +91,7 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
         centerTitle: true,
       ),
       body: _isLoading
-          ? const AtlasLoadingView(layout: AtlasLoadingLayout.list)
+          ? const AtlasLoadingView(layout: AtlasLoadingLayout.account)
           : SingleChildScrollView(
               padding: const EdgeInsets.all(24.0),
               child: Column(

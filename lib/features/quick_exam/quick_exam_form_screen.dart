@@ -400,7 +400,10 @@ class _QuickExamFormScreenState extends State<QuickExamFormScreen> {
 
   Widget _buildSubjectPicker(AtlasColors c) {
     if (_loadingSubjects) {
-      return const AtlasShimmer(child: SkeletonBox(height: 58, radius: 12));
+      return const AtlasShimmer(
+        showMark: true,
+        child: SkeletonBox(height: 58, radius: 12),
+      );
     }
     final legacy = _subjectChoice?.startsWith(_legacyPrefix) == true;
     if (_courses.isEmpty && !legacy) {
