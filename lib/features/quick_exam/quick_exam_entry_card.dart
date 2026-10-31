@@ -95,20 +95,8 @@ class _QuickExamEntryCardState extends State<QuickExamEntryCard> {
                         if (_loading)
                           const Padding(
                             padding: EdgeInsets.only(top: 4),
-                            child: Row(
-                              children: [
-                                AtlasLoadingMark(height: 18),
-                                SizedBox(width: 8),
-                                Expanded(
-                                  child: AtlasShimmer(
-                                    child: SkeletonBox(
-                                      height: 11,
-                                      width: double.infinity,
-                                      radius: 4,
-                                    ),
-                                  ),
-                                ),
-                              ],
+                            child: AtlasShimmer(
+                              child: SkeletonBox(width: 170, height: 11, radius: 4),
                             ),
                           )
                         else

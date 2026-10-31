@@ -343,11 +343,7 @@ class _QuickExamHubScreenState extends State<QuickExamHubScreen>
     Widget body;
     final empty = _exams.isEmpty && _courseExams.isEmpty;
     if (_loadingExams && empty) {
-      body = const AtlasSkeletonList(
-        count: 5,
-        kind: AtlasSkeletonKind.examCards,
-        padding: EdgeInsets.fromLTRB(16, 12, 16, 96),
-      );
+      body = const AtlasSkeletonList(lines: 3, leadingSize: 40);
     } else if (_examsError != null && empty) {
       body = ListView(
         children: [QuickErrorState(message: _examsError!, onRetry: _loadExams)],
@@ -412,11 +408,7 @@ class _QuickExamHubScreenState extends State<QuickExamHubScreen>
   Widget _buildRecordsTab(AtlasColors c) {
     Widget list;
     if (_loadingScans && _scans.isEmpty) {
-      list = const AtlasSkeletonList(
-        count: 6,
-        kind: AtlasSkeletonKind.scanTiles,
-        padding: EdgeInsets.fromLTRB(16, 4, 16, 32),
-      );
+      list = const AtlasSkeletonList(count: 6, leadingSize: 40);
     } else if (_scansError != null) {
       list = ListView(
         children: [QuickErrorState(message: _scansError!, onRetry: _loadScans)],

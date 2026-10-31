@@ -120,7 +120,6 @@ flutter:
     - assets/images/atlas_logo_mark.svg
     - assets/images/google_g_logo.png
     - assets/images/atlas_loading.webp
-    - assets/images/atlas_loading.gif
     - assets/atlascutesys.mp4
 #    - assets/animations/
 
