@@ -131,6 +131,7 @@ class GradingRepository {
     required Map<String, String> responses,
     bool? isFlagged,
     String? flagReason,
+    bool failFast = false,
   }) async {
     final truncatedReason = (flagReason != null && flagReason.isNotEmpty)
         ? (flagReason.length > 255
@@ -156,6 +157,7 @@ class GradingRepository {
       postResp = await _apiClient.dio.post(
         'grading/bubble/scans/',
         data: formData,
+        options: failFast ? failFastOptions() : null,
       );
     } on DioException catch (e) {
       throw _sectionErrorOr(e);
@@ -186,6 +188,7 @@ class GradingRepository {
             'is_flagged': ?isFlagged,
             'flag_reason': ?truncatedReason,
           },
+          options: failFast ? failFastOptions() : null,
         );
       } on DioException catch (e) {
         throw _sectionErrorOr(e);
@@ -249,6 +252,7 @@ class GradingRepository {
     String? sectionName,
     String? gradeLevel,
     String? courseId,
+    bool failFast = false,
   }) async {
     try {
       final response = await _apiClient.dio.post(
@@ -260,6 +264,7 @@ class GradingRepository {
           if (gradeLevel != null && gradeLevel.isNotEmpty) 'grade_level': gradeLevel,
           if (courseId != null && courseId.isNotEmpty) 'course_id': courseId,
         },
+        options: failFast ? failFastOptions() : null,
       );
       return StudentBlock.fromJson(
         Map<String, dynamic>.from(response.data['block'] as Map),

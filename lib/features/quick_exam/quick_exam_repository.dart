@@ -116,11 +116,12 @@ class QuickExamRepository {
     required Map<String, String> responses,
     bool isFlagged = false,
     String? flagReason,
+    bool failFast = false,
   }) async {
     final reason = (flagReason ?? '').isEmpty
         ? null
         : (flagReason!.length > 255 ? '${flagReason.substring(0, 254)}…' : flagReason);
-    final d = await _call(() => _api.dio.post('${_base}scans/', data: {
+    final d = await _call(() => _api.dio.post('${_base}scans/', options: failFast ? failFastOptions() : null, data: {
           'exam_id': examId,
           if (studentId != null && studentId.isNotEmpty && studentId != 'Unknown')
             'student_identifier': studentId,

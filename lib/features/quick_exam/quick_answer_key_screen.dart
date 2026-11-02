@@ -4,6 +4,7 @@ import '../../core/network/error_messages.dart';
 import '../../core/theme/app_theme.dart';
 import '../../utils/atlas_alerts.dart';
 import '../grading/answer_key.dart';
+import '../scanner/template_cache.dart';
 import 'quick_exam_models.dart';
 import 'quick_exam_repository.dart';
 import 'quick_exam_widgets.dart';
@@ -129,6 +130,7 @@ class _QuickAnswerKeyScreenState extends State<QuickAnswerKeyScreen> {
     setState(() => _saving = true);
     try {
       final saved = await _repo.saveAnswerKey(widget.exam.examId, _key);
+      await TemplateCache.upsert(saved.toTemplate());
       if (!mounted) return;
       Navigator.pop(context, saved);
     } catch (e) {

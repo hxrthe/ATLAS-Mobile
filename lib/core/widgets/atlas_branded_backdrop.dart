@@ -25,13 +25,12 @@ class AtlasBrandedBackdrop extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = context.isDarkTheme;
-    // True near-black in dark mode; soft off-white in light (login scaffold).
-    final base = isDark ? const Color(0xFF0A0A0B) : const Color(0xFFFBF7F7);
+    final base = isDark ? const Color(0xFF1E1E1E) : const Color(0xFFFBF7F7);
 
     return Stack(
       fit: StackFit.expand,
       children: [
-        // Solid base — must read as black in dark mode.
+        // Solid base.
         Positioned.fill(child: ColoredBox(color: base)),
 
         // Splash / login radial wash + grid (fades itself toward bottom).
@@ -94,9 +93,9 @@ class AtlasBrandedGridPainter extends CustomPainter {
         radius: isDark ? 1.15 : 1.2,
         colors: isDark
             ? const [
-                Color(0xFF6E1212),
-                Color(0xFF0A0A0B),
-                Color(0xFF050506),
+                Color(0xFF4A3535),
+                Color(0xFF2C2A2A),
+                Color(0xFF1E1E1E),
               ]
             : const [
                 Color(0xFFF8D4D3),
@@ -145,7 +144,7 @@ class AtlasBrandedGridPainter extends CustomPainter {
         center: Alignment(0.7, isDark ? -0.6 : -0.55),
         radius: 1.05,
         colors: [
-          const Color(0xFFAA2423).withValues(alpha: isDark ? 0.16 : 0.12),
+          const Color(0xFFE7A3A1).withValues(alpha: isDark ? 0.14 : 0.12),
           Colors.transparent,
         ],
       ).createShader(Offset.zero & size);

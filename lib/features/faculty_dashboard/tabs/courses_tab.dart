@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../grading/grading_repository.dart';
+import '../../scanner/offline_pack.dart';
 import '../../../core/network/error_messages.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/atlas_loading_view.dart';
@@ -21,6 +22,7 @@ class _CoursesTabState extends State<CoursesTab> {
   List<Map<String, dynamic>> _courses = [];
   bool _loading = true;
   String? _error;
+  bool _usingSaved = false;
 
   @override
   void initState() {
@@ -35,19 +37,31 @@ class _CoursesTabState extends State<CoursesTab> {
     });
     try {
       final courses = await _repository.fetchFacultyCourses();
+      await OfflinePack.saveCourses(courses);
       if (mounted) {
         setState(() {
           _courses = courses;
+          _usingSaved = false;
           _loading = false;
         });
       }
     } catch (e) {
-      if (mounted) {
+      final saved = await OfflinePack.loadCourses();
+      if (!mounted) return;
+      if (saved.isNotEmpty) {
         setState(() {
+          _courses = saved;
+          _usingSaved = true;
+          _error = null;
           _loading = false;
-          _error = friendlyError(e, fallback: 'Could not load your courses. Please try again.');
         });
+        return;
       }
+      setState(() {
+        _loading = false;
+        _usingSaved = false;
+        _error = friendlyError(e, fallback: 'Could not load your courses. Please try again.');
+      });
     }
   }
 
@@ -88,6 +102,18 @@ class _CoursesTabState extends State<CoursesTab> {
                     ),
                   ),
                   const SizedBox(height: 16),
+                  if (_usingSaved)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Text(
+                        'Showing courses saved on this device.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: c.textSecondary,
+                        ),
+                      ),
+                    ),
                   if (_error != null)
                     Padding(
                       padding: const EdgeInsets.all(24),

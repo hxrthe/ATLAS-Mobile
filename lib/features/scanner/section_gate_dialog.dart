@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/network/error_messages.dart';
 import '../grading/grading_repository.dart';
 import '../grading/models.dart';
+import 'offline_pack.dart';
 import 'scanner_widgets.dart';
 
 /// Returned when the student was added to (or already found in) a section.
@@ -151,10 +152,18 @@ class _SectionGateDialogState extends State<_SectionGateDialog> {
       setState(() => _error = 'Choose a section${isNew ? ' name' : ''}.');
       return;
     }
+    if (widget.sections.isEmpty && !isNew) {
+      setState(() {
+        _error =
+            'Class sections are not on this device yet. Connect once so they can download.';
+      });
+      return;
+    }
     setState(() {
       _saving = true;
       _error = null;
     });
+    final sectionName = isNew ? newName : _nameFor(_selectedSectionId);
     try {
       final block = await widget.repository.addStudentToSection(
         studentId: id,
@@ -162,13 +171,34 @@ class _SectionGateDialogState extends State<_SectionGateDialog> {
         sectionName: isNew ? newName : null,
         gradeLevel: _gradeCtrl.text.trim(),
         courseId: widget.courseId,
+        failFast: true,
       );
+      await RosterCache.rememberBlock(block);
       if (mounted) Navigator.pop(context, SectionGateResult(id, block));
     } on StudentInOtherSectionException catch (e) {
       // Already on a section, so the scan may be recorded as-is.
+      await RosterCache.rememberBlock(e.existing);
       if (mounted) Navigator.pop(context, SectionGateResult(id, e.existing));
     } catch (e) {
       if (!mounted) return;
+      if (isOfflineError(e)) {
+        final block = StudentBlock(
+          studentId: id,
+          gradeLevel: _gradeCtrl.text.trim(),
+          sectionId: isNew ? null : _selectedSectionId,
+          section: sectionName ?? '',
+        );
+        await RosterCache.queueAdd(PendingSectionAdd(
+          studentId: id,
+          sectionId: isNew ? null : _selectedSectionId,
+          sectionName: isNew ? newName : null,
+          gradeLevel: _gradeCtrl.text.trim(),
+          courseId: widget.courseId,
+        ));
+        await RosterCache.rememberBlock(block);
+        if (mounted) Navigator.pop(context, SectionGateResult(id, block));
+        return;
+      }
       setState(() {
         _saving = false;
         _error = friendlyError(
@@ -177,6 +207,14 @@ class _SectionGateDialogState extends State<_SectionGateDialog> {
         );
       });
     }
+  }
+
+  String? _nameFor(String? sectionId) {
+    if (sectionId == null) return null;
+    for (final section in widget.sections) {
+      if (section.sectionId == sectionId) return section.name;
+    }
+    return null;
   }
 
   List<DropdownMenuItem<String>> _sectionItems() {

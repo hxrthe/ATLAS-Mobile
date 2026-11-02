@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
+import '../../core/network/api_client.dart';
 import '../../core/network/error_messages.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_controller.dart';
-import '../auth/login_screen.dart';
+import '../scanner/offline_pack.dart';
 import '../scanner/scanner_screen.dart';
+import '../scanner/template_cache.dart';
 import '../grading/grading_repository.dart';
 import '../grading/models.dart';
 import '../grading/scan_events.dart';
@@ -18,6 +20,7 @@ import '../../core/widgets/atlas_branded_backdrop.dart';
 import '../../core/widgets/pulse_dot.dart';
 import '../settings/account_security_screen.dart';
 import '../quick_exam/quick_exam_entry_card.dart';
+import '../quick_exam/quick_exam_models.dart';
 import '../quick_exam/quick_exam_repository.dart';
 import '../quick_exam/quick_exam_detail_screen.dart';
 import 'home_widgets.dart';
@@ -64,6 +67,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
   Map<String, Map<String, dynamic>> _templateScores = {};
   bool _loading = true;
   String? _error;
+  bool _usingSavedPack = false;
 
   late AnimationController _navSlideController;
   late Animation<Offset> _navSlideAnimation;
@@ -75,9 +79,9 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
     Color(0xFFFFF5F5),
   ];
   static const List<Color> _sessionGradientDark = [
-    Color(0xFF6E1212),
-    Color(0xFF0A0A0B),
-    Color(0xFF050506),
+    Color(0xFFE8B4B2),
+    Color(0xFFD99896),
+    Color(0xFFC98482),
   ];
 
   List<Color> get _sessionGradient =>
@@ -144,14 +148,8 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
 
   void _handleInactivity() {
     if (!mounted) return;
-
-    // Perform logout
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(
-        builder: (context) => const LoginScreen(autoLogout: true),
-      ),
-      (route) => false,
-    );
+    _inactivityTimer?.cancel();
+    unawaited(ApiClient.forceLogout(inactivity: true));
   }
 
   Future<void> _initLoad() async {
@@ -163,6 +161,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
       _userPhotoUrl = photoUrl;
     });
 
+    unawaited(OfflinePack.ensureSaved(grading: _repo, quick: _majorRepo));
     await _loadAll();
     if (mounted) _startLiveUpdates();
   }
@@ -175,10 +174,13 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
     try {
       final courses = await _repo.fetchFacultyCourses();
       final allTemplates = <BubbleTemplate>[];
+      await OfflinePack.saveCourses(courses);
       for (final c in courses) {
+        final courseId = c['course_id']!;
         try {
-          final t = await _repo.fetchTemplates(c['course_id']!);
+          final t = await _repo.fetchTemplates(courseId);
           allTemplates.addAll(t);
+          await TemplateCache.mergeCourse(courseId, t);
         } catch (_) {}
       }
 
@@ -234,18 +236,71 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
           _systemEvents = events;
           _scansSignature = _signatureOf(events);
           _activeAssessmentType = assessmentType;
+          _usingSavedPack = false;
           _loading = false;
         });
         _loadTemplateScores();
+        unawaited(OfflinePack.adoptIfUnchanged());
       }
     } catch (e) {
-      if (mounted) {
+      if (!mounted) return;
+      final restored = await _restoreSavedPack();
+      if (!mounted) return;
+      if (restored) {
         setState(() {
           _loading = false;
+          _error = null;
+          _usingSavedPack = true;
+        });
+      } else {
+        setState(() {
+          _loading = false;
+          _usingSavedPack = false;
           _error = friendlyError(e, fallback: 'Could not load your dashboard. Please try again.');
         });
       }
     }
+  }
+
+  /// Home screen from the last successful download, so scanning still opens
+  /// when the phone has no connection.
+  Future<bool> _restoreSavedPack() async {
+    final courses = await OfflinePack.loadCourses();
+    final templates = await TemplateCache.load() ?? <BubbleTemplate>[];
+    if (courses.isEmpty && templates.isEmpty) return false;
+    final courseTemplates =
+        templates.where((t) => !t.isQuickExam).toList();
+    final majorPending = [
+      for (final t in templates)
+        if (t.isQuickExam && (t.hasAnswerKey || t.answerKey.isNotEmpty)) t,
+    ];
+    Map<String, dynamic>? activeCourse;
+    var activeTemplates = <BubbleTemplate>[];
+    for (final c in courses) {
+      final ct = courseTemplates
+          .where((t) => t.courseId == c['course_id'])
+          .toList();
+      if (ct.any((t) => t.hasAnswerKey || t.assessmentId != null)) {
+        activeCourse = c;
+        activeTemplates = ct;
+        break;
+      }
+    }
+    activeCourse ??= courses.isNotEmpty ? courses.first : null;
+    if (activeCourse != null && activeTemplates.isEmpty) {
+      activeTemplates = courseTemplates
+          .where((t) => t.courseId == activeCourse!['course_id'])
+          .toList();
+    }
+    if (!mounted) return false;
+    setState(() {
+      _courses = courses;
+      _activeCourse = activeCourse;
+      _activeTemplates = activeTemplates;
+      _allTemplates = courseTemplates;
+      _majorPending = majorPending;
+    });
+    return true;
   }
 
   Future<List<Map<String, dynamic>>> _fetchWeekScans() async {
@@ -488,51 +543,35 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
         return Listener(
           onPointerDown: (_) => _resetInactivityTimer(),
           child: Scaffold(
-            // Match branded backdrop base — transparent exposed the black
-            // Android/window layer through the nav's rounded corners.
             backgroundColor:
-                isDark ? const Color(0xFF0A0A0B) : const Color(0xFFFBF7F7),
-            // Keep body above the bar — extendBody left a sticky card-colored
-            // slab behind the nav that content scrolled under.
-            extendBody: false,
+                isDark ? c.scaffold : const Color(0xFFFBF7F7),
+            // Body continues behind the bar so the scan-button opening shows the page.
+            extendBody: true,
             bottomNavigationBar: SlideTransition(
               position: _navSlideAnimation,
               child: _DashboardBottomNav(
                 selectedIndex: _selectedIndex,
-                isDark: isDark,
                 colors: c,
                 onSelect: (i) => setState(() => _selectedIndex = i),
               ),
             ),
             floatingActionButton: SlideTransition(
               position: _navSlideAnimation,
-              child: Container(
+              child: SizedBox(
                 height: 72,
                 width: 72,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(
-                        alpha: isDark ? 0.5 : 0.22,
-                      ),
-                      blurRadius: 14,
-                      spreadRadius: 1,
-                      offset: const Offset(0, -5),
-                    ),
-                  ],
-                ),
                 child: FloatingActionButton(
                   onPressed: () {
                     _resetInactivityTimer();
                     _navigateToScanner(context, '', 'Scanner');
                   },
                   backgroundColor: c.primary,
+                  foregroundColor: c.onPrimary,
                   shape: const CircleBorder(),
-                  elevation: 10,
-                  child: const Icon(
+                  elevation: 2,
+                  child: Icon(
                     Icons.qr_code_scanner,
-                    color: Colors.white,
+                    color: c.onPrimary,
                     size: 36,
                   ),
                 ),
@@ -640,19 +679,31 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                           ),
                         ],
                       ),
+                      if (_usingSavedPack) ...[
+                        const SizedBox(height: 16),
+                        Text(
+                          'Working from exams and sections saved on this device. Scores will sync when you are back online.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: c.textSecondary,
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 32),
 
                       // Active Session Card — splash-style wash (light / dark)
                       Builder(
                         builder: (context) {
                           final dark = context.isDarkTheme;
-                          final onCard =
-                              dark ? Colors.white : const Color(0xFF6E1212);
+                          final onCard = dark
+                              ? const Color(0xFF3B1515)
+                              : const Color(0xFF6E1212);
                           final onCardMuted = dark
-                              ? Colors.white70
+                              ? const Color(0xFF5C2E2D)
                               : const Color(0xFF8E1C1B);
                           final chipFill = dark
-                              ? Colors.white.withValues(alpha: 0.2)
+                              ? const Color(0xFF3B1515).withValues(alpha: 0.12)
                               : const Color(0xFF8E1C1B)
                                   .withValues(alpha: 0.14);
                           return Container(
@@ -762,10 +813,10 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                                       : null,
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: dark
-                                        ? Colors.white
+                                        ? const Color(0xFF3B1515)
                                         : const Color(0xFF8E1C1B),
                                     foregroundColor: dark
-                                        ? c.primary
+                                        ? const Color(0xFFF6E4E3)
                                         : Colors.white,
                                     minimumSize:
                                         const Size(double.infinity, 44),
@@ -889,11 +940,13 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
         .toList();
     const gap = 10.0;
     final dark = context.isDarkTheme;
-    final onCard = dark ? Colors.white : const Color(0xFF6E1212);
+    final onCard =
+        dark ? const Color(0xFF3B1515) : const Color(0xFF6E1212);
     final onCardMuted =
-        dark ? Colors.white.withValues(alpha: 0.9) : const Color(0xFF8E1C1B);
-    final iconChip =
-        dark ? Colors.white.withValues(alpha: 0.18) : const Color(0xFF8E1C1B).withValues(alpha: 0.14);
+        dark ? const Color(0xFF5C2E2D) : const Color(0xFF8E1C1B);
+    final iconChip = dark
+        ? const Color(0xFF3B1515).withValues(alpha: 0.12)
+        : const Color(0xFF8E1C1B).withValues(alpha: 0.14);
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = (constraints.maxWidth - gap) / 2;
@@ -1121,6 +1174,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
   Future<void> _openMajorPending(BubbleTemplate t) async {
     try {
       final exam = await _majorRepo.fetchExam(t.templateId);
+      await TemplateCache.upsert(exam.toTemplate());
       if (!mounted) return;
       await Navigator.push(
         context,
@@ -1128,6 +1182,22 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
       );
       if (mounted) _loadAll();
     } catch (e) {
+      if (!mounted) return;
+      final saved = t.hasLayoutItems && t.answerKey.isNotEmpty
+          ? t
+          : await TemplateCache.find(t.templateId);
+      if (!mounted) return;
+      if (saved != null && saved.hasLayoutItems && isOfflineError(e)) {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => QuickExamDetailScreen(
+              exam: QuickExam.fromTemplate(saved),
+            ),
+          ),
+        );
+        return;
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(friendlyError(e, fallback: 'Could not open exam.'))),
@@ -1234,7 +1304,9 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
             )
           else if (!loaded)
             Text(
-              'Loading sections…',
+              _usingSavedPack
+                  ? 'Saved on this device. Open the scanner to grade offline.'
+                  : 'Loading sections…',
               style: TextStyle(fontSize: 12, color: c.textSecondary),
             )
           else if (progress.isEmpty)
@@ -1316,42 +1388,26 @@ const _navBarContentHeight = 64.0;
 class _DashboardBottomNav extends StatelessWidget {
   const _DashboardBottomNav({
     required this.selectedIndex,
-    required this.isDark,
     required this.colors,
     required this.onSelect,
   });
 
   final int selectedIndex;
-  final bool isDark;
   final AtlasColors colors;
   final ValueChanged<int> onSelect;
 
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
-    // Page-base fill only in the corner cutouts (not card color — that hid
-    // the curves; not transparent — that showed a black system rectangle).
-    final pageBase =
-        isDark ? const Color(0xFF0A0A0B) : const Color(0xFFFBF7F7);
-    return ColoredBox(
-      color: pageBase,
-      child: CustomPaint(
-        painter: _NavBarShadowPainter(
-          shape: _navBarShape,
-          notchMargin: _navNotchMargin,
-          fabRadius: 36,
-          color: Colors.black.withValues(alpha: isDark ? 0.45 : 0.18),
-        ),
-        child: BottomAppBar(
-          height: _navBarContentHeight + bottomInset,
+    return ClipPath(
+      clipper: const _NotchedBarClipper(),
+      child: ColoredBox(
+        color: colors.card,
+        child: Padding(
           padding: EdgeInsets.only(bottom: bottomInset),
-          shape: _navBarShape,
-          notchMargin: _navNotchMargin,
-          color: colors.card,
-          surfaceTintColor: Colors.transparent,
-          elevation: 0,
-          clipBehavior: Clip.antiAlias,
-          child: Row(
+          child: SizedBox(
+            height: _navBarContentHeight,
+            child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Expanded(
@@ -1393,6 +1449,7 @@ class _DashboardBottomNav extends StatelessWidget {
           ),
         ),
       ),
+      ),
     );
   }
 
@@ -1408,7 +1465,17 @@ class _DashboardBottomNav extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: color, size: 26),
+            index == 3
+                ? ValueListenableBuilder<PackAttention>(
+                    valueListenable: OfflinePack.attention,
+                    builder: (context, attention, _) {
+                      return _SettingsNavIcon(
+                        color: color,
+                        alert: attention.needsAttention,
+                      );
+                    },
+                  )
+                : Icon(icon, color: color, size: 26),
             const SizedBox(height: 2),
             Text(
               label,
@@ -1425,39 +1492,50 @@ class _DashboardBottomNav extends StatelessWidget {
   }
 }
 
-/// Soft shadow along the bottom bar's outline, notch included, so the curved
-/// top edge reads against the page without shading inside the notch.
-class _NavBarShadowPainter extends CustomPainter {
-  final NotchedShape shape;
-  final double notchMargin;
-  final double fabRadius;
-  final Color color;
+class _SettingsNavIcon extends StatelessWidget {
+  const _SettingsNavIcon({required this.color, required this.alert});
 
-  const _NavBarShadowPainter({
-    required this.shape,
-    required this.notchMargin,
-    required this.fabRadius,
-    required this.color,
-  });
+  final Color color;
+  final bool alert;
 
   @override
-  void paint(Canvas canvas, Size size) {
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Icon(Icons.manage_accounts, color: color, size: 26),
+        if (alert)
+          Positioned(
+            right: -1,
+            top: -1,
+            child: Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: context.atlas.ambiguous,
+                shape: BoxShape.circle,
+                border: Border.all(color: context.atlas.card, width: 1.5),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Cuts a real opening around the scan button so the page shows through.
+class _NotchedBarClipper extends CustomClipper<Path> {
+  const _NotchedBarClipper();
+
+  @override
+  Path getClip(Size size) {
     final guest = Rect.fromCircle(
       center: Offset(size.width / 2, 0),
-      radius: fabRadius,
-    ).inflate(notchMargin);
-    final path = shape.getOuterPath(Offset.zero & size, guest);
-    canvas.drawPath(
-      path.shift(const Offset(0, -1)),
-      Paint()
-        ..color = color
-        ..maskFilter = const MaskFilter.blur(BlurStyle.outer, 10),
-    );
+      radius: 36,
+    ).inflate(_navNotchMargin);
+    return _navBarShape.getOuterPath(Offset.zero & size, guest);
   }
 
   @override
-  bool shouldRepaint(_NavBarShadowPainter old) =>
-      old.color != color ||
-      old.notchMargin != notchMargin ||
-      old.fabRadius != fabRadius;
+  bool shouldReclip(covariant _NotchedBarClipper oldClipper) => false;
 }

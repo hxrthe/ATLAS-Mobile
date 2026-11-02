@@ -2785,6 +2785,9 @@ class _ScanResultViewState extends State<ScanResultView>
                       switch (widget.uploadStatus) {
                         'uploading' => 'Uploading to grading results…',
                         'uploaded' => 'Saved to grading results',
+                        'queued' => widget.statusMessage.isNotEmpty
+                            ? widget.statusMessage
+                            : 'Saved on this device. It will sync when you are back online.',
                         'failed' => widget.statusMessage.isNotEmpty
                             ? widget.statusMessage
                             : 'Upload failed — tap retry',
@@ -2795,6 +2798,7 @@ class _ScanResultViewState extends State<ScanResultView>
                         color: switch (widget.uploadStatus) {
                           'uploaded' => colors.correct,
                           'failed' => colors.incorrect,
+                          'queued' => colors.textSecondary,
                           'uploading' => colors.textSecondary,
                           _ => colors.textSecondary,
                         },
@@ -2841,7 +2845,8 @@ class _ScanResultViewState extends State<ScanResultView>
                     ),
                     const SizedBox(width: 10),
                   ],
-                  if (widget.uploadStatus == 'failed' &&
+                  if ((widget.uploadStatus == 'failed' ||
+                          widget.uploadStatus == 'queued') &&
                       widget.onRetryUpload != null) ...[
                     Expanded(
                       child: SizedBox(

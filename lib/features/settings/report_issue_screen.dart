@@ -1,4 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+
+import '../../core/network/api_client.dart';
+import '../../core/network/error_messages.dart';
 import '../../core/theme/app_theme.dart';
 
 class ReportIssueScreen extends StatefulWidget {
@@ -10,7 +16,7 @@ class ReportIssueScreen extends StatefulWidget {
 
 class _ReportIssueScreenState extends State<ReportIssueScreen> {
   final TextEditingController _issueController = TextEditingController();
-  bool _attachLogs = true;
+  bool _includePhone = true;
   bool _isSubmitting = false;
 
   @override
@@ -19,22 +25,35 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
     super.dispose();
   }
 
-  void _submitReport() async {
-    if (_issueController.text.trim().isEmpty) {
+  Future<void> _submitReport() async {
+    final message = _issueController.text.trim();
+    if (message.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please describe the issue.')),
+        const SnackBar(content: Text('Please tell us what happened.')),
       );
       return;
     }
 
     setState(() => _isSubmitting = true);
-
-    // Simulate network delay
-    await Future.delayed(const Duration(seconds: 2));
-
-    if (mounted) {
+    try {
+      String note = '';
+      if (_includePhone) {
+        final info = await PackageInfo.fromPlatform();
+        final phone = Platform.isIOS ? 'iPhone' : 'Android';
+        note = '$phone · app ${info.version}';
+      }
+      final response = await ApiClient().dio.post(
+        'auth/support-reports/',
+        data: {
+          'message': message,
+          if (note.isNotEmpty) 'phone_note': note,
+        },
+      );
+      if (!mounted) return;
       setState(() => _isSubmitting = false);
-      showDialog(
+      final delivered = response.data is Map ? response.data['delivered_to'] : null;
+      final sentToTeam = delivered == 'superadmin';
+      await showDialog<void>(
         context: context,
         builder: (dialogContext) {
           final colors = dialogContext.atlas;
@@ -43,7 +62,9 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             title: Icon(Icons.check_circle, color: colors.correct, size: 48),
             content: Text(
-              'Issue reported successfully! Our team will review it shortly.',
+              sentToTeam
+                  ? 'Your message was sent to the ATLAS team.'
+                  : 'Your message was sent to your campus admin. They can pass it to the ATLAS team if more help is needed.',
               textAlign: TextAlign.center,
               style: TextStyle(color: colors.textPrimary),
             ),
@@ -51,8 +72,8 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
               Center(
                 child: TextButton(
                   onPressed: () {
-                    Navigator.pop(dialogContext); // Close dialog
-                    Navigator.pop(context); // Back to Help & Support
+                    Navigator.pop(dialogContext);
+                    Navigator.pop(context);
                   },
                   child: Text(
                     'OK',
@@ -66,6 +87,19 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
             ],
           );
         },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isSubmitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            friendlyError(
+              e,
+              fallback: 'We could not send this right now. Check your internet and try again.',
+            ),
+          ),
+        ),
       );
     }
   }
@@ -95,7 +129,16 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'ISSUE DESCRIPTION',
+              'Your campus admin will read this. They can send it on to the ATLAS team if the campus needs more help.',
+              style: TextStyle(
+                color: colors.textSecondary,
+                fontSize: 14,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'WHAT HAPPENED',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w800,
@@ -110,7 +153,7 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
               style: TextStyle(color: colors.textPrimary),
               decoration: InputDecoration(
                 hintText:
-                    'Describe what happened, any error messages, or steps to reproduce the bug...',
+                    'Tell us what you were trying to do and what happened instead. Everyday words are enough.',
                 hintStyle: TextStyle(color: colors.textSecondary, fontSize: 14),
                 filled: true,
                 fillColor: colors.inputFill,
@@ -138,29 +181,29 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.assignment_outlined, color: colors.textSecondary),
+                  Icon(Icons.smartphone_outlined, color: colors.textSecondary),
                   const SizedBox(width: 16),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Attach System Logs',
+                          'Include my phone details',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             color: colors.textPrimary,
                           ),
                         ),
                         Text(
-                          'Includes device info & error logs',
+                          'The kind of phone and the app version, so we know which copy you are using.',
                           style: TextStyle(color: colors.textSecondary, fontSize: 11),
                         ),
                       ],
                     ),
                   ),
                   Checkbox(
-                    value: _attachLogs,
-                    onChanged: (val) => setState(() => _attachLogs = val ?? true),
+                    value: _includePhone,
+                    onChanged: (val) => setState(() => _includePhone = val ?? true),
                     activeColor: colors.primary,
                   ),
                 ],
@@ -188,7 +231,7 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
                       ),
                     )
                   : const Text(
-                      'SUBMIT REPORT',
+                      'SEND REPORT',
                       style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1),
                     ),
             ),

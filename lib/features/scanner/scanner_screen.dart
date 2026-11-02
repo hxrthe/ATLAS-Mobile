@@ -4,12 +4,14 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../core/network/error_messages.dart';
 import '../grading/answer_key.dart';
 import '../grading/grading_repository.dart';
 import '../grading/models.dart';
-import '../grading/scan_events.dart';
 import '../quick_exam/quick_exam_models.dart';
 import '../quick_exam/quick_exam_repository.dart';
+import 'offline_pack.dart';
+import 'offline_sync.dart';
 import 'omr_constants.dart';
 import 'omr_imaging.dart';
 import 'omr_models.dart';
@@ -97,6 +99,8 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
   Map<String, String> _resultAnswerKey = const {};
   int _resultTotalItems = 0;
 
+  StreamSubscription<SyncedScan>? _syncSub;
+
   /// When set, the next capture must match these IDs (Rescan only).
   String? _rescanExpectedStudentId;
   String? _rescanExpectedAssessmentId;
@@ -148,15 +152,56 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       _selectedTemplate = quick;
       _assessmentIdentified = true;
       _templates = [quick];
-      // List/hub payloads often omit answer_key — refresh full exam for coloring.
+      // List payloads omit the key and layout. Prefer the copy saved on device.
       if (quick.answerKey.isEmpty || !quick.hasLayoutItems) {
         _refreshQuickExamSeed(quick.templateId);
       }
     }
+    _syncSub = OfflineSync.instance.synced.listen(_onRemoteSync);
     _initScanner();
   }
 
+  void _onRemoteSync(SyncedScan synced) {
+    if (!mounted) return;
+    setState(() {
+      final idx = _scanRecords.indexWhere((r) => r.id == synced.localId);
+      if (idx >= 0) {
+        _scanRecords[idx] =
+            _scanRecords[idx].copyWith(serverScanId: synced.serverScanId);
+      }
+      if (_detailRecord?.id == synced.localId) {
+        _detailRecord =
+            _detailRecord!.copyWith(serverScanId: synced.serverScanId);
+      }
+      if (_pendingUploadRecord?.id == synced.localId) {
+        _pendingUploadRecord =
+            _pendingUploadRecord!.copyWith(serverScanId: synced.serverScanId);
+        _uploadStatus = 'uploaded';
+        _resultStatus = synced.replaced
+            ? 'Replaced earlier exam record'
+            : 'Saved to grading results';
+      }
+    });
+  }
+
   Future<void> _refreshQuickExamSeed(String examId) async {
+    final saved = await TemplateCache.find(examId);
+    if (saved != null &&
+        saved.hasLayoutItems &&
+        saved.answerKey.isNotEmpty &&
+        mounted &&
+        _selectedTemplate?.templateId == examId) {
+      setState(() {
+        _selectedTemplate = saved;
+        final idx = _templates.indexWhere((t) => t.templateId == examId);
+        if (idx >= 0) {
+          _templates[idx] = saved;
+        } else {
+          _templates = [saved, ..._templates];
+        }
+      });
+    }
+    if (!await OfflinePack.probe()) return;
     try {
       final bound = await _fetchQuickTemplate(examId);
       if (!mounted) return;
@@ -173,6 +218,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       _updateCachedTemplate(bound);
     } catch (e) {
       debugPrint('Quick exam seed refresh failed: $e');
+      if (isOfflineError(e)) OfflinePack.markOffline();
     }
   }
 
@@ -195,16 +241,31 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
   }
 
   Future<void> _loadSectionedBlocks() async {
+    final saved = await RosterCache.load();
+    if (saved != null && mounted) {
+      setState(() {
+        _sectionedBlocks = Map<String, StudentBlock>.from(saved.blocks);
+        _sectionOptions = List<SectionOption>.from(saved.sections);
+      });
+    }
+    if (!await OfflinePack.probe()) return;
     try {
       final data = await _repository.fetchSectionedBlocks();
+      await RosterCache.store(data.blocks, data.sections);
+      final merged = await RosterCache.load();
       if (mounted) {
         setState(() {
-          _sectionedBlocks = data.blocks;
-          _sectionOptions = data.sections;
+          _sectionedBlocks = Map<String, StudentBlock>.from(
+            merged?.blocks ?? data.blocks,
+          );
+          _sectionOptions = List<SectionOption>.from(
+            merged?.sections ?? data.sections,
+          );
         });
       }
     } catch (e) {
       debugPrint('Blocks preload failed: $e');
+      if (isOfflineError(e)) OfflinePack.markOffline();
     }
   }
 
@@ -214,17 +275,26 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     BubbleTemplate template,
   ) async {
     final id = (detectedId ?? '').trim();
+    if (_sectionedBlocks.isEmpty) {
+      final saved = await RosterCache.load();
+      if (saved != null) {
+        _sectionedBlocks = Map<String, StudentBlock>.from(saved.blocks);
+        _sectionOptions = List<SectionOption>.from(saved.sections);
+      }
+    }
     if (isUsableStudentId(id)) {
       if (_sectionedBlocks.containsKey(id)) return id;
-      try {
-        final remote = await _repository.fetchSectionedBlocks(studentId: id);
-        _sectionOptions = remote.sections;
-        if (remote.blocks.containsKey(id)) {
+      if (await OfflinePack.probe()) {
+        try {
+          final remote = await _repository.fetchSectionedBlocks(studentId: id);
+          _sectionOptions = remote.sections;
           _sectionedBlocks.addAll(remote.blocks);
-          return id;
+          await RosterCache.store(_sectionedBlocks, _sectionOptions);
+          if (remote.blocks.containsKey(id)) return id;
+        } catch (e) {
+          debugPrint('Block lookup failed: $e');
+          if (isOfflineError(e)) OfflinePack.markOffline();
         }
-      } catch (e) {
-        debugPrint('Block lookup failed: $e');
       }
     }
     if (!mounted) return null;
@@ -241,6 +311,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     );
     if (gate == null) return null;
     _sectionedBlocks[gate.studentId] = gate.block;
+    RosterCache.rememberBlock(gate.block);
     final sectionId = gate.block.sectionId;
     if (sectionId != null &&
         !_sectionOptions.any((s) => s.sectionId == sectionId)) {
@@ -260,12 +331,19 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
 
   @override
   void dispose() {
+    _syncSub?.cancel();
     _resultStatusTimer?.cancel();
     _stopImageStream();
     _controller?.dispose();
     _scoreFlashController?.dispose();
     OmrImaging.disposeScanner();
     super.dispose();
+  }
+
+  BubbleTemplate _richerTemplate(BubbleTemplate a, BubbleTemplate b) {
+    int score(BubbleTemplate t) =>
+        (t.hasLayoutItems ? 2 : 0) + (t.answerKey.isNotEmpty ? 1 : 0);
+    return score(b) > score(a) ? b : a;
   }
 
   List<BubbleTemplate> _keepQuick(List<BubbleTemplate> next) => [
@@ -280,52 +358,60 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       if (cached != null && cached.isNotEmpty && mounted) {
         setState(() => _templates = _keepQuick(cached));
       }
-      await _fetchFromNetwork();
     } catch (e) {
       debugPrint('Template cache load failed: $e');
     }
-  }
-
-  Future<void> _fetchFromNetwork() async {
-    final courseId = widget.preSelectedCourseId;
-    if (courseId != null && courseId.isNotEmpty) {
-      final templates = await _repository.fetchTemplates(courseId);
-      await TemplateCache.store(templates);
-      if (mounted) setState(() => _templates = _keepQuick(templates));
-      return;
-    }
-    final courses = await _repository.fetchFacultyCourses();
-    if (courses.isNotEmpty) {
-      final templates =
-          await _repository.fetchTemplates(courses.first['course_id']!);
-      await TemplateCache.store(templates);
-      if (mounted) setState(() => _templates = _keepQuick(templates));
-    }
-  }
-
-  /// Bind the live template from assessment QR: layout + answer key.
-  Future<void> _bindTemplateFromQr(BubbleTemplate seed) async {
-    BubbleTemplate bound = seed;
+    if (!await OfflinePack.probe()) return;
     try {
-      // Always pull full detail so layout_metadata.items is present.
-      bound = seed.isQuickExam
-          ? await _fetchQuickTemplate(seed.templateId)
-          : await _repository.fetchTemplateDetail(seed.templateId);
-    } catch (e) {
-      debugPrint('Template detail fetch failed: $e');
-    }
-
-    if (!bound.isQuickExam &&
-        bound.answerKey.isEmpty &&
-        bound.assessmentId != null) {
-      try {
-        bound = await _repository.syncKeyFromAssessment(bound.templateId);
-      } catch (e) {
-        debugPrint('Answer key sync failed: $e');
+      await OfflinePack.refresh(
+        grading: _repository,
+        quick: _quickRepository,
+      );
+      final fresh = await TemplateCache.load();
+      if (fresh != null && mounted) {
+        setState(() => _templates = _keepQuick(fresh));
       }
+    } catch (e) {
+      debugPrint('Template download failed: $e');
+      if (isOfflineError(e)) OfflinePack.markOffline();
+    }
+  }
+
+  /// Bind the sheet from its QR. A saved key and layout are enough to grade
+  /// with no connection; a newer copy is fetched when the server is reachable.
+  Future<void> _bindTemplateFromQr(BubbleTemplate seed) async {
+    var bound = seed;
+    final ready = bound.hasLayoutItems && bound.answerKey.isNotEmpty;
+    if (!ready && await OfflinePack.probe()) {
+      try {
+        bound = seed.isQuickExam
+            ? await _fetchQuickTemplate(seed.templateId)
+            : await _repository.fetchTemplateDetail(seed.templateId);
+      } catch (e) {
+        debugPrint('Template detail fetch failed: $e');
+        if (isOfflineError(e)) OfflinePack.markOffline();
+      }
+
+      if (!bound.isQuickExam &&
+          bound.answerKey.isEmpty &&
+          bound.assessmentId != null &&
+          await OfflinePack.probe()) {
+        try {
+          bound = await _repository.syncKeyFromAssessment(bound.templateId);
+        } catch (e) {
+          debugPrint('Answer key sync failed: $e');
+          if (isOfflineError(e)) OfflinePack.markOffline();
+        }
+      }
+    } else if (ready) {
+      _refreshBoundQuietly(seed);
     }
 
     if (!mounted) return;
+    _applyBoundTemplate(bound);
+  }
+
+  void _applyBoundTemplate(BubbleTemplate bound) {
     setState(() {
       _selectedTemplate = bound;
       _assessmentIdentified = true;
@@ -341,12 +427,35 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     _updateCachedTemplate(bound);
   }
 
+  Future<void> _refreshBoundQuietly(BubbleTemplate seed) async {
+    if (!await OfflinePack.probe()) return;
+    try {
+      var bound = seed.isQuickExam
+          ? await _fetchQuickTemplate(seed.templateId)
+          : await _repository.fetchTemplateDetail(seed.templateId);
+      if (!bound.isQuickExam &&
+          bound.answerKey.isEmpty &&
+          bound.assessmentId != null) {
+        bound = await _repository.syncKeyFromAssessment(bound.templateId);
+      }
+      if (!mounted || _selectedTemplate?.templateId != bound.templateId) return;
+      _applyBoundTemplate(bound);
+    } catch (e) {
+      debugPrint('Background key refresh failed: $e');
+      if (isOfflineError(e)) OfflinePack.markOffline();
+    }
+  }
+
   void _updateCachedTemplate(BubbleTemplate updated) {
     final all = List<BubbleTemplate>.from(_templates);
     final idx = all.indexWhere((t) => t.templateId == updated.templateId);
-    if (idx >= 0) all[idx] = updated;
+    if (idx >= 0) {
+      all[idx] = updated;
+    } else {
+      all.add(updated);
+    }
     _templates = all;
-    TemplateCache.store(all);
+    TemplateCache.upsert(updated);
   }
 
   Future<void> _setupCamera() async {
@@ -739,28 +848,42 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       BubbleTemplate scanTemplate = selected;
 
       if (!scanTemplate.hasLayoutItems || scanTemplate.answerKey.isEmpty) {
-        try {
-          if (scanTemplate.isQuickExam) {
-            scanTemplate = await _fetchQuickTemplate(scanTemplate.templateId);
-          } else if (!scanTemplate.hasLayoutItems) {
-            scanTemplate =
-                await _repository.fetchTemplateDetail(scanTemplate.templateId);
+        final saved = await TemplateCache.find(scanTemplate.templateId);
+        if (saved != null &&
+            (saved.hasLayoutItems || saved.answerKey.isNotEmpty)) {
+          scanTemplate = _richerTemplate(scanTemplate, saved);
+        }
+        if ((!scanTemplate.hasLayoutItems || scanTemplate.answerKey.isEmpty) &&
+            await OfflinePack.probe()) {
+          try {
+            if (scanTemplate.isQuickExam) {
+              scanTemplate = await _fetchQuickTemplate(scanTemplate.templateId);
+            } else if (!scanTemplate.hasLayoutItems) {
+              scanTemplate = await _repository
+                  .fetchTemplateDetail(scanTemplate.templateId);
+            }
+            if (!scanTemplate.isQuickExam &&
+                scanTemplate.answerKey.isEmpty &&
+                scanTemplate.assessmentId != null) {
+              scanTemplate = await _repository
+                  .syncKeyFromAssessment(scanTemplate.templateId);
+            }
+            if (mounted) {
+              setState(() {
+                _selectedTemplate = scanTemplate;
+                _snapshotResultKey(scanTemplate);
+              });
+              _updateCachedTemplate(scanTemplate);
+            }
+          } catch (e) {
+            debugPrint('Failed to load template layout/key: $e');
+            if (isOfflineError(e)) OfflinePack.markOffline();
           }
-          if (!scanTemplate.isQuickExam &&
-              scanTemplate.answerKey.isEmpty &&
-              scanTemplate.assessmentId != null) {
-            scanTemplate =
-                await _repository.syncKeyFromAssessment(scanTemplate.templateId);
-          }
-          if (mounted) {
-            setState(() {
-              _selectedTemplate = scanTemplate;
-              _snapshotResultKey(scanTemplate);
-            });
-            _updateCachedTemplate(scanTemplate);
-          }
-        } catch (e) {
-          debugPrint('Failed to load template layout/key: $e');
+        } else if (mounted) {
+          setState(() {
+            _selectedTemplate = scanTemplate;
+            _snapshotResultKey(scanTemplate);
+          });
         }
       } else if (mounted) {
         setState(() => _snapshotResultKey(scanTemplate));
@@ -904,7 +1027,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       if (mounted) {
         setState(() {
           _bindOmrResult(result);
-          _resultStatus = 'Saving to database…';
+          _resultStatus = 'Saving on this device…';
           _uploadStatus = 'uploading';
         });
       }
@@ -995,8 +1118,10 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       );
 
       await ScanHistory.addRecord(record);
+      unawaited(OfflinePack.refreshLocalAttention());
       if (jobId != _omrJobId) {
         await ScanHistory.removeRecord(record.id);
+        unawaited(OfflinePack.refreshLocalAttention());
         return;
       }
       _pendingUploadRecord = record;
@@ -1016,7 +1141,15 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
           _uploadStatus = 'uploading';
         });
       }
-      await _attemptBackgroundUpload(record);
+      if (await OfflinePack.probe()) {
+        await _attemptBackgroundUpload(record);
+      } else if (mounted) {
+        setState(() {
+          _uploadStatus = 'queued';
+          _resultStatus =
+              'Saved on this device. It will sync when you are back online.';
+        });
+      }
     } catch (e) {
       debugPrint("OMR processing error: $e");
       _resultStatusTimer?.cancel();
@@ -1034,117 +1167,62 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       ? 'Saving to exam records…'
       : 'Uploading to grading results…';
 
-  Future<void> _attemptQuickUpload(ScanRecord record) async {
-    if (mounted && _pendingUploadRecord?.id == record.id) {
-      setState(() {
-        _uploadStatus = 'uploading';
-        _resultStatus = _uploadingLabel(record);
-      });
-    }
-    try {
-      final sid = record.studentIdentifier;
-      final saved = await _quickRepository.uploadScan(
-        examId: record.templateId,
-        studentId: isUsableStudentId(sid) ? sid : null,
-        responses: record.responses,
-        isFlagged: record.isFlagged,
-        flagReason: record.flagReason,
-      );
-      final scanId = saved.scan.scanId;
-      await ScanHistory.updateRecord(record.id, {'server_scan_id': scanId});
-      if (!mounted) return;
-      setState(() {
-        final idx = _scanRecords.indexWhere((r) => r.id == record.id);
-        if (idx >= 0) {
-          _scanRecords[idx] = _scanRecords[idx].copyWith(serverScanId: scanId);
-        }
-        if (_pendingUploadRecord?.id == record.id) {
-          _pendingUploadRecord = record.copyWith(serverScanId: scanId);
-          _uploadStatus = 'uploaded';
-          _resultStatus = saved.replaced
-              ? 'Replaced earlier exam record'
-              : 'Saved to exam records';
-        }
-      });
-    } catch (e) {
-      debugPrint('Quick exam upload failed: $e');
-      if (!mounted || _pendingUploadRecord?.id != record.id) return;
-      setState(() {
-        _uploadStatus = 'failed';
-        _resultStatus = 'Saved on device — upload failed. Tap retry to sync.';
-      });
-    }
+  void _markUploadQueued(Object error) {
+    final offline = isOfflineError(error);
+    if (offline) OfflinePack.markOffline();
+    setState(() {
+      _uploadStatus = offline ? 'queued' : 'failed';
+      _resultStatus = offline
+          ? 'Saved on this device. It will sync when you are back online.'
+          : friendlyError(
+              error,
+              fallback: 'Saved on this device. Tap retry to sync.',
+            );
+    });
   }
 
   Future<void> _attemptBackgroundUpload(
     ScanRecord record, {
     bool allowRetry = true,
   }) async {
-    if (record.isQuickExam) return _attemptQuickUpload(record);
-    final path = record.imagePath;
-    if (path == null || path.isEmpty) {
-      if (mounted) {
-        setState(() {
-          _uploadStatus = 'failed';
-          _resultStatus = 'Upload failed — missing image';
-        });
-      }
-      return;
+    final track = _pendingUploadRecord?.id == record.id;
+    if (mounted && track) {
+      setState(() {
+        _uploadStatus = 'uploading';
+        _resultStatus = _uploadingLabel(record);
+      });
     }
-
-    if (mounted) {
-        if (_pendingUploadRecord?.id != record.id) return;
-        setState(() {
-          _uploadStatus = 'uploading';
-          _resultStatus = 'Uploading to grading results…';
-        });
-      }
-
     try {
-      final scan = await _repository.uploadGradedScan(
-        templateId: record.templateId,
-        imagePath: path,
-        studentId: record.studentIdentifier,
-        responses: record.responses,
-        isFlagged: record.isFlagged,
-        flagReason: record.flagReason,
-      );
-      await ScanHistory.updateRecord(record.id, {'server_scan_id': scan.scanId});
-      final studentId = scan.studentIdentifier.isNotEmpty
-          ? scan.studentIdentifier
-          : record.studentIdentifier;
-      ScanEvents.emit(ScanSavedEvent(
-        templateId: record.templateId,
-        studentId: studentId,
-        section: _sectionedBlocks[studentId]?.section,
-        score: scan.scoreRaw ?? record.scoreRaw,
-        maxScore: scan.maxScore ?? record.maxScore,
-      ));
-      if (mounted) {
-        if (_pendingUploadRecord?.id != record.id) return;
-        setState(() {
-          final idx = _scanRecords.indexWhere((r) => r.id == record.id);
-          if (idx >= 0) {
-            _scanRecords[idx] =
-                _scanRecords[idx].copyWith(serverScanId: scan.scanId);
-          }
+      final synced = await OfflineSync.instance.upload(record);
+      if (!mounted) return;
+      setState(() {
+        final idx = _scanRecords.indexWhere((r) => r.id == record.id);
+        if (idx >= 0) {
+          _scanRecords[idx] =
+              _scanRecords[idx].copyWith(serverScanId: synced.serverScanId);
+        }
+        if (_detailRecord?.id == record.id) {
+          _detailRecord =
+              _detailRecord!.copyWith(serverScanId: synced.serverScanId);
+        }
+        if (track && _pendingUploadRecord?.id == record.id) {
           _pendingUploadRecord =
-              record.copyWith(serverScanId: scan.scanId);
+              record.copyWith(serverScanId: synced.serverScanId);
           _uploadStatus = 'uploaded';
-          _resultStatus = 'Saved to grading results';
-        });
-      }
+          _resultStatus = synced.replaced
+              ? 'Replaced earlier exam record'
+              : (record.isQuickExam
+                  ? 'Saved to exam records'
+                  : 'Saved to grading results');
+        }
+      });
     } on StudentNotInSectionException catch (e) {
       debugPrint('Upload refused: $e');
       await _resolveUnsectionedRecord(record, allowRetry: allowRetry);
     } catch (e) {
       debugPrint('Upload graded scan failed: $e');
-      if (!mounted || _pendingUploadRecord?.id != record.id) return;
-      setState(() {
-        _uploadStatus = 'failed';
-        _resultStatus =
-            'Saved on device — upload failed. Tap retry to sync.';
-      });
+      if (!mounted || !track || _pendingUploadRecord?.id != record.id) return;
+      _markUploadQueued(e);
     }
   }
 
@@ -1218,29 +1296,60 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
   }
   void _closeReview() { setState(() => _mode = _ScreenMode.scanning); _startImageStream(); }
 
+  BubbleTemplate? _matchQr(List<BubbleTemplate> list, String qr) {
+    final quickId = quickExamIdFromQr(qr);
+    for (final t in list) {
+      if (_sameId(_qrKeyOf(t), qr) ||
+          _sameId(t.assessmentId, qr) ||
+          _sameId(t.templateId, qr) ||
+          (quickId != null && _sameId(t.templateId, quickId))) {
+        return t;
+      }
+    }
+    return null;
+  }
+
+  Future<BubbleTemplate?> _templateForQr(String assessmentId) async {
+    final inMemory = _matchQr(_templates, assessmentId);
+    if (inMemory != null) return inMemory;
+    final disk = await TemplateCache.load();
+    final saved = disk == null ? null : _matchQr(disk, assessmentId);
+    if (saved != null) return saved;
+    if (!await OfflinePack.probe()) return null;
+    final quickId = quickExamIdFromQr(assessmentId);
+    if (quickId != null) return _fetchQuickTemplate(quickId);
+    return _repository.fetchTemplateByAssessment(assessmentId);
+  }
+
   Future<void> _identifyAssessmentFromQr(String assessmentId) async {
     if (_isIdentifying) return;
     _isIdentifying = true;
     if (mounted) setState(() => _identifyError = null);
 
     try {
-      BubbleTemplate? seed;
-      final quickId = quickExamIdFromQr(assessmentId);
-      final cached =
-          _templates.where((t) => _sameId(_qrKeyOf(t), assessmentId));
-      if (cached.isNotEmpty) {
-        seed = cached.first;
-      } else if (quickId != null) {
-        seed = await _fetchQuickTemplate(quickId);
-      } else {
-        seed = await _repository.fetchTemplateByAssessment(assessmentId);
+      final seed = await _templateForQr(assessmentId);
+      if (seed == null) {
+        final online = await OfflinePack.probe();
+        if (mounted) {
+          setState(() {
+            _identifyError = online
+                ? 'Assessment QR not found in system'
+                : 'This answer sheet is not on this device yet. Connect once so it can download.';
+            _assessmentIdentified = false;
+          });
+        }
+        return;
       }
       await _bindTemplateFromQr(seed);
     } catch (e) {
       debugPrint('Failed to identify assessment via QR: $e');
       if (mounted) {
+        final offline = isOfflineError(e);
+        if (offline) OfflinePack.markOffline();
         setState(() {
-          _identifyError = 'Assessment QR not found in system';
+          _identifyError = offline
+              ? 'This answer sheet is not on this device yet. Connect once so it can download.'
+              : 'Assessment QR not found in system';
           _assessmentIdentified = false;
         });
       }
@@ -1324,6 +1433,25 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       }
       return;
     }
+    final disk = await TemplateCache.find(record.templateId);
+    if (disk != null && disk.answerKey.isNotEmpty) {
+      if (mounted) setState(() => _selectedTemplate = disk);
+      if (record.answerKey.isEmpty && _detailRecord?.id == record.id) {
+        final filled = record.copyWith(
+          answerKey: Map<String, String>.from(disk.answerKey),
+        );
+        await ScanHistory.updateRecord(record.id, filled.toJson());
+        if (mounted) {
+          setState(() {
+            _detailRecord = filled;
+            final idx = _scanRecords.indexWhere((r) => r.id == record.id);
+            if (idx >= 0) _scanRecords[idx] = filled;
+          });
+        }
+      }
+      return;
+    }
+    if (!await OfflinePack.probe()) return;
     try {
       final asQuick = _treatRecordAsQuickExam(record);
       late BubbleTemplate bound;
@@ -1488,7 +1616,9 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
         totalItems: resultTotal,
         onScanNext: _scanNext,
         onRescan: _rescanCurrent,
-        onRetryUpload: _uploadStatus == 'failed' ? _retryUpload : null,
+        onRetryUpload: _uploadStatus == 'failed' || _uploadStatus == 'queued'
+            ? _retryUpload
+            : null,
         onClose: _scanNext,
       );
     }

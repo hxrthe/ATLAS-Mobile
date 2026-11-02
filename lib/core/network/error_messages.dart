@@ -24,6 +24,34 @@ final RegExp _technicalPattern = RegExp(
 /// Converts any thrown error into a short, plain-language message that a
 /// non-technical user can understand. Pass [fallback] to describe what failed
 /// (e.g. "Could not load your courses.") when no better message is available.
+/// True when the failure is a dead connection or a timeout, so the app can
+/// keep working from what is already saved on the device.
+bool isOfflineError(Object? error) {
+  if (error == null) return false;
+  if (error is SocketException ||
+      error is TimeoutException ||
+      error is HttpException) {
+    return true;
+  }
+  if (error is DioException) {
+    switch (error.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+      case DioExceptionType.connectionError:
+        return true;
+      case DioExceptionType.unknown:
+        final cause = error.error;
+        return cause is SocketException ||
+            cause is TimeoutException ||
+            cause is HttpException;
+      default:
+        return false;
+    }
+  }
+  return false;
+}
+
 String friendlyError(Object? error, {String? fallback}) {
   final defaultMessage = fallback ?? _genericMessage;
 

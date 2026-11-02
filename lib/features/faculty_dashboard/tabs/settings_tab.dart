@@ -9,6 +9,8 @@ import '../../../core/widgets/atlas_pull_to_refresh.dart';
 import '../../auth/login_screen.dart';
 import '../../auth/bloc/auth_bloc.dart';
 import '../../auth/auth_repository.dart';
+import '../../scanner/offline_pack.dart';
+import '../../scanner/offline_sync.dart';
 import '../../settings/account_security_screen.dart';
 import '../../settings/help_support_screen.dart';
 
@@ -28,6 +30,22 @@ class _SettingsTabState extends State<SettingsTab> {
   void initState() {
     super.initState();
     _loadUser();
+  }
+
+  Future<void> _syncFiles() async {
+    final ok = await OfflinePack.runSync(() => OfflineSync.instance.flush());
+    if (!mounted || ok) return;
+    final offline = !await OfflinePack.probe();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          offline
+              ? 'Connect to the internet, then try again.'
+              : 'That did not finish. Try again in a moment.',
+        ),
+      ),
+    );
   }
 
   Future<void> _loadUser() async {
@@ -75,6 +93,49 @@ class _SettingsTabState extends State<SettingsTab> {
                       color: colors.textPrimary)),
               subtitle: Text(_userRole,
                   style: TextStyle(color: colors.textSecondary)),
+            ),
+            ValueListenableBuilder<PackAttention>(
+              valueListenable: OfflinePack.attention,
+              builder: (context, attention, _) {
+                if (!attention.needsAttention && !attention.busy) {
+                  return const SizedBox.shrink();
+                }
+                final icon = attention.needsUpload && attention.needsDownload
+                    ? Icons.sync_problem
+                    : attention.needsUpload
+                        ? Icons.cloud_upload_outlined
+                        : Icons.cloud_download_outlined;
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(icon, color: colors.ambiguous),
+                  title: Text(
+                    attention.headline,
+                    style: TextStyle(
+                      color: colors.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  subtitle: Text(
+                    attention.detail,
+                    style: TextStyle(color: colors.textSecondary, fontSize: 12),
+                  ),
+                  trailing: attention.busy
+                      ? const SizedBox(
+                          width: 40,
+                          height: 40,
+                          child: Padding(
+                            padding: EdgeInsets.all(10),
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : IconButton.filled(
+                          tooltip: 'Update now',
+                          onPressed: _syncFiles,
+                          icon: const Icon(Icons.sync),
+                        ),
+                  onTap: attention.busy ? null : _syncFiles,
+                );
+              },
             ),
             Divider(height: 32, color: colors.divider),
             Text(

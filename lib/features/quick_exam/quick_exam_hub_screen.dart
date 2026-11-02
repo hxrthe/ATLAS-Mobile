@@ -9,6 +9,8 @@ import '../../core/widgets/atlas_skeleton.dart';
 import '../faculty_dashboard/course_detail_screen.dart';
 import '../grading/grading_repository.dart';
 import '../grading/models.dart';
+import '../scanner/offline_pack.dart';
+import '../scanner/template_cache.dart';
 import 'quick_exam_detail_screen.dart';
 import 'quick_exam_form_screen.dart';
 import 'quick_exam_models.dart';
@@ -136,13 +138,44 @@ class _QuickExamHubScreenState extends State<QuickExamHubScreen>
         _courseExams = courseExams;
         _loadingExams = false;
       });
+      OfflinePack.refreshQuickAndRoster(grading: _grading, quick: _repo);
     } catch (e) {
       if (!mounted) return;
+      if (isOfflineError(e)) {
+        final saved = await _savedExamsForChip();
+        if (!mounted || subjectId != _subjectId) return;
+        if (saved.exams.isNotEmpty || saved.courseExams.isNotEmpty) {
+          setState(() {
+            _exams = saved.exams;
+            _courseExams = saved.courseExams;
+            _examsError = null;
+            _loadingExams = false;
+          });
+          return;
+        }
+      }
       setState(() {
         _loadingExams = false;
         _examsError = friendlyError(e, fallback: 'Could not load your exams.');
       });
     }
+  }
+
+  Future<({List<QuickExam> exams, List<BubbleTemplate> courseExams})>
+      _savedExamsForChip() async {
+    final all = await TemplateCache.load() ?? <BubbleTemplate>[];
+    final chip = _chipId;
+    final courseExams = all.where((t) {
+      if (t.isQuickExam) return false;
+      if (chip == null || chip.startsWith(_legacyPrefix)) return true;
+      return t.courseId == chip;
+    }).toList();
+    final exams = [
+      for (final t in all)
+        if (t.isQuickExam && (t.hasLayoutItems || t.answerKey.isNotEmpty))
+          QuickExam.fromTemplate(t),
+    ];
+    return (exams: exams, courseExams: courseExams);
   }
 
   Future<List<BubbleTemplate>> _fetchCourseTemplatesForChip() async {

@@ -85,6 +85,7 @@ class AuthRepository {
         data: {
           'email': email.trim().toLowerCase(),
           'password': password,
+          'client': 'mobile',
         },
       );
 
@@ -124,7 +125,15 @@ class AuthRepository {
 
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
+    final refresh = prefs.getString('refresh_token');
     await prefs.setString('logout_type', 'intentional');
+    if (refresh != null && refresh.isNotEmpty) {
+      try {
+        await _apiClient.dio.post('auth/logout/', data: {'refresh': refresh});
+      } catch (_) {
+        // Offline sign-out still clears this phone. The server session expires on its own.
+      }
+    }
     await prefs.remove('access_token');
     await prefs.remove('refresh_token');
     await prefs.remove('student_details');
@@ -241,7 +250,7 @@ class AuthRepository {
 
       final backendResp = await _apiClient.dio.post(
         'auth/google/',
-        data: {'id_token': idToken},
+        data: {'id_token': idToken, 'client': 'mobile'},
       );
 
       final data = backendResp.data;

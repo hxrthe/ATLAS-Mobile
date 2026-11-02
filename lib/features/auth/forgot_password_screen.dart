@@ -35,7 +35,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   Timer? _cooldownTimer;
 
   static const _leaf = Color(0xFFAA2423);
-  static const _darkBg = Color(0xFF0A0A0B);
 
   @override
   void initState() {
@@ -95,8 +94,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   Widget build(BuildContext context) {
     final isDark = context.isDarkTheme;
     final colors = context.atlas;
-    final bg = isDark ? _darkBg : Colors.white;
-    final accent = isDark ? const Color(0xFFAA2423) : _leaf;
+    final bg = isDark ? colors.scaffold : Colors.white;
+    final accent = isDark ? colors.primary : _leaf;
 
     return Scaffold(
       backgroundColor: bg,

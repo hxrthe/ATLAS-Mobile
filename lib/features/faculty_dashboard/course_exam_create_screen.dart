@@ -9,7 +9,7 @@ import '../grading/grading_repository.dart';
 /// Create a major exam for a course by pasting questions and/or the answer key.
 ///
 /// Saved to the web's assessment + bubble sheet tables; the screen then pops
-/// the new assessment ID. Quizzes are made from the Quick Exam page instead.
+/// the new assessment ID. ATLAS scores major examinations only.
 class CourseExamCreateScreen extends StatefulWidget {
   final String courseId;
   final String courseCode;

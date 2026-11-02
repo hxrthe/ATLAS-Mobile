@@ -10,10 +10,29 @@ String _resolveBaseUrl() {
   return _vpsApiBaseUrl;
 }
 
+/// Short timeouts for a sync attempt. Skips the interceptor's extra retry
+/// so an offline upload fails in seconds instead of minutes.
+Options failFastOptions() => Options(
+      connectTimeout: const Duration(seconds: 8),
+      sendTimeout: const Duration(seconds: 25),
+      receiveTimeout: const Duration(seconds: 25),
+      extra: const {'_retried': true},
+    );
+
 class ApiClient {
   late Dio dio;
   static final String baseUrl = _resolveBaseUrl();
   static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+  static int _loginScreens = 0;
+  static Future<void>? _logoutTask;
+  static bool _inactivityLogout = false;
+
+  /// The sign-in screen is already on screen, so a failed request must not open it again.
+  static void loginScreenOpened() => _loginScreens++;
+
+  static void loginScreenClosed() {
+    if (_loginScreens > 0) _loginScreens--;
+  }
 
   ApiClient() {
     dio = Dio(BaseOptions(
@@ -59,8 +78,11 @@ class ApiClient {
             }
           }
 
-          // Don't try to refresh on the login endpoint itself
-          if (e.response?.statusCode == 401 && e.requestOptions.path != 'auth/token/') {
+          // A request with no sign-in is not a logout. Login itself is handled by the form.
+          final hadSession = e.requestOptions.headers['Authorization'] != null;
+          if (e.response?.statusCode == 401 &&
+              hadSession &&
+              e.requestOptions.path != 'auth/token/') {
             final refreshed = await _tryRefreshToken();
             if (refreshed) {
               final retryOptions = e.requestOptions;
@@ -76,8 +98,7 @@ class ApiClient {
                 return handler.next(e);
               }
             } else {
-              // Refresh failed or no refresh token - logout user
-              await _forceLogout();
+              await ApiClient.forceLogout();
             }
           }
           return handler.next(e);
@@ -86,27 +107,40 @@ class ApiClient {
     );
   }
 
-  Future<void> _forceLogout() async {
-    final prefs = await SharedPreferences.getInstance();
+  /// Ends the saved sign-in. Opens the sign-in screen once.
+  /// The inactivity message is only for a real idle timeout.
+  static Future<void> forceLogout({bool inactivity = false}) {
+    if (inactivity) _inactivityLogout = true;
+    final running = _logoutTask;
+    if (running != null) return running;
+    final task = _performLogout();
+    _logoutTask = task;
+    return task.whenComplete(() {
+      _logoutTask = null;
+      _inactivityLogout = false;
+    });
+  }
 
-    // If the user intentionally logged out, the settings tab already handles
-    // navigation — don't override with the autoLogout message.
+  static Future<void> _performLogout() async {
+    final prefs = await SharedPreferences.getInstance();
     final isIntentional = prefs.getString('logout_type') == 'intentional';
     await prefs.remove('access_token');
     await prefs.remove('refresh_token');
     await prefs.remove('logout_type');
 
-    if (isIntentional) return;
+    // Already on the sign-in screen, or the user chose Log Out.
+    // Opening it again is what made that screen restart in a loop.
+    if (isIntentional || _loginScreens > 0) return;
 
-    // Use navigatorKey to redirect to LoginScreen
-    if (navigatorKey.currentState != null) {
-      navigatorKey.currentState!.pushAndRemoveUntil(
-        MaterialPageRoute(
-          builder: (context) => const LoginScreen(autoLogout: true),
-        ),
-        (route) => false,
-      );
-    }
+    final nav = navigatorKey.currentState;
+    if (nav == null) return;
+    final showIdleMessage = _inactivityLogout;
+    nav.pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (context) => LoginScreen(autoLogout: showIdleMessage),
+      ),
+      (route) => false,
+    );
   }
 
   Future<bool> _tryRefreshToken() async {

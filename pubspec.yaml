@@ -60,6 +60,8 @@ dependencies:
   printing: ^5.14.3
   file_picker: ^13.1.0
   flutter_svg: ^2.3.0
+  flutter_local_notifications: ^19.4.0
+  package_info_plus: ^10.2.2
 
 dev_dependencies:
   flutter_test:

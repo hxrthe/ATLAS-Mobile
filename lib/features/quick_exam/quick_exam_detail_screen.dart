@@ -9,6 +9,7 @@ import '../../core/widgets/atlas_skeleton.dart';
 import '../../utils/atlas_alerts.dart';
 import '../grading/answer_key.dart';
 import '../scanner/scanner_screen.dart';
+import '../scanner/template_cache.dart';
 import 'quick_answer_key_screen.dart';
 import 'quick_exam_form_screen.dart';
 import 'quick_exam_models.dart';
@@ -79,17 +80,30 @@ class _QuickExamDetailScreenState extends State<QuickExamDetailScreen>
         _repo.fetchExamRecords(_exam.examId),
       ]);
       if (!mounted) return;
+      final exam = results[0] as QuickExam;
+      await TemplateCache.upsert(exam.toTemplate());
+      if (!mounted) return;
       setState(() {
-        _exam = results[0] as QuickExam;
+        _exam = exam;
         _records = results[1] as QuickExamRecords;
         _loading = false;
         _syncTabs();
       });
     } catch (e) {
       if (!mounted) return;
+      final items = _exam.layoutMetadata['items'];
+      final canScan = items is Map &&
+          items.isNotEmpty &&
+          _exam.answerKey.isNotEmpty &&
+          isOfflineError(e);
       setState(() {
         _loading = false;
-        _error = friendlyError(e, fallback: 'Could not load this exam.');
+        if (canScan) {
+          _error = null;
+          _records ??= const QuickExamRecords();
+        } else {
+          _error = friendlyError(e, fallback: 'Could not load this exam.');
+        }
       });
     }
   }
@@ -134,6 +148,7 @@ class _QuickExamDetailScreenState extends State<QuickExamDetailScreen>
       onConfirm: () async {
         try {
           await _repo.deleteExam(_exam.examId);
+          await TemplateCache.remove(_exam.examId);
           if (mounted) Navigator.pop(context, true);
         } catch (e) {
           if (!mounted) return;

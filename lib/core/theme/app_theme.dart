@@ -59,24 +59,24 @@ class AtlasColors {
     divider: Color(0xFFE8ECF4),
   );
 
-  /// Dark UI aligned with the web shell (#0A0A0B / #3F0A0A accents).
+  /// VS Code dark greys, with a light red accent.
   static const dark = AtlasColors(
-    scaffold: Color(0xFF0A0A0B),
-    card: Color(0xFF151517),
-    cardMuted: Color(0xFF291F1F),
-    textPrimary: Color(0xFFF5F5F5),
-    textSecondary: Color(0xB3F5F5F5),
-    border: Color(0xFF343438),
-    primary: Color(0xFFAA2423),
-    onPrimary: Color(0xFFFFFFFF),
+    scaffold: Color(0xFF1E1E1E),
+    card: Color(0xFF252526),
+    cardMuted: Color(0xFF2D2D30),
+    textPrimary: Color(0xFFD4D4D4),
+    textSecondary: Color(0xFF9D9D9D),
+    border: Color(0xFF3E3E42),
+    primary: Color(0xFFE7A3A1),
+    onPrimary: Color(0xFF3B1515),
     correct: Color(0xFF86EFAC),
-    incorrect: Color(0xFFEF9A9A),
-    ambiguous: Color(0xFFFFD54F),
+    incorrect: Color(0xFFF0C2C0),
+    ambiguous: Color(0xFFE6C07A),
     bonus: Color(0xFF60A5FA),
     pass: Color(0xFF4ADE80),
-    fail: Color(0xFFFF5252),
-    inputFill: Color(0xFF151517),
-    divider: Color(0xFF343438),
+    fail: Color(0xFFE7A3A1),
+    inputFill: Color(0xFF3C3C3C),
+    divider: Color(0xFF3E3E42),
   );
 
   static AtlasColors of(BuildContext context) {
@@ -160,7 +160,9 @@ class AppTheme {
       ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: isDark ? c.cardMuted : c.primary,
-        contentTextStyle: TextStyle(color: c.onPrimary),
+        contentTextStyle: TextStyle(
+          color: isDark ? const Color(0xFFF5F5F5) : c.onPrimary,
+        ),
         behavior: SnackBarBehavior.floating,
       ),
       listTileTheme: ListTileThemeData(

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'report_issue_screen.dart';
 import '../../core/theme/app_theme.dart';
 
@@ -8,10 +8,8 @@ class HelpSupportScreen extends StatelessWidget {
   const HelpSupportScreen({super.key});
 
   Future<void> _launchEmail(BuildContext context) async {
-    final prefs = await SharedPreferences.getInstance();
-    final userId = prefs.getString('user_id') ?? 'Unknown';
     final String email = 'atlasdegdev@gmail.com';
-    final String subject = 'Support Request - [$userId]';
+    final String subject = 'Help with ATLAS Mobile';
     final String body = 'Hello ATLAS Support Team,\n\nI need assistance with...';
 
     final Uri emailUri = Uri(
@@ -69,37 +67,67 @@ class HelpSupportScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildSectionTitle(colors, 'FAQ\'S'),
+            _buildSectionTitle(colors, 'FAQs'),
             const SizedBox(height: 16),
             _buildFAQTile(
               context,
               colors,
               'How do I scan an answer sheet?',
-              'Navigate to the camera tab, align the four corner markers with the paper squares in the viewfinder, and hold steady. The app will automatically capture and grade the sheet once all corners are locked.',
+              'Open the scan button on the home screen. Point the camera so the four black squares on the sheet sit inside the frame, then hold still. The app reads the sheet on your phone and shows the score.',
             ),
             _buildFAQTile(
               context,
               colors,
-              'What if the QR code isn\'t recognized?',
-              'Ensure the QR code is well-lit and not obscured. Avoid direct glare by tilting the paper slightly. The QR code must contain valid assessment data for the system to identify the template.',
+              'What if the code on the sheet is not recognized?',
+              'Use a bright room and keep the sheet flat, without glare. The exam also has to be one of yours. Open the app once while you have internet so that exam is saved on the phone. After that, you can scan it even without internet.',
             ),
             _buildFAQTile(
               context,
               colors,
-              'Can I edit scores manually?',
-              'Yes. In the "Review Papers" section, tap on any record to view details, then select "Edit Answers" to manually correct any misread bubbles.',
+              'Can I scan without internet?',
+              'Yes, after the app has saved your exams on the phone. A short message appears near the top of the screen while that is happening, and your phone shows a notification from ATLAS. Pulling down to refresh the home screen updates your classes. It does not start that save again.',
             ),
             _buildFAQTile(
               context,
               colors,
-              'What does "Invalid" mean?',
-              'The system flags an item as invalid if multiple bubbles are shaded or if the shading is too light to be certain. These should be reviewed manually in the paper detail view.',
+              'When do scores reach the class record?',
+              'If you are online, the score is sent after the scan. If you are not, it stays on the phone and is sent on its own when the internet is back. You can also open the scanned paper and send it yourself.',
             ),
             _buildFAQTile(
               context,
               colors,
-              'How do I sync my data?',
-              'The app syncs automatically when you have an internet connection. You can also pull down to refresh on most screens to force a synchronization with the server.',
+              'Can I correct an answer that was read wrong?',
+              'Yes. Open Review Papers, tap the sheet, and change the answers. If the score has not been sent yet, the corrected one is what gets sent.',
+            ),
+            _buildFAQTile(
+              context,
+              colors,
+              'What does Invalid mean?',
+              'A question is marked invalid when more than one bubble is shaded, or the mark is too light to read. Check that question on the paper and correct it if you need to.',
+            ),
+            _buildFAQTile(
+              context,
+              colors,
+              'What is saved on my phone?',
+              'Your exams, the correct answers, the sheet layout, and your class sections. That is what lets you scan, and check that a student belongs in the class, even without internet. If a student is missing from a section you already have, you can add them. That change is sent with the score when you are back online.',
+            ),
+            _buildFAQTile(
+              context,
+              colors,
+              'What is the difference between course exams and major exams?',
+              'Course exams are prepared on the ATLAS website for a class. Major exams are the ones you create in this app. Both can be scanned here, including without internet once they have been saved on the phone.',
+            ),
+            _buildFAQTile(
+              context,
+              colors,
+              'Who sees a problem I report?',
+              'Your message goes to the admin for your campus. That admin can send it on to the ATLAS team if the campus needs more help. You can also email atlasdegdev@gmail.com.',
+            ),
+            _buildFAQTile(
+              context,
+              colors,
+              'How do I sign in?',
+              'Use the same faculty account as the ATLAS website, with your email and password or with Google. The app signs you out after 15 minutes without use. Students do not sign in to ATLAS.',
             ),
             const SizedBox(height: 32),
             _buildSectionTitle(colors, 'TROUBLESHOOTING'),
@@ -107,8 +135,8 @@ class HelpSupportScreen extends StatelessWidget {
             _buildActionTile(
               colors,
               icon: Icons.bug_report_outlined,
-              title: 'Report an Issue / Bug',
-              subtitle: 'Send technical errors to our team',
+              title: 'Report an issue',
+              subtitle: 'Send a note to your campus admin',
               onTap: () {
                 Navigator.push(
                   context,
@@ -147,18 +175,11 @@ class HelpSupportScreen extends StatelessWidget {
               child: Column(
                 children: [
                   Text(
-                    'App Version',
+                    'App version',
                     style: TextStyle(color: colors.textSecondary, fontSize: 12),
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    '1.0.0+1',
-                    style: TextStyle(
-                      color: colors.textPrimary,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                    ),
-                  ),
+                  const _AppVersionLabel(),
                 ],
               ),
             ),
@@ -326,79 +347,154 @@ class HelpSupportScreen extends StatelessWidget {
   }
 
   static const String _termsOfService = '''
-TERMS OF SERVICE AND USER RESPONSIBILITIES
+TERMS OF SERVICE
+ATLAS website and ATLAS mobile app
+Batangas State University – Lipa Campus
+November 2026
 
-1. ACCEPTANCE OF TERMS
-By accessing or using the ATLAS Mobile application, you agree to be bound by these Terms of Service. If you do not agree to all of the terms and conditions, you are prohibited from using the application.
+These terms cover the ATLAS website and the ATLAS mobile app. They apply to faculty and campus administrators. Students do not sign in.
 
-2. USER ELIGIBILITY AND ACCOUNT SECURITY
-The ATLAS Mobile application is designed for use by authorized faculty of Batangas State University. Faculty accounts must be created on the ATLAS website before signing in here. You are responsible for maintaining the confidentiality of your account credentials, including your institutional email and secure password. Any activity occurring under your account is your sole responsibility. You must immediately notify the ATLAS support team of any unauthorized use of your account.
+By using ATLAS you agree to these terms. If you do not agree, do not use the website or the app.
 
-3. PROHIBITED CONDUCT AND USER RESPONSIBILITIES
-As a user of ATLAS, you agree not to:
-- Use the application for any fraudulent or illegal purposes.
-- Attempt to circumvent the OMR grading logic or manipulate assessment results.
-- Reverse engineer, decompile, or attempt to extract the source code of the application.
-- Submit false bug reports or malicious technical data.
-- Impersonate another user or gain unauthorized access to data belonging to other faculty members.
-- Use the application in a manner that interferes with its normal operation or imposes an unreasonable load on our infrastructure.
+1. ACCOUNTS
+Use the faculty or admin account created for your campus. You are responsible for your password and for what happens under your account. You can sign in with your email and password, or with Google where that is offered. On the website, a session ends after 15 minutes without activity, after 12 hours, or when you sign in on another device. In the app, you are signed out after 15 minutes without use. Tell us right away at atlasdegdev@gmail.com if someone else uses your account.
 
-4. INTELLECTUAL PROPERTY RIGHTS
-All content, features, and functionality of the ATLAS Mobile application, including but not limited to the OMR engine, UI design, graphics, and logos, are the exclusive property of the ATLAS development team and are protected by international copyright and intellectual property laws.
+2. WHAT ATLAS IS FOR
+ATLAS helps a campus prepare classes and check written exams.
+On the website, faculty work on syllabi, modules, assessments, grading, class results, and the knowledge base. Campus admins look after people, the academic structure, the syllabus format, and campus records. The super admin looks after the system for this campus.
+In the app, faculty scan answer sheets, create major exams, and review scores. The app saves your exams, the correct answers, the sheet layout, and your class sections on the phone so scanning still works without internet. Scores checked while you are offline are sent to the class record when the internet is back.
 
-5. ACADEMIC INTEGRITY
-ATLAS is a tool designed to support academic assessment. Faculty users are expected to uphold the highest standards of academic integrity. Any attempt to use the application to facilitate cheating or academic dishonesty will be reported to the appropriate university authorities.
+3. DRAFTS FROM THE ASSISTANT
+The website can draft syllabi, modules, and assessments for you to review. Those drafts can be wrong. Read and approve them before you rely on them or share them with students.
 
-6. LIMITATION OF LIABILITY
-The ATLAS application is provided "as is" and "as available." To the maximum extent permitted by law, the developers shall not be liable for any indirect, incidental, special, or consequential damages resulting from the use or inability to use the application, including but not limited to loss of data or academic standing.
+4. SPREADSHEETS
+If you connect a Google Sheet, ATLAS only reads the range you name. It does not change the Sheet. You need permission to use that Sheet.
 
-7. MODIFICATIONS TO SERVICE
-We reserve the right to modify or discontinue the service (or any part thereof) at any time, with or without notice. We shall not be liable to you or any third party for any modification, suspension, or discontinuance of the service.
+5. CAMPUS SUBSCRIPTION
+A campus may start with a short trial. Paid access is handled through PayMongo. ATLAS does not store your card number. A campus whose subscription has ended may lose access until it is renewed.
 
-8. GOVERNING LAW
-These terms shall be governed by and construed in accordance with the laws of the Republic of the Philippines, without regard to its conflict of law provisions.
+6. YOUR RESPONSIBILITIES
+Use ATLAS for real teaching work.
+Do not share your account, open records that are not yours, or change scores so they no longer match the paper.
+Do not try to break sign-in, campus limits, or another person’s classes.
+Do not upload files you have no right to use.
+A problem you report from the app should describe something that really happened. Your campus admin receives it and may send it to the ATLAS team.
+
+7. ACADEMIC HONESTY
+Using ATLAS to cheat, invent grades, or present an unchecked draft as finished work can be reported to the campus and can close your access. Follow your campus rules and CHED CMO No. 46, s. 2012.
+
+8. YOUR WORK AND OURS
+You keep the syllabi, exams, and files you create. ATLAS keeps the website, the app, and its design. You allow ATLAS to store and process your materials so the service can run.
+
+9. AVAILABILITY
+ATLAS is provided as it is. We may change, pause, or limit it. Access can be paused for misuse, a security problem, or an unpaid campus subscription. Closing an admin account does not erase the campus’s classes or other people.
+
+10. LIMITS
+To the extent the law allows, ATLAS is not responsible for indirect loss, including a lost score or a decision made from an unchecked draft. Check results before you rely on them. Where a limit is required, responsibility is capped at the fees paid for the previous three months, or PHP 5,000 when the campus is on a trial or unpaid plan.
+
+11. LAW
+These terms follow the laws of the Republic of the Philippines. Try to settle a dispute in good faith before going to the courts of Batangas.
+
+12. CONTACT
+ATLAS Development Team
+atlasdegdev@gmail.com
+Lipa City, Batangas, Philippines
 ''';
 
   static const String _privacyPolicy = '''
-PRIVACY POLICY AND DATA PROTECTION
+PRIVACY POLICY
+ATLAS website and ATLAS mobile app
+Batangas State University – Lipa Campus
+November 2026
+Republic Act No. 10173 (Data Privacy Act)
 
-1. INFORMATION WE COLLECT
-ATLAS Mobile collects information necessary to provide and improve our academic assessment services. This includes:
-- Personal Identifiers: Your name and institutional email address (g.batstate-u.edu.ph).
-- Academic Data: Faculty course assignments, assessment templates, scanned answer sheet images, and grading results.
-- Technical Data: Device model, operating system version, and system logs (when explicitly submitted via bug reports).
+This notice covers the ATLAS website and the ATLAS mobile app for Batangas State University – Lipa Campus. ATLAS and the campus are responsible for this information. Services that host or deliver it act on our instructions.
 
-2. HOW WE USE YOUR INFORMATION
-The information collected is used solely for:
-- Authenticating users and securing access to academic records.
-- Facilitating the scanning and automated grading of OMR answer sheets.
-- Providing academic analytics and grading reports to faculty.
-- Improving the accuracy and performance of the OMR engine.
-- Responding to support requests and technical issues.
+1. WHO USES ATLAS
+Faculty and administrators. Students do not sign in. A student’s name, ID number, section, and scores reach ATLAS when a faculty member scans a sheet, adds someone to a class section, or connects a spreadsheet.
 
-3. DATA STORAGE AND SECURITY
-We implement robust technical and organizational measures to protect your data. Your credentials (email and password) are stored locally using hardware-backed secure storage. Academic data is transmitted over encrypted channels (HTTPS) to our secure servers. Images of answer sheets are processed on-device and uploaded to facilitate faculty review and long-term record keeping.
+2. WHAT WE KEEP
+Your account: name, email, role, campus, profile photo, and a protected password. We never store the password in a form we can read.
+Your teaching work: courses, sections, syllabi, modules, assessments, answer keys, sheet layouts, scanned sheets, scores, and files you upload for the knowledge base.
+Class results: scores tied to a student ID, including scans made in the app.
+On the phone: a copy of your exams, correct answers, sheet layouts, and class sections, so you can scan without internet. Scores waiting to be sent stay on the phone until the connection returns.
+Sign-in activity and a record of important actions. If you turn on alerts in the browser, we keep what is needed to deliver them.
+If you choose to include phone details with a problem report, we receive the kind of phone and the app version. We do not take a running record from your phone.
+Campus plan status and payment references. Card details stay with PayMongo.
 
-4. DATA SHARING AND DISCLOSURE
-We do not sell, trade, or otherwise transfer your personal information to outside parties. Data is only accessible to:
-- You (the faculty account holder).
-- Authorized faculty members for courses they teach.
-- The ATLAS technical support team (only when necessary for troubleshooting).
+3. HOW WE USE IT
+To sign you in and show you only your own classes.
+To prepare drafts, read a spreadsheet you connected, score answer sheets, and keep class results.
+To save exams on your phone and send scores when you are online.
+To let a campus admin read a problem you report, and to let that admin pass it to the ATLAS team.
+To run the campus subscription, send account and maintenance notices, and keep the service secure.
+We do not sell personal information, and we do not use it for advertising.
 
-5. USER RIGHTS AND CHOICES
-You have the right to:
-- Access and review the personal and academic data associated with your account.
-- Correct any inaccuracies in your profile information.
-- Request the deletion of your account and associated data (subject to institutional record-keeping policies).
-- Opt-out of local credential storage via the "Account & Security" settings.
+4. WHY WE MAY DO THIS
+Your consent, when you register, upload a file, connect a spreadsheet, or include phone details with a report.
+The service you asked for.
+The security and integrity of academic records.
+A legal duty to keep or disclose a record.
 
-6. COOKIES AND LOCAL STORAGE
-The application uses local storage (SharedPreferences and SecureStorage) to maintain your session and preferences. These are essential for the application to function correctly.
+5. OTHER SERVICES
+Drafting on the website may send course details and short excerpts of your files to an outside writing service. Do not put passwords in what you upload.
+Google Sheets: only the range you name is read, and nothing is written back.
+PayMongo handles payment.
+Email is used for sign-in codes and notices.
+Google sign-in is used only if you choose it.
 
-7. THIRD-PARTY SERVICES
-ATLAS Mobile may utilize third-party services such as Google Sign-In and Supabase for authentication. These services have their own privacy policies governing how they handle your data.
+6. WHERE IT IS KEPT
+Records are stored for the campus and reached through ATLAS over an encrypted connection. The app keeps your sign-in and the saved exams on the phone. Faculty see the courses assigned to them. Campus admins see their campus. The super admin sees how the system is running.
 
-8. CHANGES TO THIS PRIVACY POLICY
-We may update our Privacy Policy from time to time. We will notify you of any changes by posting the new Privacy Policy within the application. You are advised to review this policy periodically for any changes.
+7. HOW LONG, AND YOUR CHOICES
+We keep teaching records while the campus uses ATLAS, and as long as the campus must keep them. You can ask for access, a correction, or deletion, subject to those campus rules.
+You can review your account in the app or on the website.
+You can leave out phone details when you report a problem.
+Signing out ends the session. On the website, closing the tab also ends it.
+Browser alerts can be turned off in the website settings.
+
+8. CONTACT
+Questions about your information: atlasdegdev@gmail.com, Lipa City, Batangas. You may also contact the National Privacy Commission.
+
+9. CHANGES
+When the way ATLAS handles information changes, this notice is updated in the app and on the website.
 ''';
+}
+
+class _AppVersionLabel extends StatefulWidget {
+  const _AppVersionLabel();
+
+  @override
+  State<_AppVersionLabel> createState() => _AppVersionLabelState();
+}
+
+class _AppVersionLabelState extends State<_AppVersionLabel> {
+  String _version = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (!mounted) return;
+      setState(() => _version = info.version);
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.atlas;
+    return Text(
+      _version.isEmpty ? '…' : _version,
+      style: TextStyle(
+        color: colors.textPrimary,
+        fontWeight: FontWeight.bold,
+        fontSize: 14,
+      ),
+    );
+  }
 }

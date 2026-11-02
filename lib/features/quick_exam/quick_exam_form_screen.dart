@@ -5,6 +5,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/atlas_skeleton.dart';
 import '../../utils/atlas_alerts.dart';
 import '../grading/answer_key.dart';
+import '../scanner/template_cache.dart';
 import 'quick_exam_models.dart';
 import 'quick_exam_repository.dart';
 import 'quick_exam_widgets.dart';
@@ -256,6 +257,7 @@ class _QuickExamFormScreenState extends State<QuickExamFormScreen> {
       if (content != null && key.isNotEmpty) {
         saved = await _repo.saveAnswerKey(saved.examId, key);
       }
+      await TemplateCache.upsert(saved.toTemplate());
       if (!mounted) return;
       Navigator.pop(context, saved);
     } catch (err) {
@@ -288,7 +290,7 @@ class _QuickExamFormScreenState extends State<QuickExamFormScreen> {
               maxLength: 150,
               decoration: const InputDecoration(
                 labelText: 'Exam name',
-                hintText: 'e.g. Quiz 3 — Stoichiometry',
+                hintText: 'e.g. Midterm — Stoichiometry',
                 counterText: '',
               ),
               validator: (v) =>

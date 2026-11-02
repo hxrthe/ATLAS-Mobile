@@ -31,7 +31,11 @@ class BubbleTemplate {
     this.passingScore,
     required this.layoutMetadata,
     this.isQuickExam = false,
+    this.updatedAt,
   });
+
+  /// Server `updated_at`, kept so a later open can tell a real edit from the copy already on the phone.
+  final String? updatedAt;
 
   /// Returns true when bubble positions are available for template-based OMR.
   bool get hasLayoutItems {
@@ -67,8 +71,27 @@ class BubbleTemplate {
       passingScore: (json['passing_score'] as num?)?.toDouble(),
       layoutMetadata: json['layout_metadata'] ?? {},
       isQuickExam: json['is_quick_exam'] == true,
+      updatedAt: json['updated_at']?.toString(),
     );
   }
+
+  BubbleTemplate copyWith({String? updatedAt}) => BubbleTemplate(
+        templateId: templateId,
+        courseId: courseId,
+        assessmentId: assessmentId,
+        name: name,
+        totalItems: totalItems,
+        numChoices: numChoices,
+        parts: parts,
+        hasEssay: hasEssay,
+        essayLines: essayLines,
+        hasAnswerKey: hasAnswerKey,
+        answerKey: answerKey,
+        passingScore: passingScore,
+        layoutMetadata: layoutMetadata,
+        isQuickExam: isQuickExam,
+        updatedAt: updatedAt ?? this.updatedAt,
+      );
 
   /// Normalizes answer-key maps from API / cache / scan history.
   /// Indexes both padded and bare item numbers (e.g. `"01"` and `"1"`).
@@ -130,6 +153,13 @@ class StudentBlock {
       section: (json['section'] ?? '').toString(),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'student_id': studentId,
+        'grade_level': gradeLevel,
+        'section_id': sectionId,
+        'section': section,
+      };
 }
 
 /// A row of the `sections` table the faculty can assign students to.
@@ -153,6 +183,12 @@ class SectionOption {
           .toList(),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'section_id': sectionId,
+        'section_name': name,
+        'course_ids': courseIds,
+      };
 }
 
 /// Thrown when the server refuses a scan because the student ID is not on any section.

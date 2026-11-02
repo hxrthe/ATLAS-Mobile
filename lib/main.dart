@@ -8,10 +8,15 @@ import 'core/theme/theme_controller.dart';
 import 'features/auth/auth_repository.dart';
 import 'features/auth/bloc/auth_bloc.dart';
 import 'features/auth/login_screen.dart';
+import 'features/scanner/offline_save_alerts.dart';
+import 'features/scanner/offline_save_bar.dart';
+import 'features/scanner/offline_sync.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await themeController.load();
+  await OfflineSaveAlerts.start();
+  OfflineSync.instance.start();
   runApp(const AtlasMobileApp());
 }
 
@@ -49,7 +54,13 @@ class AtlasMobileApp extends StatelessWidget {
                     systemNavigationBarIconBrightness:
                         dark ? Brightness.light : Brightness.dark,
                   ),
-                  child: child!,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      child ?? const SizedBox.shrink(),
+                      const OfflineSaveNotice(),
+                    ],
+                  ),
                 );
               },
               home: const LoginScreen(),

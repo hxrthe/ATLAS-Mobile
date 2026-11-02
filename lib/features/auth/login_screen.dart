@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/network/api_client.dart';
 import '../../core/theme/app_theme.dart';
 import '../faculty_dashboard/faculty_dashboard_screen.dart';
 import 'bloc/auth_bloc.dart';
@@ -49,6 +50,7 @@ class _LoginScreenState extends State<LoginScreen>
     );
     _emailFocus.addListener(_ensureFocusedFieldVisible);
     _passwordFocus.addListener(_ensureFocusedFieldVisible);
+    ApiClient.loginScreenOpened();
     _bootstrap();
 
     if (widget.autoLogout && !_logoutMessageShown) {
@@ -147,6 +149,7 @@ class _LoginScreenState extends State<LoginScreen>
 
   @override
   void dispose() {
+    ApiClient.loginScreenClosed();
     _emailFocus.removeListener(_ensureFocusedFieldVisible);
     _passwordFocus.removeListener(_ensureFocusedFieldVisible);
     _intro.dispose();
@@ -198,7 +201,7 @@ class _LoginScreenState extends State<LoginScreen>
       fit: BoxFit.contain,
       // Dark mode: force the full logo red. Light: keep the SVG two-tone (MOBILE near black).
       colorFilter: isDark
-          ? const ColorFilter.mode(Color(0xFFE24B4A), BlendMode.srcIn)
+          ? const ColorFilter.mode(Color(0xFFE7A3A1), BlendMode.srcIn)
           : null,
     );
   }
@@ -215,14 +218,14 @@ class _LoginScreenState extends State<LoginScreen>
         keyboard > 0 ? keyboard : (fieldFocused ? size.height * 0.42 : 0.0);
     final isDark = context.isDarkTheme;
 
-    final bg = isDark ? const Color(0xFF0A0A0B) : const Color(0xFFFBF7F7);
-    final card = isDark ? const Color(0xFF121214) : Colors.white;
-    final field = isDark ? const Color(0x14FFFFFF) : const Color(0xFFF3F4F6);
-    final fieldBorder =
-        isDark ? const Color(0x1FFFFFFF) : const Color(0xFFE5E7EB);
-    final muted = isDark ? const Color(0x8CF0F0F0) : const Color(0xFF6B7280);
-    final text = isDark ? const Color(0xFFF0F0F0) : const Color(0xFF111827);
-    final accent = isDark ? const Color(0xFFE24B4A) : _leaf;
+    final colors = context.atlas;
+    final bg = isDark ? colors.scaffold : const Color(0xFFFBF7F7);
+    final card = isDark ? colors.card : Colors.white;
+    final field = isDark ? colors.inputFill : const Color(0xFFF3F4F6);
+    final fieldBorder = isDark ? colors.border : const Color(0xFFE5E7EB);
+    final muted = isDark ? colors.textSecondary : const Color(0xFF6B7280);
+    final text = isDark ? colors.textPrimary : const Color(0xFF111827);
+    final accent = isDark ? colors.primary : _leaf;
     final hintColor =
         isDark ? const Color(0x47FFFFFF) : const Color(0xFF9CA3AF);
     final statusBarColor = isDark ? Colors.transparent : Colors.white;
@@ -332,9 +335,9 @@ class _LoginScreenState extends State<LoginScreen>
                           radius: isDark ? 1.15 : 1.2,
                           colors: isDark
                               ? const [
-                                  Color(0xFF6E1212),
-                                  Color(0xFF0A0A0B),
-                                  Color(0xFF050506),
+                                  Color(0xFF4A3535),
+                                  Color(0xFF2C2A2A),
+                                  Color(0xFF1E1E1E),
                                 ]
                               : const [
                                   Color(0xFFF8D4D3),
@@ -842,7 +845,7 @@ class _WebGridPainter extends CustomPainter {
         center: Alignment(0.7, isDark ? -0.6 : -0.55),
         radius: 1.05,
         colors: [
-          const Color(0xFFAA2423).withValues(alpha: isDark ? 0.14 : 0.10),
+          const Color(0xFFE7A3A1).withValues(alpha: isDark ? 0.16 : 0.10),
           Colors.transparent,
         ],
       ).createShader(Offset.zero & size);

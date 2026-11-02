@@ -92,6 +92,7 @@ class QuickExam {
   final double? averagePercent;
   final int flaggedCount;
   final DateTime? createdAt;
+  final String? updatedAt;
 
   const QuickExam({
     required this.examId,
@@ -113,6 +114,7 @@ class QuickExam {
     this.averagePercent,
     this.flaggedCount = 0,
     this.createdAt,
+    this.updatedAt,
   });
 
   bool get hasFullKey => keyedItems >= totalItems;
@@ -150,8 +152,27 @@ class QuickExam {
       averagePercent: _toDouble(j['average_percent']),
       flaggedCount: (j['flagged_count'] as num?)?.toInt() ?? 0,
       createdAt: DateTime.tryParse((j['created_at'] ?? '').toString()),
+      updatedAt: j['updated_at']?.toString(),
     );
   }
+
+  /// Rebuilds a major exam from the copy saved on the device for offline scanning.
+  factory QuickExam.fromTemplate(BubbleTemplate t) => QuickExam(
+        examId: t.templateId,
+        qrPayload: '$quickExamQrPrefix${t.templateId}',
+        subjectId: '',
+        subjectName: '',
+        name: t.name,
+        totalItems: t.totalItems,
+        numChoices: t.numChoices,
+        numIdColumns: t.idDigits,
+        parts: t.parts,
+        passingScore: t.passingScore,
+        keyedItems: t.answerKey.length,
+        answerKey: t.answerKey,
+        layoutMetadata: t.layoutMetadata,
+        updatedAt: t.updatedAt,
+      );
 
   /// Scanner-facing template. `courseId` stays empty: quick exams belong to no course.
   BubbleTemplate toTemplate() => BubbleTemplate(
@@ -168,6 +189,7 @@ class QuickExam {
         passingScore: passingPercent,
         layoutMetadata: layoutMetadata,
         isQuickExam: true,
+        updatedAt: updatedAt,
       );
 }
 
