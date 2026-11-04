@@ -83,9 +83,9 @@ class _MyIssueReportsScreenState extends State<MyIssueReportsScreen>
   }
 
   String _statusLabel(Map<String, dynamic> row) {
-    if (row['is_resolved'] == true) return 'Resolved';
-    if (row['status'] == 'with_superadmin') return 'With ATLAS team';
-    return 'With campus admin';
+    if (row['is_resolved'] == true) return 'RESOLVED';
+    if (row['status'] == 'with_superadmin') return 'WITH ATLAS TEAM';
+    return 'WITH CAMPUS ADMIN';
   }
 
   Color _statusColor(Map<String, dynamic> row, AtlasColors colors) {
@@ -179,13 +179,23 @@ class _MyIssueReportsScreenState extends State<MyIssueReportsScreen>
                                         color: statusColor.withValues(alpha: 0.12),
                                         borderRadius: BorderRadius.circular(999),
                                       ),
-                                      child: Text(
-                                        _statusLabel(row),
-                                        style: TextStyle(
-                                          color: statusColor,
-                                          fontWeight: FontWeight.w800,
-                                          fontSize: 11,
-                                        ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          if (resolved) ...[
+                                            Icon(Icons.done_all, size: 14, color: statusColor),
+                                            const SizedBox(width: 4),
+                                          ],
+                                          Text(
+                                            _statusLabel(row),
+                                            style: TextStyle(
+                                              color: statusColor,
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 11,
+                                              letterSpacing: 0.6,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                     const Spacer(),
