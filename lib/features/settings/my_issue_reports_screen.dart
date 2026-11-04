@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -53,7 +54,10 @@ class _MyIssueReportsScreenState extends State<MyIssueReportsScreen>
       });
     }
     try {
-      final response = await ApiClient().dio.get('auth/support-reports/');
+      final response = await ApiClient().dio.get(
+        'auth/support-reports/',
+        queryParameters: const {'include_images': '1'},
+      );
       final raw = response.data is Map ? response.data['reports'] : null;
       final rows = <Map<String, dynamic>>[];
       if (raw is List) {
@@ -183,6 +187,8 @@ class _MyIssueReportsScreenState extends State<MyIssueReportsScreen>
                               (row['resolution_details'] ?? '').toString();
                           final resolutionFollowUp =
                               (row['resolution_follow_up'] ?? '').toString();
+                          final sourceLabel =
+                              (row['source_label'] ?? '').toString().trim();
                           return Container(
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
@@ -230,6 +236,17 @@ class _MyIssueReportsScreenState extends State<MyIssueReportsScreen>
                                     ),
                                   ],
                                 ),
+                                if (sourceLabel.isNotEmpty) ...[
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Source: $sourceLabel',
+                                    style: TextStyle(
+                                      color: colors.textSecondary,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
                                 const SizedBox(height: 10),
                                 Text(
                                   (row['message'] ?? '').toString(),
@@ -240,7 +257,10 @@ class _MyIssueReportsScreenState extends State<MyIssueReportsScreen>
                                 ),
                                 if (hasImage && reportId.isNotEmpty) ...[
                                   const SizedBox(height: 12),
-                                  _ReportImagePreview(reportId: reportId),
+                                  _ReportImagePreview(
+                                    reportId: reportId,
+                                    imageBase64: (row['image_base64'] ?? '').toString(),
+                                  ),
                                 ],
                                 if (resolved) ...[
                                   const SizedBox(height: 12),
@@ -331,9 +351,13 @@ class _MyIssueReportsScreenState extends State<MyIssueReportsScreen>
 }
 
 class _ReportImagePreview extends StatefulWidget {
-  const _ReportImagePreview({required this.reportId});
+  const _ReportImagePreview({
+    required this.reportId,
+    this.imageBase64 = '',
+  });
 
   final String reportId;
+  final String imageBase64;
 
   @override
   State<_ReportImagePreview> createState() => _ReportImagePreviewState();
@@ -353,8 +377,21 @@ class _ReportImagePreviewState extends State<_ReportImagePreview> {
   @override
   void didUpdateWidget(covariant _ReportImagePreview oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.reportId != widget.reportId) {
+    if (oldWidget.reportId != widget.reportId ||
+        oldWidget.imageBase64 != widget.imageBase64) {
       _load();
+    }
+  }
+
+  Uint8List? _bytesFromBase64(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return null;
+    try {
+      final bytes = base64Decode(trimmed);
+      if (bytes.length < 32 || _looksLikeJson(bytes)) return null;
+      return bytes;
+    } catch (_) {
+      return null;
     }
   }
 
@@ -364,14 +401,38 @@ class _ReportImagePreviewState extends State<_ReportImagePreview> {
       _failed = false;
       _bytes = null;
     });
+
+    final embedded = _bytesFromBase64(widget.imageBase64);
+    if (embedded != null) {
+      if (!mounted) return;
+      setState(() {
+        _bytes = embedded;
+        _loading = false;
+      });
+      return;
+    }
+
     try {
       final response = await ApiClient().dio.get(
         'auth/support-reports/${widget.reportId}/image/',
         options: Options(
           responseType: ResponseType.bytes,
-          headers: const {'Accept': 'image/*,application/octet-stream'},
+          receiveDataWhenStatusError: true,
+          headers: {
+            Headers.acceptHeader: '*/*',
+            Headers.contentTypeHeader: null,
+          },
         ),
       );
+      if (response.statusCode != null &&
+          (response.statusCode! < 200 || response.statusCode! >= 300)) {
+        if (!mounted) return;
+        setState(() {
+          _loading = false;
+          _failed = true;
+        });
+        return;
+      }
       final raw = response.data;
       Uint8List? bytes;
       if (raw is Uint8List) {
