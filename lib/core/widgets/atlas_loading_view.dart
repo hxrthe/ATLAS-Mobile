@@ -221,9 +221,9 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
         gradient: LinearGradient(
           colors: dark
               ? const [
-                  Color(0xFFE8B4B2),
-                  Color(0xFFD99896),
-                  Color(0xFFC98482),
+                  Color(0xFFD0112B),
+                  Color(0xFFA80E24),
+                  Color(0xFF7A0B1A),
                 ]
               : const [
                   Color(0xFFF3B4B3),
@@ -337,8 +337,8 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
         gradient: LinearGradient(
           colors: dark
               ? const [
-                  Color(0xFFE8B4B2),
-                  Color(0xFFC98482),
+                  Color(0xFFD0112B),
+                  Color(0xFF7A0B1A),
                 ]
               : const [
                   Color(0xFFF3B4B3),

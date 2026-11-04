@@ -201,7 +201,7 @@ class _LoginScreenState extends State<LoginScreen>
       fit: BoxFit.contain,
       // Dark mode: force the full logo red. Light: keep the SVG two-tone (MOBILE near black).
       colorFilter: isDark
-          ? const ColorFilter.mode(Color(0xFFE7A3A1), BlendMode.srcIn)
+          ? const ColorFilter.mode(Color(0xFFD0112B), BlendMode.srcIn)
           : null,
     );
   }
@@ -335,9 +335,9 @@ class _LoginScreenState extends State<LoginScreen>
                           radius: isDark ? 1.15 : 1.2,
                           colors: isDark
                               ? const [
-                                  Color(0xFF4A3535),
-                                  Color(0xFF2C2A2A),
-                                  Color(0xFF1E1E1E),
+                                  Color(0xFF2A2223),
+                                  Color(0xFF212425),
+                                  Color(0xFF1D2021),
                                 ]
                               : const [
                                   Color(0xFFF8D4D3),
@@ -845,7 +845,7 @@ class _WebGridPainter extends CustomPainter {
         center: Alignment(0.7, isDark ? -0.6 : -0.55),
         radius: 1.05,
         colors: [
-          const Color(0xFFE7A3A1).withValues(alpha: isDark ? 0.16 : 0.10),
+          const Color(0xFFD0112B).withValues(alpha: isDark ? 0.16 : 0.10),
           Colors.transparent,
         ],
       ).createShader(Offset.zero & size);

@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/font_scale_controller.dart';
 import '../../../core/theme/theme_controller.dart';
 import '../../../core/widgets/user_avatar.dart';
 import '../../../core/widgets/atlas_pull_to_refresh.dart';
@@ -169,6 +170,73 @@ class _SettingsTabState extends State<SettingsTab> {
                   value: dark,
                   onChanged: (v) => themeController
                       .setMode(v ? ThemeMode.dark : ThemeMode.light),
+                );
+              },
+            ),
+            const SizedBox(height: 8),
+            ListenableBuilder(
+              listenable: fontScaleController,
+              builder: (context, _) {
+                final scale = fontScaleController.scale;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        Icons.text_fields,
+                        color: colors.textSecondary,
+                      ),
+                      title: Text(
+                        'Text size',
+                        style: TextStyle(color: colors.textPrimary),
+                      ),
+                      subtitle: Text(
+                        'Larger text for easier reading',
+                        style: TextStyle(
+                          color: colors.textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 16, right: 8),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final option in const [
+                            (FontScaleController.defaultScale, 'Default'),
+                            (FontScaleController.largeScale, 'Large'),
+                            (
+                              FontScaleController.extraLargeScale,
+                              'Extra large'
+                            ),
+                          ])
+                            ChoiceChip(
+                              label: Text(option.$2),
+                              selected: scale == option.$1,
+                              onSelected: (_) =>
+                                  fontScaleController.setScale(option.$1),
+                              selectedColor: colors.primary,
+                              backgroundColor: colors.cardMuted,
+                              labelStyle: TextStyle(
+                                color: scale == option.$1
+                                    ? colors.onPrimary
+                                    : colors.textPrimary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              side: BorderSide(
+                                color: scale == option.$1
+                                    ? colors.primary
+                                    : colors.border,
+                              ),
+                              showCheckmark: false,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
                 );
               },
             ),

@@ -79,9 +79,9 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
     Color(0xFFFFF5F5),
   ];
   static const List<Color> _sessionGradientDark = [
-    Color(0xFFE8B4B2),
-    Color(0xFFD99896),
-    Color(0xFFC98482),
+    Color(0xFFD0112B),
+    Color(0xFFA80E24),
+    Color(0xFF7A0B1A),
   ];
 
   List<Color> get _sessionGradient =>
@@ -697,13 +697,13 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                         builder: (context) {
                           final dark = context.isDarkTheme;
                           final onCard = dark
-                              ? const Color(0xFF3B1515)
+                              ? const Color(0xFFF9F5D7)
                               : const Color(0xFF6E1212);
                           final onCardMuted = dark
-                              ? const Color(0xFF5C2E2D)
+                              ? const Color(0xFFE8E4C8)
                               : const Color(0xFF8E1C1B);
                           final chipFill = dark
-                              ? const Color(0xFF3B1515).withValues(alpha: 0.12)
+                              ? const Color(0xFF3A1518).withValues(alpha: 0.35)
                               : const Color(0xFF8E1C1B)
                                   .withValues(alpha: 0.14);
                           return Container(
@@ -813,10 +813,10 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                                       : null,
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: dark
-                                        ? const Color(0xFF3B1515)
+                                        ? const Color(0xFF3A1518)
                                         : const Color(0xFF8E1C1B),
                                     foregroundColor: dark
-                                        ? const Color(0xFFF6E4E3)
+                                        ? const Color(0xFFE8E4C8)
                                         : Colors.white,
                                     minimumSize:
                                         const Size(double.infinity, 44),
@@ -941,11 +941,11 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
     const gap = 10.0;
     final dark = context.isDarkTheme;
     final onCard =
-        dark ? const Color(0xFF3B1515) : const Color(0xFF6E1212);
+        dark ? const Color(0xFFF9F5D7) : const Color(0xFF6E1212);
     final onCardMuted =
-        dark ? const Color(0xFF5C2E2D) : const Color(0xFF8E1C1B);
+        dark ? const Color(0xFFE8E4C8) : const Color(0xFF8E1C1B);
     final iconChip = dark
-        ? const Color(0xFF3B1515).withValues(alpha: 0.12)
+        ? const Color(0xFF3A1518).withValues(alpha: 0.35)
         : const Color(0xFF8E1C1B).withValues(alpha: 0.14);
     return LayoutBuilder(
       builder: (context, constraints) {

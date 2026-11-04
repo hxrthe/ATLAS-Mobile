@@ -645,12 +645,12 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     final dark = context.isDarkTheme;
     // Brand reds only — the logo red, not a mixed wash.
     final gradient = dark
-        ? const [Color(0xFFE8B4B2), Color(0xFFD99896), Color(0xFFC98482)]
+        ? const [Color(0xFFD0112B), Color(0xFFA80E24), Color(0xFF7A0B1A)]
         : const [Color(0xFFF3B4B3), Color(0xFFF8D4D3), Color(0xFFFFF5F5)];
     final titleColor =
-        dark ? const Color(0xFF3B1515) : const Color(0xFF6E1212);
+        dark ? const Color(0xFFF9F5D7) : const Color(0xFF6E1212);
     final subColor =
-        dark ? const Color(0xFF5C2E2D) : const Color(0xFF8E1C1B);
+        dark ? const Color(0xFFE8E4C8) : const Color(0xFF8E1C1B);
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
@@ -664,7 +664,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: dark
-              ? const Color(0xFF3B1515).withValues(alpha: 0.16)
+              ? const Color(0xFF3A1518).withValues(alpha: 0.35)
               : const Color(0xFF8E1C1B).withValues(alpha: 0.2),
         ),
         boxShadow: [

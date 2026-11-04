@@ -93,9 +93,9 @@ class AtlasBrandedGridPainter extends CustomPainter {
         radius: isDark ? 1.15 : 1.2,
         colors: isDark
             ? const [
-                Color(0xFF4A3535),
-                Color(0xFF2C2A2A),
-                Color(0xFF1E1E1E),
+                Color(0xFF2A2223),
+                Color(0xFF212425),
+                Color(0xFF1D2021),
               ]
             : const [
                 Color(0xFFF8D4D3),
@@ -144,7 +144,7 @@ class AtlasBrandedGridPainter extends CustomPainter {
         center: Alignment(0.7, isDark ? -0.6 : -0.55),
         radius: 1.05,
         colors: [
-          const Color(0xFFE7A3A1).withValues(alpha: isDark ? 0.14 : 0.12),
+          const Color(0xFFD0112B).withValues(alpha: isDark ? 0.14 : 0.12),
           Colors.transparent,
         ],
       ).createShader(Offset.zero & size);

@@ -59,24 +59,24 @@ class AtlasColors {
     divider: Color(0xFFE8ECF4),
   );
 
-  /// VS Code dark greys, with a light red accent.
+  /// Shark surfaces + Crimson accent; muted citrine text (sparse full cream).
   static const dark = AtlasColors(
-    scaffold: Color(0xFF1E1E1E),
-    card: Color(0xFF252526),
-    cardMuted: Color(0xFF2D2D30),
-    textPrimary: Color(0xFFD4D4D4),
-    textSecondary: Color(0xFF9D9D9D),
-    border: Color(0xFF3E3E42),
-    primary: Color(0xFFE7A3A1),
-    onPrimary: Color(0xFF3B1515),
+    scaffold: Color(0xFF1D2021),
+    card: Color(0xFF252829),
+    cardMuted: Color(0xFF2C3031),
+    textPrimary: Color(0xFFD8D4B8),
+    textSecondary: Color(0xFF9A9680),
+    border: Color(0xFF3A3E3F),
+    primary: Color(0xFFD0112B),
+    onPrimary: Color(0xFFF9F5D7),
     correct: Color(0xFF86EFAC),
-    incorrect: Color(0xFFF0C2C0),
+    incorrect: Color(0xFFE85A5A),
     ambiguous: Color(0xFFE6C07A),
     bonus: Color(0xFF60A5FA),
     pass: Color(0xFF4ADE80),
-    fail: Color(0xFFE7A3A1),
-    inputFill: Color(0xFF3C3C3C),
-    divider: Color(0xFF3E3E42),
+    fail: Color(0xFFD0112B),
+    inputFill: Color(0xFF2A2E2F),
+    divider: Color(0xFF3A3E3F),
   );
 
   static AtlasColors of(BuildContext context) {
@@ -105,13 +105,15 @@ class AppTheme {
 
   static ThemeData dark() {
     final scheme = ColorScheme.fromSeed(
-      seedColor: _seed,
+      seedColor: AtlasColors.dark.primary,
       brightness: Brightness.dark,
       primary: AtlasColors.dark.primary,
+      onPrimary: AtlasColors.dark.onPrimary,
       surface: AtlasColors.dark.card,
     ).copyWith(
       surface: AtlasColors.dark.card,
       onSurface: AtlasColors.dark.textPrimary,
+      onPrimary: AtlasColors.dark.onPrimary,
     );
     return _base(scheme, AtlasColors.dark);
   }
