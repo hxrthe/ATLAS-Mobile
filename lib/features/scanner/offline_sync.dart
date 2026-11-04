@@ -14,6 +14,9 @@ import 'omr_models.dart';
 import 'scan_history.dart';
 import 'template_cache.dart';
 
+/// Marker written when a queued scan can never reach the server (e.g. photo gone).
+const _unrecoverableScanId = 'local-unrecoverable';
+
 /// A scan that reached the database.
 class SyncedScan {
   final String localId;
@@ -70,39 +73,71 @@ class OfflineSync with WidgetsBindingObserver {
   }
 
   /// Uploads everything still waiting. Stops at the first connection failure.
-  Future<void> flush() async {
-    if (_flushing) return;
+  ///
+  /// Returns an error message when [reportFailures] is true and something
+  /// prevented a clean sync; otherwise null.
+  Future<String?> flush({bool reportFailures = false}) async {
+    if (_flushing) {
+      return reportFailures ? 'Already updating. Please wait a moment.' : null;
+    }
     final prefs = await SharedPreferences.getInstance();
-    if ((prefs.getString('access_token') ?? '').isEmpty) return;
+    if ((prefs.getString('access_token') ?? '').isEmpty) {
+      return reportFailures ? 'Sign in again, then try syncing.' : null;
+    }
     final adds = await RosterCache.pendingAdds();
     final pending = await ScanHistory.getPendingUpload();
     if (adds.isEmpty && pending.isEmpty) {
       await OfflinePack.refreshLocalAttention();
-      return;
+      return null;
     }
-    if (!await OfflinePack.probe(force: true)) return;
+    if (!await OfflinePack.probe(force: true)) {
+      return reportFailures
+          ? 'Connect to the internet, then try again.'
+          : null;
+    }
 
     _flushing = true;
+    String? failure;
+    var abandonedMissingPhoto = 0;
     try {
       final offline = await _syncSectionAdds();
-      if (offline) return;
+      if (offline) {
+        failure = 'Connect to the internet, then try again.';
+        return reportFailures ? failure : null;
+      }
       pending.sort((a, b) => a.createdAt.compareTo(b.createdAt));
       for (final record in pending) {
         try {
           await upload(record);
         } on StudentNotInSectionException {
           continue;
+        } on _MissingScanPhotoException {
+          await ScanHistory.updateRecord(record.id, {
+            'server_scan_id': _unrecoverableScanId,
+          });
+          abandonedMissingPhoto++;
         } catch (e) {
           if (isOfflineError(e)) {
             OfflinePack.markOffline();
-            return;
+            failure = 'Connect to the internet, then try again.';
+            return reportFailures ? failure : null;
           }
+          failure ??= friendlyError(
+            e,
+            fallback: 'That did not finish. Try again in a moment.',
+          );
         }
+      }
+      if (abandonedMissingPhoto > 0) {
+        failure ??= abandonedMissingPhoto == 1
+            ? 'One answer sheet could not be sent because its photo is missing on this phone.'
+            : '$abandonedMissingPhoto answer sheets could not be sent because their photos are missing on this phone.';
       }
     } finally {
       _flushing = false;
       unawaited(OfflinePack.refreshLocalAttention());
     }
+    return reportFailures ? failure : null;
   }
 
   Future<SyncedScan> upload(ScanRecord record) {
@@ -152,7 +187,7 @@ class OfflineSync with WidgetsBindingObserver {
     } else {
       final path = latest.imagePath;
       if (path == null || path.isEmpty || !File(path).existsSync()) {
-        throw Exception('Scan photo is missing on this device.');
+        throw const _MissingScanPhotoException();
       }
       final scan = await _grading.uploadGradedScan(
         templateId: latest.templateId,
@@ -240,4 +275,8 @@ class OfflineSync with WidgetsBindingObserver {
     if (v.isEmpty || v.toLowerCase() == 'unknown') return null;
     return v;
   }
+}
+
+class _MissingScanPhotoException implements Exception {
+  const _MissingScanPhotoException();
 }

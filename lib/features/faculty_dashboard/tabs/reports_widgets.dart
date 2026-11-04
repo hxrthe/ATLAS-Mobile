@@ -509,7 +509,7 @@ class _ItemQuadrantPainter extends CustomPainter {
   static const _left = 34.0;
   static const _bottom = 30.0;
   static const _top = 8.0;
-  static const _right = 8.0;
+  static const _right = 18.0;
   static const _dMin = -0.4;
   static const _dMax = 1.0;
 
@@ -670,55 +670,64 @@ class BloomSegmentedBar extends StatelessWidget {
             for (var i = 0; i < slices.length; i++)
               Expanded(
                 flex: slices[i].items,
-                child: GestureDetector(
-                  onTap: onTapLevel == null
-                      ? null
-                      : () => onTapLevel!(slices[i].level),
-                  child: Container(
-                    margin: EdgeInsets.only(
-                        right: i == slices.length - 1 ? 0 : 1.5),
-                    color: bloomLevelColors[slices[i].level]!
-                        .withValues(alpha: 0.18),
-                    child: Stack(
-                      children: [
-                        Align(
-                          alignment: Alignment.bottomCenter,
-                          child: FractionallySizedBox(
-                            widthFactor: 1,
-                            heightFactor:
-                                ((slices[i].mastery ?? 0) / 100).clamp(0.0, 1.0),
-                            child: Container(
-                                color: bloomLevelColors[slices[i].level]),
-                          ),
-                        ),
-                        if (showLabels)
-                          Center(
-                            child: FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 2),
-                                child: Text(
-                                  '${bloomShort[slices[i].level]}\n'
-                                  '${(slices[i].share * 100).toStringAsFixed(0)}%',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    height: 1.15,
-                                    fontWeight: FontWeight.w800,
-                                    color: c.textPrimary,
-                                    shadows: [
-                                      Shadow(
-                                          blurRadius: 4,
-                                          color: c.card.withValues(alpha: 0.9)),
-                                    ],
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final showSegmentLabel =
+                        showLabels && constraints.maxWidth >= 28;
+                    return GestureDetector(
+                      onTap: onTapLevel == null
+                          ? null
+                          : () => onTapLevel!(slices[i].level),
+                      child: Container(
+                        margin: EdgeInsets.only(
+                            right: i == slices.length - 1 ? 0 : 1.5),
+                        color: bloomLevelColors[slices[i].level]!
+                            .withValues(alpha: 0.18),
+                        child: Stack(
+                          clipBehavior: Clip.hardEdge,
+                          children: [
+                            Align(
+                              alignment: Alignment.bottomCenter,
+                              child: FractionallySizedBox(
+                                widthFactor: 1,
+                                heightFactor: ((slices[i].mastery ?? 0) / 100)
+                                    .clamp(0.0, 1.0),
+                                child: Container(
+                                    color: bloomLevelColors[slices[i].level]),
+                              ),
+                            ),
+                            if (showSegmentLabel)
+                              Center(
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 2),
+                                    child: Text(
+                                      '${bloomShort[slices[i].level]}\n'
+                                      '${(slices[i].share * 100).toStringAsFixed(0)}%',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        height: 1.15,
+                                        fontWeight: FontWeight.w800,
+                                        color: c.textPrimary,
+                                        shadows: [
+                                          Shadow(
+                                              blurRadius: 4,
+                                              color: c.card
+                                                  .withValues(alpha: 0.9)),
+                                        ],
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
           ],

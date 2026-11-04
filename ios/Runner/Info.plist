@@ -66,6 +66,10 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>ATLAS needs the camera so you can attach a screenshot of the issue you are reporting.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>ATLAS needs photo access so you can attach a screenshot of the issue you are reporting.</string>
 	<key>GIDClientID</key>
 	<string>140618226788-r55pqlat0o2vvlsc1on3j22e668a1hpq.apps.googleusercontent.com</string>
 	<key>CFBundleURLTypes</key>

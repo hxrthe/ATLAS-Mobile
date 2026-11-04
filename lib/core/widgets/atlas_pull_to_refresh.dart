@@ -4,9 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/app_theme.dart';
+import 'atlas_skeleton.dart';
 
-/// Pull-to-refresh that displaces the page and shows parallel lines + a down
-/// arrow while dragging. No spinner — screens already show [AtlasLoadingView].
+/// Pull-to-refresh: arrow rotates down→up while dragging, flies off on release,
+/// then a skeleton strip shows while [onRefresh] runs.
 class AtlasPullToRefresh extends StatefulWidget {
   const AtlasPullToRefresh({
     super.key,
@@ -24,16 +25,20 @@ class AtlasPullToRefresh extends StatefulWidget {
 }
 
 class _AtlasPullToRefreshState extends State<AtlasPullToRefresh>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   static const _armDrag = 72.0;
   static const _maxDrag = 240.0;
+  static const _cueHeight = 56.0;
 
   late final AnimationController _settle;
+  late final AnimationController _leave;
+  late final AnimationController _skeletonIn;
 
   double _dragOffset = 0;
   double _settleFrom = 0;
   bool _refreshing = false;
   bool _armedHaptic = false;
+  bool _leaving = false;
 
   @override
   void initState() {
@@ -42,15 +47,25 @@ class _AtlasPullToRefreshState extends State<AtlasPullToRefresh>
       vsync: this,
       duration: const Duration(milliseconds: 280),
     )..addListener(() {
-        if (!mounted) return;
+        if (!mounted || _leaving || _refreshing) return;
         final t = Curves.easeOutCubic.transform(_settle.value);
         setState(() => _dragOffset = _settleFrom * (1 - t));
       });
+    _leave = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 320),
+    );
+    _skeletonIn = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+    );
   }
 
   @override
   void dispose() {
     _settle.dispose();
+    _leave.dispose();
+    _skeletonIn.dispose();
     super.dispose();
   }
 
@@ -60,6 +75,12 @@ class _AtlasPullToRefreshState extends State<AtlasPullToRefresh>
   }
 
   bool get _armed => _dragOffset >= _armDrag;
+
+  /// 0 = pointing down, 1 = pointing up.
+  double get _arrowTurn {
+    final visual = _visualOffset;
+    return ((visual - 18) / 38).clamp(0.0, 1.0);
+  }
 
   void _setDrag(double next) {
     if (_settle.isAnimating) _settle.stop();
@@ -76,7 +97,7 @@ class _AtlasPullToRefreshState extends State<AtlasPullToRefresh>
   }
 
   Future<void> _onFingerUp() async {
-    if (_refreshing) return;
+    if (_refreshing || _leaving) return;
     if (_dragOffset >= _armDrag) {
       await _triggerRefresh();
     } else if (_dragOffset > 0) {
@@ -87,18 +108,33 @@ class _AtlasPullToRefreshState extends State<AtlasPullToRefresh>
   }
 
   Future<void> _triggerRefresh() async {
-    if (_refreshing) return;
+    if (_refreshing || _leaving) return;
     if (_settle.isAnimating) _settle.stop();
+
     setState(() {
-      _refreshing = true;
-      _dragOffset = 0;
+      _leaving = true;
       _armedHaptic = false;
     });
+    await _leave.forward(from: 0);
+    if (!mounted) return;
+
+    setState(() {
+      _leaving = false;
+      _refreshing = true;
+      _dragOffset = 0;
+    });
+    _leave.reset();
+    _skeletonIn.forward(from: 0);
+
     try {
       await widget.onRefresh();
     } finally {
       if (mounted) {
-        setState(() => _refreshing = false);
+        await _skeletonIn.reverse();
+        if (mounted) {
+          setState(() => _refreshing = false);
+          _skeletonIn.reset();
+        }
       }
     }
   }
@@ -113,7 +149,7 @@ class _AtlasPullToRefreshState extends State<AtlasPullToRefresh>
   }
 
   bool _onScroll(ScrollNotification notification) {
-    if (!widget.enabled || _refreshing) return false;
+    if (!widget.enabled || _refreshing || _leaving) return false;
     if (notification.depth != 0) return false;
     if (notification.metrics.axis != Axis.vertical) return false;
 
@@ -136,10 +172,10 @@ class _AtlasPullToRefreshState extends State<AtlasPullToRefresh>
 
   @override
   Widget build(BuildContext context) {
-    final visual = _refreshing ? 0.0 : _visualOffset;
-    final progress = (visual / 56).clamp(0.0, 1.0);
-    // Transparent so AtlasBrandedBackdrop (dark near-black / light mint) shows
-    // through — never hardcode the light scaffold (breaks dark mode).
+    final colors = context.atlas;
+    final dragVisual = (_leaving || _refreshing) ? 0.0 : _visualOffset;
+    final progress = (dragVisual / 56).clamp(0.0, 1.0);
+
     return ColoredBox(
       color: Colors.transparent,
       child: NotificationListener<OverscrollIndicatorNotification>(
@@ -152,35 +188,71 @@ class _AtlasPullToRefreshState extends State<AtlasPullToRefresh>
           child: ScrollConfiguration(
             behavior: const _PullScrollBehavior(),
             child: ClipRect(
-              child: Stack(
-                clipBehavior: Clip.hardEdge,
-                children: [
-                  Transform.translate(
-                    offset: Offset(0, visual),
-                    child: widget.child,
-                  ),
-                  if (visual > 0)
-                    Positioned(
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      height: visual,
-                      child: IgnorePointer(
-                        child: ClipRect(
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
+              child: AnimatedBuilder(
+                animation: Listenable.merge([_leave, _skeletonIn]),
+                builder: (context, _) {
+                  final leaveT = Curves.easeInCubic.transform(_leave.value);
+                  final skeletonT =
+                      Curves.easeOut.transform(_skeletonIn.value);
+                  final contentShift = _refreshing
+                      ? _cueHeight * skeletonT
+                      : dragVisual;
+
+                  return Stack(
+                    clipBehavior: Clip.hardEdge,
+                    children: [
+                      Transform.translate(
+                        offset: Offset(0, contentShift),
+                        child: widget.child,
+                      ),
+                      if (dragVisual > 0 || _leaving)
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          height: math.max(dragVisual, _cueHeight),
+                          child: IgnorePointer(
                             child: Opacity(
-                              opacity: progress,
-                              child: _PullToRefreshCue(
-                                progress: progress,
-                                armed: _armed,
+                              opacity: _leaving
+                                  ? (1 - leaveT)
+                                  : progress,
+                              child: Transform.translate(
+                                offset: Offset(
+                                  0,
+                                  _leaving ? -48 * leaveT : 0,
+                                ),
+                                child: Transform.scale(
+                                  scale: _leaving
+                                      ? (1 - 0.35 * leaveT)
+                                      : (0.86 + 0.14 * progress),
+                                  child: _PullArrowCue(
+                                    turn: _arrowTurn,
+                                    armed: _armed,
+                                    color: _armed
+                                        ? colors.primary
+                                        : colors.textSecondary,
+                                  ),
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                    ),
-                ],
+                      if (_refreshing)
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          height: _cueHeight * skeletonT,
+                          child: IgnorePointer(
+                            child: Opacity(
+                              opacity: skeletonT,
+                              child: const _PullSkeletonCue(),
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
               ),
             ),
           ),
@@ -210,90 +282,68 @@ class _PullScrollBehavior extends ScrollBehavior {
   }
 }
 
-class _PullToRefreshCue extends StatelessWidget {
-  const _PullToRefreshCue({
-    required this.progress,
+class _PullArrowCue extends StatelessWidget {
+  const _PullArrowCue({
+    required this.turn,
     required this.armed,
+    required this.color,
   });
 
-  final double progress;
+  final double turn;
   final bool armed;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.atlas;
-    final color = armed ? colors.primary : colors.textSecondary;
-    return Transform.scale(
-      scale: 0.86 + (0.14 * progress),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          SizedBox(
-            width: 88,
-            height: 26,
-            child: CustomPaint(
-              painter: _ParallelLinesArrowPainter(color: color),
-            ),
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Transform.rotate(
+          // 0 → down (π), 1 → up (0)
+          angle: math.pi * (1 - turn),
+          child: Icon(
+            Icons.arrow_upward_rounded,
+            size: 28,
+            color: color,
           ),
-          const SizedBox(height: 2),
-          Text(
-            armed ? 'Release to refresh' : 'Pull to refresh',
-            textHeightBehavior: const TextHeightBehavior(
-              applyHeightToFirstAscent: false,
-              applyHeightToLastDescent: false,
-            ),
-            style: TextStyle(
-              fontSize: 11,
-              height: 1.0,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.2,
-              color: color,
-            ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          armed ? 'Release to refresh' : 'Pull to refresh',
+          textHeightBehavior: const TextHeightBehavior(
+            applyHeightToFirstAscent: false,
+            applyHeightToLastDescent: false,
           ),
-        ],
-      ),
+          style: TextStyle(
+            fontSize: 11,
+            height: 1.0,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.2,
+            color: color,
+          ),
+        ),
+      ],
     );
   }
 }
 
-class _ParallelLinesArrowPainter extends CustomPainter {
-  const _ParallelLinesArrowPainter({required this.color});
-
-  final Color color;
+class _PullSkeletonCue extends StatelessWidget {
+  const _PullSkeletonCue();
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 1.7
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    const inset = 2.0;
-    final y1 = size.height * 0.22;
-    final y2 = size.height * 0.78;
-    canvas.drawLine(Offset(inset, y1), Offset(size.width - inset, y1), paint);
-    canvas.drawLine(Offset(inset, y2), Offset(size.width - inset, y2), paint);
-
-    final midX = size.width / 2;
-    final arrowTop = y1 + 5;
-    final arrowBottom = y2 - 4;
-    canvas.drawLine(
-      Offset(midX, arrowTop),
-      Offset(midX, arrowBottom),
-      paint,
+  Widget build(BuildContext context) {
+    return AtlasShimmer(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: const [
+            SkeletonBox(height: 10, radius: 6),
+            SizedBox(height: 8),
+            SkeletonBox(width: 160, height: 10, radius: 6),
+          ],
+        ),
+      ),
     );
-    final head = Path()
-      ..moveTo(midX - 6, arrowBottom - 7)
-      ..lineTo(midX, arrowBottom)
-      ..lineTo(midX + 6, arrowBottom - 7);
-    canvas.drawPath(head, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _ParallelLinesArrowPainter oldDelegate) {
-    return oldDelegate.color != color;
   }
 }

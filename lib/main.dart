@@ -53,7 +53,10 @@ class AtlasMobileApp extends StatelessWidget {
                 return MediaQuery(
                   data: media.copyWith(
                     textScaler: TextScaler.linear(fontScaleController.scale)
-                        .clamp(minScaleFactor: 0.9, maxScaleFactor: 1.4),
+                        .clamp(
+                          minScaleFactor: FontScaleController.smallScale,
+                          maxScaleFactor: FontScaleController.largeScale,
+                        ),
                   ),
                   child: AnnotatedRegion<SystemUiOverlayStyle>(
                     value: SystemUiOverlayStyle(

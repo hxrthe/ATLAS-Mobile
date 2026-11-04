@@ -3,6 +3,7 @@ import '../../grading/grading_repository.dart';
 import '../../grading/unified_exam.dart';
 import '../../quick_exam/quick_exam_models.dart';
 import '../../quick_exam/quick_exam_repository.dart';
+import '../../../core/layout/dashboard_insets.dart';
 import '../../../core/network/error_messages.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/atlas_loading_view.dart';
@@ -686,7 +687,12 @@ class _ReportsTabState extends State<ReportsTab> {
               onRefresh: _load,
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(18, 14, 18, 56),
+                padding: dashboardScrollPadding(
+                  context,
+                  left: 18,
+                  top: 14,
+                  right: 18,
+                ),
                 children: [
                   if (_error != null)
                     Padding(

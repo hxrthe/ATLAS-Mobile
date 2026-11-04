@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../grading/grading_repository.dart';
 import '../../scanner/offline_pack.dart';
+import '../../../core/layout/dashboard_insets.dart';
 import '../../../core/network/error_messages.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/atlas_loading_view.dart';
@@ -78,7 +79,7 @@ class _CoursesTabState extends State<CoursesTab> {
             ? const AtlasLoadingView(layout: AtlasLoadingLayout.courses)
             : ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(24, 24, 24, 56),
+                padding: dashboardScrollPadding(context),
                 children: [
                   Text(
                     'MAJOR EXAMS',
@@ -191,6 +192,8 @@ class _CoursesTabState extends State<CoursesTab> {
                   children: [
                     Text(
                       code,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
@@ -199,6 +202,8 @@ class _CoursesTabState extends State<CoursesTab> {
                     ),
                     Text(
                       title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 13,
                         color: c.textSecondary,

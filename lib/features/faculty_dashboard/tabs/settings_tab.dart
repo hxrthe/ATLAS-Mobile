@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../core/layout/dashboard_insets.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/theme/font_scale_controller.dart';
-import '../../../core/theme/theme_controller.dart';
 import '../../../core/widgets/user_avatar.dart';
 import '../../../core/widgets/atlas_pull_to_refresh.dart';
 import '../../auth/login_screen.dart';
@@ -13,6 +12,7 @@ import '../../auth/auth_repository.dart';
 import '../../scanner/offline_pack.dart';
 import '../../scanner/offline_sync.dart';
 import '../../settings/account_security_screen.dart';
+import '../../settings/appearance_screen.dart';
 import '../../settings/help_support_screen.dart';
 
 class SettingsTab extends StatefulWidget {
@@ -34,8 +34,33 @@ class _SettingsTabState extends State<SettingsTab> {
   }
 
   Future<void> _syncFiles() async {
-    final ok = await OfflinePack.runSync(() => OfflineSync.instance.flush());
-    if (!mounted || ok) return;
+    if (OfflinePack.attention.value.busy) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Already updating. Please wait a moment.')),
+      );
+      return;
+    }
+
+    String? failure;
+    final ok = await OfflinePack.runSync(() async {
+      failure = await OfflineSync.instance.flush(reportFailures: true);
+    });
+
+    if (!mounted) return;
+    if (failure != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(failure!)),
+      );
+      return;
+    }
+    if (ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Everything on this phone is up to date.')),
+      );
+      return;
+    }
+
     final offline = !await OfflinePack.probe();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -69,7 +94,7 @@ class _SettingsTabState extends State<SettingsTab> {
         onRefresh: _loadUser,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 56),
+          padding: dashboardScrollPadding(context),
           children: [
             Text(
               'ACCOUNT SETTINGS',
@@ -129,118 +154,30 @@ class _SettingsTabState extends State<SettingsTab> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           ),
                         )
-                      : IconButton.filled(
+                      : IconButton(
                           tooltip: 'Update now',
                           onPressed: _syncFiles,
-                          icon: const Icon(Icons.sync),
+                          icon: Icon(Icons.sync, color: colors.primary),
                         ),
                   onTap: attention.busy ? null : _syncFiles,
                 );
               },
             ),
             Divider(height: 32, color: colors.divider),
-            Text(
-              'APPEARANCE',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
-                color: colors.textSecondary,
-                letterSpacing: 0.5,
-              ),
-            ),
-            const SizedBox(height: 8),
-            ListenableBuilder(
-              listenable: themeController,
-              builder: (context, _) {
-                final dark = themeController.mode == ThemeMode.dark;
-                return SwitchListTile(
-                  secondary: Icon(
-                    dark ? Icons.dark_mode : Icons.light_mode,
-                    color: colors.textSecondary,
-                  ),
-                  title: Text('Dark mode',
-                      style: TextStyle(color: colors.textPrimary)),
-                  subtitle: Text(
-                    dark
-                        ? 'Using results-style dark palette'
-                        : 'Using light campus palette',
-                    style:
-                        TextStyle(color: colors.textSecondary, fontSize: 12),
-                  ),
-                  value: dark,
-                  onChanged: (v) => themeController
-                      .setMode(v ? ThemeMode.dark : ThemeMode.light),
+            ListTile(
+              leading: Icon(Icons.palette_outlined, color: colors.textSecondary),
+              title: Text('Appearance',
+                  style: TextStyle(color: colors.textPrimary)),
+              trailing: Icon(Icons.arrow_forward_ios,
+                  size: 16, color: colors.textSecondary),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) => const AppearanceScreen()),
                 );
               },
             ),
-            const SizedBox(height: 8),
-            ListenableBuilder(
-              listenable: fontScaleController,
-              builder: (context, _) {
-                final scale = fontScaleController.scale;
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(
-                        Icons.text_fields,
-                        color: colors.textSecondary,
-                      ),
-                      title: Text(
-                        'Text size',
-                        style: TextStyle(color: colors.textPrimary),
-                      ),
-                      subtitle: Text(
-                        'Larger text for easier reading',
-                        style: TextStyle(
-                          color: colors.textSecondary,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(left: 16, right: 8),
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          for (final option in const [
-                            (FontScaleController.defaultScale, 'Default'),
-                            (FontScaleController.largeScale, 'Large'),
-                            (
-                              FontScaleController.extraLargeScale,
-                              'Extra large'
-                            ),
-                          ])
-                            ChoiceChip(
-                              label: Text(option.$2),
-                              selected: scale == option.$1,
-                              onSelected: (_) =>
-                                  fontScaleController.setScale(option.$1),
-                              selectedColor: colors.primary,
-                              backgroundColor: colors.cardMuted,
-                              labelStyle: TextStyle(
-                                color: scale == option.$1
-                                    ? colors.onPrimary
-                                    : colors.textPrimary,
-                                fontWeight: FontWeight.w600,
-                              ),
-                              side: BorderSide(
-                                color: scale == option.$1
-                                    ? colors.primary
-                                    : colors.border,
-                              ),
-                              showCheckmark: false,
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-            Divider(height: 32, color: colors.divider),
             ListTile(
               leading: Icon(Icons.lock_outline, color: colors.textSecondary),
               title: Text('Account & Security',

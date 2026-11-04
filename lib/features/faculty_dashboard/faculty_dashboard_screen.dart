@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
+import '../../core/layout/dashboard_insets.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/error_messages.dart';
 import '../../core/theme/app_theme.dart';
@@ -568,7 +569,8 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                   backgroundColor: c.primary,
                   foregroundColor: c.onPrimary,
                   shape: const CircleBorder(),
-                  elevation: 2,
+                  elevation: 10,
+                  highlightElevation: 14,
                   child: Icon(
                     Icons.qr_code_scanner,
                     color: c.onPrimary,
@@ -630,7 +632,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
               : SingleChildScrollView(
                   key: const ValueKey('home-content'),
                   physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 56),
+                  padding: dashboardScrollPadding(context),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -944,9 +946,6 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
         dark ? const Color(0xFFF9F5D7) : const Color(0xFF6E1212);
     final onCardMuted =
         dark ? const Color(0xFFE8E4C8) : const Color(0xFF8E1C1B);
-    final iconChip = dark
-        ? const Color(0xFF3A1518).withValues(alpha: 0.35)
-        : const Color(0xFF8E1C1B).withValues(alpha: 0.14);
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = (constraints.maxWidth - gap) / 2;
@@ -957,64 +956,58 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
             for (final course in others)
               SizedBox(
                 width: width,
-                height: 128,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: _sessionGradient,
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 120),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: _sessionGradient,
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                      border: dark
+                          ? null
+                          : Border.all(
+                              color: const Color(0xFFE24B4A)
+                                  .withValues(alpha: 0.7),
+                            ),
                     ),
-                    borderRadius: BorderRadius.circular(16),
-                    border: dark
-                        ? null
-                        : Border.all(
-                            color: const Color(0xFFE24B4A)
-                                .withValues(alpha: 0.7),
-                          ),
-                  ),
-                  child: Material(
-                    color: Colors.transparent,
-                    borderRadius: BorderRadius.circular(16),
-                    clipBehavior: Clip.antiAlias,
-                    child: InkWell(
-                      onTap: () => _switchActive(course['course_id']!),
-                      child: Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    course['course_code'] ?? '',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 17,
-                                      color: onCard,
+                    child: Material(
+                      color: Colors.transparent,
+                      borderRadius: BorderRadius.circular(16),
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: () => _switchActive(course['course_id']!),
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      course['course_code'] ?? '',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 17,
+                                        color: onCard,
+                                      ),
                                     ),
                                   ),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.all(6),
-                                  decoration: BoxDecoration(
-                                    color: iconChip,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Icon(
+                                  Icon(
                                     Icons.swap_horiz,
                                     color: onCard,
-                                    size: 16,
+                                    size: 18,
                                   ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Expanded(
-                              child: Text(
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
                                 course['course_title'] ?? '',
                                 maxLines: 3,
                                 overflow: TextOverflow.ellipsis,
@@ -1024,16 +1017,17 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                                   color: onCardMuted,
                                 ),
                               ),
-                            ),
-                            Text(
-                              'Switch',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w800,
-                                color: onCard,
+                              const SizedBox(height: 8),
+                              Text(
+                                'Switch',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: onCard,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -1399,56 +1393,67 @@ class _DashboardBottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
-    return ClipPath(
-      clipper: const _NotchedBarClipper(),
-      child: ColoredBox(
-        color: colors.card,
-        child: Padding(
-          padding: EdgeInsets.only(bottom: bottomInset),
-          child: SizedBox(
-            height: _navBarContentHeight,
-            child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _navItem(0, Icons.home, 'Home'),
-                    _navItem(1, Icons.menu_book, 'Courses'),
-                  ],
-                ),
-              ),
-              SizedBox(
-                width: 100,
-                child: Align(
-                  alignment: Alignment.bottomCenter,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Text(
-                      'Scanner',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: colors.textSecondary,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.14),
+            blurRadius: 16,
+            offset: const Offset(0, -4),
+          ),
+        ],
+      ),
+      child: ClipPath(
+        clipper: const _NotchedBarClipper(),
+        child: ColoredBox(
+          color: colors.card,
+          child: Padding(
+            padding: EdgeInsets.only(bottom: bottomInset),
+            child: SizedBox(
+              height: _navBarContentHeight,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _navItem(0, Icons.home, 'Home'),
+                        _navItem(1, Icons.menu_book, 'Courses'),
+                      ],
+                    ),
+                  ),
+                  SizedBox(
+                    width: 100,
+                    child: Align(
+                      alignment: Alignment.bottomCenter,
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Text(
+                          'Scanner',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: colors.textSecondary,
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
+                  Expanded(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _navItem(2, Icons.show_chart, 'Reports'),
+                        _navItem(3, Icons.manage_accounts, 'Settings'),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              Expanded(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _navItem(2, Icons.show_chart, 'Reports'),
-                    _navItem(3, Icons.manage_accounts, 'Settings'),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
         ),
-      ),
       ),
     );
   }
