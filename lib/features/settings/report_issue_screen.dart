@@ -212,6 +212,7 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
     try {
       final formMap = <String, dynamic>{
         'message': message,
+        'source': 'mobile',
       };
 
       if (!_isEditing && _includePhone) {
