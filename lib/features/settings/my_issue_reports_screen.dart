@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:typed_data';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/network/api_client.dart';
@@ -157,6 +159,8 @@ class _MyIssueReportsScreenState extends State<MyIssueReportsScreen>
                           final row = _reports[index];
                           final resolved = row['is_resolved'] == true;
                           final statusColor = _statusColor(row, colors);
+                          final reportId = (row['id'] ?? '').toString();
+                          final hasImage = row['has_image'] == true;
                           return Container(
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
@@ -202,6 +206,10 @@ class _MyIssueReportsScreenState extends State<MyIssueReportsScreen>
                                     height: 1.45,
                                   ),
                                 ),
+                                if (hasImage && reportId.isNotEmpty) ...[
+                                  const SizedBox(height: 12),
+                                  _ReportImagePreview(reportId: reportId),
+                                ],
                                 if (resolved && row['resolved_at'] != null) ...[
                                   const SizedBox(height: 10),
                                   Text(
@@ -217,6 +225,142 @@ class _MyIssueReportsScreenState extends State<MyIssueReportsScreen>
                           );
                         },
                       ),
+      ),
+    );
+  }
+}
+
+class _ReportImagePreview extends StatefulWidget {
+  const _ReportImagePreview({required this.reportId});
+
+  final String reportId;
+
+  @override
+  State<_ReportImagePreview> createState() => _ReportImagePreviewState();
+}
+
+class _ReportImagePreviewState extends State<_ReportImagePreview> {
+  Uint8List? _bytes;
+  bool _loading = true;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ReportImagePreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.reportId != widget.reportId) {
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _failed = false;
+      _bytes = null;
+    });
+    try {
+      final response = await ApiClient().dio.get<List<int>>(
+        'auth/support-reports/${widget.reportId}/image/',
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final data = response.data;
+      if (!mounted) return;
+      if (data == null || data.isEmpty) {
+        setState(() {
+          _loading = false;
+          _failed = true;
+        });
+        return;
+      }
+      setState(() {
+        _bytes = Uint8List.fromList(data);
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _failed = true;
+      });
+    }
+  }
+
+  void _openFull() {
+    final bytes = _bytes;
+    if (bytes == null) return;
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.82),
+      builder: (dialogContext) {
+        return GestureDetector(
+          onTap: () => Navigator.pop(dialogContext),
+          child: Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.all(16),
+            child: InteractiveViewer(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.memory(
+                  bytes,
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.atlas;
+    if (_loading) {
+      return Container(
+        width: 140,
+        height: 190,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: colors.cardMuted,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: colors.border),
+        ),
+        child: SizedBox(
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(strokeWidth: 2, color: colors.primary),
+        ),
+      );
+    }
+    if (_failed || _bytes == null) {
+      return Text(
+        'Screenshot unavailable',
+        style: TextStyle(color: colors.textSecondary, fontSize: 12),
+      );
+    }
+    return GestureDetector(
+      onTap: _openFull,
+      child: Container(
+        width: 140,
+        height: 190,
+        decoration: BoxDecoration(
+          color: colors.cardMuted,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: colors.border),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Image.memory(
+          _bytes!,
+          fit: BoxFit.contain,
+          width: 140,
+          height: 190,
+        ),
       ),
     );
   }
