@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'my_issue_reports_screen.dart';
 import 'report_issue_screen.dart';
 import '../../core/theme/app_theme.dart';
 
@@ -141,6 +142,19 @@ class HelpSupportScreen extends StatelessWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (context) => const ReportIssueScreen()),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            _buildActionTile(
+              colors,
+              icon: Icons.history_outlined,
+              title: 'My issue reports',
+              subtitle: 'See status updates, including when resolved',
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const MyIssueReportsScreen()),
                 );
               },
             ),
