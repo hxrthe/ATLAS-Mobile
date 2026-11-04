@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/error_messages.dart';
 import '../../core/theme/app_theme.dart';
+import 'report_issue_screen.dart';
 
 class MyIssueReportsScreen extends StatefulWidget {
   const MyIssueReportsScreen({super.key});
@@ -101,6 +102,18 @@ class _MyIssueReportsScreenState extends State<MyIssueReportsScreen>
         '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
   }
 
+  Future<void> _openEdit(Map<String, dynamic> row) async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ReportIssueScreen(existingReport: row),
+      ),
+    );
+    if (changed == true && mounted) {
+      await _load(silent: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.atlas;
@@ -158,9 +171,18 @@ class _MyIssueReportsScreenState extends State<MyIssueReportsScreen>
                         itemBuilder: (context, index) {
                           final row = _reports[index];
                           final resolved = row['is_resolved'] == true;
+                          final canEdit = row['can_edit'] == true;
                           final statusColor = _statusColor(row, colors);
                           final reportId = (row['id'] ?? '').toString();
                           final hasImage = row['has_image'] == true;
+                          final resolutionLabel =
+                              (row['resolution_category_label'] ?? '').toString();
+                          final resolutionSummary =
+                              (row['resolution_summary'] ?? '').toString();
+                          final resolutionDetails =
+                              (row['resolution_details'] ?? '').toString();
+                          final resolutionFollowUp =
+                              (row['resolution_follow_up'] ?? '').toString();
                           return Container(
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
@@ -220,13 +242,81 @@ class _MyIssueReportsScreenState extends State<MyIssueReportsScreen>
                                   const SizedBox(height: 12),
                                   _ReportImagePreview(reportId: reportId),
                                 ],
-                                if (resolved && row['resolved_at'] != null) ...[
+                                if (resolved) ...[
+                                  const SizedBox(height: 12),
+                                  Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: colors.correct.withValues(alpha: 0.08),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: colors.correct.withValues(alpha: 0.28),
+                                      ),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          [
+                                            if (resolutionLabel.isNotEmpty) resolutionLabel else 'Resolved',
+                                            if (row['resolved_at'] != null)
+                                              _when(row['resolved_at']),
+                                          ].where((part) => part.toString().isNotEmpty).join(' · '),
+                                          style: TextStyle(
+                                            color: colors.textPrimary,
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                        if (resolutionSummary.isNotEmpty) ...[
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            resolutionSummary,
+                                            style: TextStyle(
+                                              color: colors.textPrimary,
+                                              height: 1.4,
+                                            ),
+                                          ),
+                                        ],
+                                        if (resolutionDetails.isNotEmpty) ...[
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            resolutionDetails,
+                                            style: TextStyle(
+                                              color: colors.textSecondary,
+                                              fontSize: 13,
+                                              height: 1.4,
+                                            ),
+                                          ),
+                                        ],
+                                        if (resolutionFollowUp.isNotEmpty) ...[
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            'Follow-up: $resolutionFollowUp',
+                                            style: TextStyle(
+                                              color: colors.textSecondary,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                                if (canEdit) ...[
                                   const SizedBox(height: 10),
-                                  Text(
-                                    'Resolved ${_when(row['resolved_at'])}',
-                                    style: TextStyle(
-                                      color: colors.textSecondary,
-                                      fontSize: 12,
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton(
+                                      onPressed: () => _openEdit(row),
+                                      child: Text(
+                                        'Edit',
+                                        style: TextStyle(
+                                          color: colors.primary,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ],

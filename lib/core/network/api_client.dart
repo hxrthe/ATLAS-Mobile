@@ -58,6 +58,13 @@ class ApiClient {
           if (token != null) {
             options.headers['Authorization'] = 'Bearer $token';
           }
+          // Global JSON Content-Type breaks multipart uploads (screenshots).
+          // Let Dio set multipart/form-data with the correct boundary.
+          if (options.data is FormData) {
+            options.headers.remove('Content-Type');
+            options.headers.remove('content-type');
+            options.contentType = Headers.multipartFormDataContentType;
+          }
           return handler.next(options);
         },
         onError: (DioException e, handler) async {

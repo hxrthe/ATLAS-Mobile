@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -10,7 +11,9 @@ import '../../core/network/error_messages.dart';
 import '../../core/theme/app_theme.dart';
 
 class ReportIssueScreen extends StatefulWidget {
-  const ReportIssueScreen({super.key});
+  const ReportIssueScreen({super.key, this.existingReport});
+
+  final Map<String, dynamic>? existingReport;
 
   @override
   State<ReportIssueScreen> createState() => _ReportIssueScreenState();
@@ -22,6 +25,20 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
   bool _includePhone = true;
   bool _isSubmitting = false;
   XFile? _screenshot;
+  bool _keepExistingImage = false;
+
+  bool get _isEditing => widget.existingReport != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final existing = widget.existingReport;
+    if (existing != null) {
+      _issueController.text = (existing['message'] ?? '').toString();
+      _keepExistingImage = existing['has_image'] == true;
+      _includePhone = false;
+    }
+  }
 
   @override
   void dispose() {
@@ -37,7 +54,10 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
         maxWidth: 1920,
       );
       if (file == null || !mounted) return;
-      setState(() => _screenshot = file);
+      setState(() {
+        _screenshot = file;
+        _keepExistingImage = false;
+      });
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -89,6 +109,84 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
     );
   }
 
+  Future<void> _showAutoDismissSuccess({
+    required String message,
+  }) async {
+    if (!mounted) return;
+    var closed = false;
+    void closeDialog() {
+      if (closed || !mounted) return;
+      closed = true;
+      final navigator = Navigator.of(context, rootNavigator: true);
+      if (navigator.canPop()) navigator.pop();
+    }
+
+    unawaited(
+      Future<void>.delayed(const Duration(milliseconds: 1800), closeDialog),
+    );
+
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: 'Report sent',
+      barrierColor: Colors.black54,
+      transitionDuration: const Duration(milliseconds: 280),
+      pageBuilder: (dialogContext, anim, secondary) {
+        return const SizedBox.shrink();
+      },
+      transitionBuilder: (dialogContext, anim, secondary, child) {
+        final colors = dialogContext.atlas;
+        final curved = CurvedAnimation(
+          parent: anim,
+          curve: Curves.easeOutBack,
+        );
+        return FadeTransition(
+          opacity: anim,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.82, end: 1).animate(curved),
+            child: Center(
+              child: Material(
+                color: colors.card,
+                borderRadius: BorderRadius.circular(16),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 320),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TweenAnimationBuilder<double>(
+                          tween: Tween(begin: 0.6, end: 1),
+                          duration: const Duration(milliseconds: 420),
+                          curve: Curves.elasticOut,
+                          builder: (context, value, child) {
+                            return Transform.scale(scale: value, child: child);
+                          },
+                          child: Icon(
+                            Icons.check_circle,
+                            color: colors.correct,
+                            size: 56,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          message,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: colors.textPrimary),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    closeDialog();
+  }
+
   Future<void> _submitReport() async {
     final message = _issueController.text.trim();
     if (message.isEmpty) {
@@ -97,7 +195,13 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
       );
       return;
     }
-    if (_screenshot == null) {
+    if (!_isEditing && _screenshot == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Add a screenshot of the issue.')),
+      );
+      return;
+    }
+    if (_isEditing && _screenshot == null && !_keepExistingImage) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Add a screenshot of the issue.')),
       );
@@ -106,106 +210,62 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
 
     setState(() => _isSubmitting = true);
     try {
-      String note = '';
-      if (_includePhone) {
+      final formMap = <String, dynamic>{
+        'message': message,
+      };
+
+      if (!_isEditing && _includePhone) {
         final info = await PackageInfo.fromPlatform();
         final phone = Platform.isIOS ? 'iPhone' : 'Android';
-        note = '$phone · app ${info.version}';
+        formMap['phone_note'] = '$phone · app ${info.version}';
       }
-      final form = FormData.fromMap({
-        'message': message,
-        if (note.isNotEmpty) 'phone_note': note,
-        'image': await MultipartFile.fromFile(
+
+      if (_screenshot != null) {
+        final filename = _screenshot!.name.isNotEmpty
+            ? _screenshot!.name
+            : 'screenshot.jpg';
+        formMap['image'] = await MultipartFile.fromFile(
           _screenshot!.path,
-          filename: _screenshot!.name.isNotEmpty
-              ? _screenshot!.name
-              : 'screenshot.jpg',
-        ),
-      });
-      final response = await ApiClient().dio.post(
-        'auth/support-reports/',
-        data: form,
+          filename: filename,
+        );
+      }
+
+      final form = FormData.fromMap(formMap);
+      final options = Options(
+        contentType: Headers.multipartFormDataContentType,
+        headers: const {
+          'Accept': 'application/json',
+        },
       );
+
+      Response response;
+      if (_isEditing) {
+        final reportId = (widget.existingReport?['id'] ?? '').toString();
+        response = await ApiClient().dio.patch(
+          'auth/support-reports/$reportId/',
+          data: form,
+          options: options,
+        );
+      } else {
+        response = await ApiClient().dio.post(
+          'auth/support-reports/',
+          data: form,
+          options: options,
+        );
+      }
+
       if (!mounted) return;
       setState(() => _isSubmitting = false);
-      final delivered =
-          response.data is Map ? response.data['delivered_to'] : null;
-      final sentToTeam = delivered == 'superadmin';
-      await showGeneralDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        barrierLabel: 'Report sent',
-        barrierColor: Colors.black54,
-        transitionDuration: const Duration(milliseconds: 280),
-        pageBuilder: (dialogContext, anim, secondary) {
-          return const SizedBox.shrink();
-        },
-        transitionBuilder: (dialogContext, anim, secondary, child) {
-          final colors = dialogContext.atlas;
-          final curved = CurvedAnimation(
-            parent: anim,
-            curve: Curves.easeOutBack,
-          );
-          return FadeTransition(
-            opacity: anim,
-            child: ScaleTransition(
-              scale: Tween<double>(begin: 0.82, end: 1).animate(curved),
-              child: Center(
-                child: Material(
-                  color: colors.card,
-                  borderRadius: BorderRadius.circular(16),
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 320),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 28, 24, 16),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          TweenAnimationBuilder<double>(
-                            tween: Tween(begin: 0.6, end: 1),
-                            duration: const Duration(milliseconds: 420),
-                            curve: Curves.elasticOut,
-                            builder: (context, value, child) {
-                              return Transform.scale(scale: value, child: child);
-                            },
-                            child: Icon(
-                              Icons.check_circle,
-                              color: colors.correct,
-                              size: 56,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            sentToTeam
-                                ? 'Your message was sent to the ATLAS team.'
-                                : 'Your message was sent to your campus admin. They can pass it to the ATLAS team if more help is needed.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: colors.textPrimary),
-                          ),
-                          const SizedBox(height: 8),
-                          TextButton(
-                            onPressed: () {
-                              Navigator.pop(dialogContext);
-                              Navigator.pop(context);
-                            },
-                            child: Text(
-                              'OK',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: colors.primary,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
-      );
+
+      final successMessage = _isEditing
+          ? 'Your report was updated.'
+          : ((response.data is Map && response.data['delivered_to'] == 'superadmin')
+              ? 'Your message was sent to the ATLAS team.'
+              : 'Your message was sent to your campus admin. They can pass it to the ATLAS team if more help is needed.');
+
+      await _showAutoDismissSuccess(message: successMessage);
+      if (!mounted) return;
+      Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
       setState(() => _isSubmitting = false);
@@ -236,9 +296,9 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
           icon: const Icon(Icons.arrow_back_ios),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
-          'Report an Issue',
-          style: TextStyle(fontWeight: FontWeight.bold),
+        title: Text(
+          _isEditing ? 'Edit issue report' : 'Report an Issue',
+          style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
       ),
@@ -248,7 +308,9 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Your campus admin will read this. They can send it on to the ATLAS team if the campus needs more help.',
+              _isEditing
+                  ? 'You can update this report within 24 hours, even if it was already sent to the ATLAS team.'
+                  : 'Your campus admin will read this. They can send it on to the ATLAS team if the campus needs more help.',
               style: TextStyle(
                 color: colors.textSecondary,
                 fontSize: 14,
@@ -302,11 +364,13 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Required. Add a photo of the problem so your campus admin can see it.',
+              _isEditing
+                  ? 'Optional. Leave as is to keep the current screenshot, or choose a new photo.'
+                  : 'Required. Add a photo of the problem so your campus admin can see it.',
               style: TextStyle(color: colors.textSecondary, fontSize: 13),
             ),
             const SizedBox(height: 12),
-            if (_screenshot == null)
+            if (_screenshot == null && !(_isEditing && _keepExistingImage))
               OutlinedButton.icon(
                 onPressed: _showPickerSheet,
                 icon: const Icon(Icons.add_photo_alternate_outlined),
@@ -320,7 +384,7 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
                   ),
                 ),
               )
-            else
+            else if (_screenshot != null)
               Container(
                 decoration: BoxDecoration(
                   color: colors.card,
@@ -348,58 +412,87 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
                             child: Text('Replace',
                                 style: TextStyle(color: colors.primary)),
                           ),
-                          TextButton(
-                            onPressed: () =>
-                                setState(() => _screenshot = null),
-                            child: Text('Remove',
-                                style: TextStyle(color: colors.incorrect)),
-                          ),
+                          if (!_isEditing)
+                            TextButton(
+                              onPressed: () =>
+                                  setState(() => _screenshot = null),
+                              child: Text('Remove',
+                                  style: TextStyle(color: colors.incorrect)),
+                            ),
                         ],
                       ),
                     ),
                   ],
                 ),
-              ),
-            const SizedBox(height: 24),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: colors.cardMuted,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: colors.border),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.smartphone_outlined, color: colors.textSecondary),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Include my phone details',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: colors.textPrimary,
-                          ),
-                        ),
-                        Text(
-                          'The kind of phone and the app version, so we know which copy you are using.',
-                          style: TextStyle(
-                              color: colors.textSecondary, fontSize: 11),
-                        ),
-                      ],
+              )
+            else
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: colors.card,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: colors.border),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.image_outlined, color: colors.textSecondary),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Keeping current screenshot',
+                        style: TextStyle(color: colors.textPrimary),
+                      ),
                     ),
-                  ),
-                  Checkbox(
-                    value: _includePhone,
-                    onChanged: (val) =>
-                        setState(() => _includePhone = val ?? true),
-                    activeColor: colors.primary,
-                  ),
-                ],
+                    TextButton(
+                      onPressed: _showPickerSheet,
+                      child: Text('Replace',
+                          style: TextStyle(color: colors.primary)),
+                    ),
+                  ],
+                ),
               ),
-            ),
+            if (!_isEditing) ...[
+              const SizedBox(height: 24),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: colors.cardMuted,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: colors.border),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.smartphone_outlined, color: colors.textSecondary),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Include my phone details',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: colors.textPrimary,
+                            ),
+                          ),
+                          Text(
+                            'The kind of phone and the app version, so we know which copy you are using.',
+                            style: TextStyle(
+                                color: colors.textSecondary, fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Checkbox(
+                      value: _includePhone,
+                      onChanged: (val) =>
+                          setState(() => _includePhone = val ?? true),
+                      activeColor: colors.primary,
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 32),
             ElevatedButton(
               onPressed: _isSubmitting ? null : _submitReport,
@@ -421,9 +514,9 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
                         strokeWidth: 2,
                       ),
                     )
-                  : const Text(
-                      'SEND REPORT',
-                      style: TextStyle(
+                  : Text(
+                      _isEditing ? 'SAVE CHANGES' : 'SEND REPORT',
+                      style: const TextStyle(
                           fontWeight: FontWeight.bold, letterSpacing: 1),
                     ),
             ),
