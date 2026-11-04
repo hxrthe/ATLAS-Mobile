@@ -275,13 +275,23 @@ class _ReportImagePreviewState extends State<_ReportImagePreview> {
       _bytes = null;
     });
     try {
-      final response = await ApiClient().dio.get<List<int>>(
+      final response = await ApiClient().dio.get(
         'auth/support-reports/${widget.reportId}/image/',
-        options: Options(responseType: ResponseType.bytes),
+        options: Options(
+          responseType: ResponseType.bytes,
+          headers: const {'Accept': 'image/*,application/octet-stream'},
+        ),
       );
-      final data = response.data;
+      final raw = response.data;
+      Uint8List? bytes;
+      if (raw is Uint8List) {
+        bytes = raw;
+      } else if (raw is List<int>) {
+        bytes = Uint8List.fromList(raw);
+      }
       if (!mounted) return;
-      if (data == null || data.isEmpty) {
+      // Reject tiny / non-image payloads (often a JSON error body).
+      if (bytes == null || bytes.length < 32 || _looksLikeJson(bytes)) {
         setState(() {
           _loading = false;
           _failed = true;
@@ -289,7 +299,7 @@ class _ReportImagePreviewState extends State<_ReportImagePreview> {
         return;
       }
       setState(() {
-        _bytes = Uint8List.fromList(data);
+        _bytes = bytes;
         _loading = false;
       });
     } catch (_) {
@@ -299,6 +309,14 @@ class _ReportImagePreviewState extends State<_ReportImagePreview> {
         _failed = true;
       });
     }
+  }
+
+  bool _looksLikeJson(Uint8List bytes) {
+    for (final value in bytes) {
+      if (value == 9 || value == 10 || value == 13 || value == 32) continue;
+      return value == 0x7B || value == 0x5B; // { or [
+    }
+    return false;
   }
 
   void _openFull() {
