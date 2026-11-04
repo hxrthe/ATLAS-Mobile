@@ -65,6 +65,12 @@ class ApiClient {
             options.headers.remove('content-type');
             options.contentType = Headers.multipartFormDataContentType;
           }
+          // Binary image GETs should not advertise JSON Content-Type.
+          if (options.responseType == ResponseType.bytes) {
+            options.headers.remove('Content-Type');
+            options.headers.remove('content-type');
+            options.contentType = null;
+          }
           return handler.next(options);
         },
         onError: (DioException e, handler) async {
