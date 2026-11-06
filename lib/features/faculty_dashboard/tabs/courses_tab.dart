@@ -70,14 +70,17 @@ class _CoursesTabState extends State<CoursesTab> {
   Widget build(BuildContext context) {
     final c = context.atlas;
 
+    // Full-bleed over branded grid; bottom nav stays on the Scaffold.
+    if (_loading) {
+      return const AtlasLoadingView(layout: AtlasLoadingLayout.courses);
+    }
+
     return SafeArea(
       bottom: false,
       child: AtlasPullToRefresh(
         onRefresh: _loadCourses,
-        enabled: !_loading,
-        child: _loading
-            ? const AtlasLoadingView(layout: AtlasLoadingLayout.courses)
-            : ListView(
+        enabled: true,
+        child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: dashboardScrollPadding(context),
                 children: [
@@ -135,7 +138,7 @@ class _CoursesTabState extends State<CoursesTab> {
                         ),
                       ),
                     ),
-                  if (!_loading && _error == null)
+                  if (_error == null)
                     for (int i = 0; i < _courses.length; i++) ...[
                       if (i > 0) const SizedBox(height: 12),
                       _buildCourseCard(
@@ -144,7 +147,7 @@ class _CoursesTabState extends State<CoursesTab> {
                         _courses[i]['course_id'] ?? '',
                       ),
                     ],
-                  if (!_loading && _error == null && _courses.isEmpty)
+                  if (_error == null && _courses.isEmpty)
                     Padding(
                       padding: const EdgeInsets.all(24),
                       child: Text(

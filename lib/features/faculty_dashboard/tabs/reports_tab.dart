@@ -639,11 +639,9 @@ class _ReportsTabState extends State<ReportsTab> {
   @override
   Widget build(BuildContext context) {
     final c = context.atlas;
+    // Full-bleed over branded grid; bottom nav stays on the Scaffold.
     if (_loading) {
-      return const SafeArea(
-        bottom: false,
-        child: AtlasLoadingView(layout: AtlasLoadingLayout.reports),
-      );
+      return const AtlasLoadingView(layout: AtlasLoadingLayout.reports);
     }
     if (_data == null) {
       return SafeArea(
