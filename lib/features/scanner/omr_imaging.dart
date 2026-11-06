@@ -1470,20 +1470,12 @@ class OmrImaging {
     final doubleMark = ranked.length > 1 &&
         second >= OmrConstants.markFloor &&
         gap < OmrConstants.doubleGap;
-    if (blank) return ('?', true, 'Blank (${best.toStringAsFixed(2)})');
+    if (blank) return ('?', true, 'No marked answer');
     if (doubleMark) {
-      return (
-        '?',
-        true,
-        'Double mark ($bestK=${best.toStringAsFixed(2)} vs ${second.toStringAsFixed(2)})'
-      );
+      return ('?', true, 'Double mark');
     }
     if (!marked) {
-      return (
-        '?',
-        true,
-        'Invalid ($bestK=${best.toStringAsFixed(2)} z=${zBest.toStringAsFixed(2)})'
-      );
+      return ('?', true, 'No marked answer');
     }
     return (bestK, false, 'Marked $bestK (${best.toStringAsFixed(2)})');
   }

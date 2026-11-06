@@ -304,18 +304,42 @@ List<Map<String, dynamic>> _buildScoredMarkers({
 
       final cxMm = (coord['cx_mm'] as num?)?.toDouble() ?? 0;
       final cyMm = (coord['cy_spec_mm'] as num?)?.toDouble() ?? 0;
+      final kind = bonus
+          ? 'bonus'
+          : (isAmbiguous
+              ? 'ambiguous'
+              : (isCorrect ? 'correct' : 'wrong'));
 
       out.add({
         'item_number': itemNo,
         'nx': pageNx(cxMm),
         'ny': pageNy(cyMm),
         'r_mm': answerRMm,
-        'kind': bonus
-            ? 'bonus'
-            : (isAmbiguous
-                ? 'ambiguous'
-                : (isCorrect ? 'correct' : 'wrong')),
+        'kind': kind,
       });
+
+      // Wrong items: also outline the keyed correct bubble so teachers can
+      // see what the student should have marked.
+      if (kind == 'wrong') {
+        final correctChoice = correct.trim().toUpperCase();
+        final markedChoice = markChoice.trim().toUpperCase();
+        if (correctChoice.isNotEmpty &&
+            correctChoice != bonusKey &&
+            correctChoice != markedChoice) {
+          final keyCoord = itemData[correctChoice] ?? itemData[correct];
+          if (keyCoord is Map) {
+            final kxMm = (keyCoord['cx_mm'] as num?)?.toDouble() ?? 0;
+            final kyMm = (keyCoord['cy_spec_mm'] as num?)?.toDouble() ?? 0;
+            out.add({
+              'item_number': itemNo,
+              'nx': pageNx(kxMm),
+              'ny': pageNy(kyMm),
+              'r_mm': answerRMm,
+              'kind': 'key_outline',
+            });
+          }
+        }
+      }
     }
   }
 
@@ -503,6 +527,7 @@ class OmrEngine {
             'wrong' || 'incorrect' => ScoredMarkerKind.wrong,
             'ambiguous' || 'invalid' => ScoredMarkerKind.ambiguous,
             'bonus' => ScoredMarkerKind.bonus,
+            'key_outline' || 'keyOutline' => ScoredMarkerKind.keyOutline,
             'correct' => ScoredMarkerKind.correct,
             _ => (m['is_correct'] as bool? ?? true)
                 ? ScoredMarkerKind.correct

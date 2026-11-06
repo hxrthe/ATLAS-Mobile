@@ -505,12 +505,11 @@ class OmrReferenceGrader {
       final fillNorm = r.bestFill > 0 ? (r.bestFill / 500.0).clamp(0.0, 1.0) : 0.0;
       final note = !r.ambiguous
           ? 'Contour fill ${r.bestFill}'
-          : (r.bestFill <= 0
-              ? 'Blank (no answer)'
-              : (r.secondFill > 0 &&
-                      (r.bestFill - r.secondFill) < r.bestFill * 0.15
-                  ? 'Double mark (fills ${r.bestFill} vs ${r.secondFill})'
-                  : 'Invalid row (fills ${r.bestFill} vs ${r.secondFill})'));
+          : (r.secondFill > 0 &&
+                  r.bestFill > 0 &&
+                  (r.bestFill - r.secondFill) < r.bestFill * 0.15
+              ? 'Double mark'
+              : 'No marked answer');
       return BubbleReading(
         itemNumber: itemNo,
         detectedAnswer: r.answer,

@@ -201,7 +201,16 @@ class OmrResult {
 }
 
 /// Circle on the realigned sheet for a graded item or student-ID bubble.
-enum ScoredMarkerKind { correct, wrong, ambiguous, bonus, studentId }
+/// [keyOutline] is a thin hint on the keyed correct bubble when the student
+/// marked a different (wrong) choice.
+enum ScoredMarkerKind {
+  correct,
+  wrong,
+  ambiguous,
+  bonus,
+  studentId,
+  keyOutline,
+}
 
 class ScoredBubbleMarker {
   final int itemNumber;
