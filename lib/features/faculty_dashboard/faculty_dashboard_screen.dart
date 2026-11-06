@@ -162,27 +162,57 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
       _userPhotoUrl = photoUrl;
     });
 
+    // Paint home immediately from the last offline pack when available.
+    final restored = await _restoreSavedPack();
+    if (!mounted) return;
+    if (restored) {
+      setState(() {
+        _loading = false;
+        _error = null;
+        _usingSavedPack = true;
+      });
+      _loadTemplateScores();
+      _startLiveUpdates();
+      unawaited(OfflinePack.ensureSaved(grading: _repo, quick: _majorRepo));
+      unawaited(_loadAll(showLoader: false));
+      return;
+    }
+
     unawaited(OfflinePack.ensureSaved(grading: _repo, quick: _majorRepo));
-    await _loadAll();
+    await _loadAll(showLoader: true);
     if (mounted) _startLiveUpdates();
   }
 
-  Future<void> _loadAll() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<void> _loadAll({bool showLoader = true}) async {
+    if (showLoader && mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    } else if (mounted) {
+      setState(() => _error = null);
+    }
     try {
       final courses = await _repo.fetchFacultyCourses();
       final allTemplates = <BubbleTemplate>[];
       await OfflinePack.saveCourses(courses);
-      for (final c in courses) {
-        final courseId = c['course_id']!;
-        try {
-          final t = await _repo.fetchTemplates(courseId);
-          allTemplates.addAll(t);
-          await TemplateCache.mergeCourse(courseId, t);
-        } catch (_) {}
+
+      // Fetch course templates in parallel instead of a serial waterfall.
+      final templateLists = await Future.wait([
+        for (final c in courses)
+          () async {
+            final courseId = c['course_id']!;
+            try {
+              final t = await _repo.fetchTemplates(courseId);
+              await TemplateCache.mergeCourse(courseId, t);
+              return t;
+            } catch (_) {
+              return <BubbleTemplate>[];
+            }
+          }(),
+      ]);
+      for (final t in templateLists) {
+        allTemplates.addAll(t);
       }
 
       // Active course = first course that has templates with answer keys

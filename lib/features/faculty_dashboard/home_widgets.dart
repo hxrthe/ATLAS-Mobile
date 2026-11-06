@@ -435,12 +435,18 @@ class _AssessmentScansSheetState extends State<_AssessmentScansSheet> {
     final templateId = widget.templateId;
     final sid = (row['student_id'] ?? '').toString().trim();
     if (templateId == null || sid.isEmpty) return;
+    final scanId = (row['scan_id'] ?? '').toString().trim();
     await openStudentScanResult(
       context,
       templateId: templateId,
       studentId: sid,
+      scanId: scanId.isEmpty ? null : scanId,
       templateName: widget.title,
       passingScore: widget.passingScore,
+      scoreRaw: (row['score'] as num?)?.toDouble(),
+      scorePercent: (row['percent'] as num?)?.toDouble(),
+      maxScore: (row['max_score'] as num?)?.toDouble() ??
+          widget.totalItems.toDouble(),
     );
   }
 

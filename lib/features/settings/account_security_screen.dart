@@ -15,7 +15,6 @@ class AccountSecurityScreen extends StatefulWidget {
 
 class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
-  bool _keepMeSignedIn = false;
   String _userName = '';
   String _userEmail = '';
   String _userRole = '';
@@ -30,7 +29,9 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
 
   Future<void> _loadData() async {
     final prefs = await SharedPreferences.getInstance();
-    final savedEmail = await _secureStorage.read(key: 'saved_email');
+    // Clear any leftover app-owned credential prefill keys.
+    await _secureStorage.delete(key: 'saved_email');
+    await _secureStorage.delete(key: 'saved_password');
 
     if (mounted) {
       setState(() {
@@ -38,36 +39,8 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
         _userEmail = prefs.getString('user_email') ?? '';
         _userRole = prefs.getString('user_role') ?? 'faculty';
         _userPhotoUrl = prefs.getString('user_photo_url');
-        _keepMeSignedIn = savedEmail != null;
         _isLoading = false;
       });
-    }
-  }
-
-  Future<void> _toggleKeepMeSignedIn(bool value) async {
-    setState(() {
-      _keepMeSignedIn = value;
-    });
-
-    if (!value) {
-      await _secureStorage.delete(key: 'saved_email');
-      await _secureStorage.delete(key: 'saved_password');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Saved credentials cleared.')),
-        );
-      }
-    } else {
-      // We don't have the password, so we just inform the user
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Sign in with "Keep active" checked on your next login.',
-            ),
-          ),
-        );
-      }
     }
   }
 
@@ -184,49 +157,6 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
                         ),
                       );
                     },
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: colors.card,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: colors.border),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.vpn_key_outlined, color: colors.primary),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Keep Me Signed In',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: colors.textPrimary,
-                                ),
-                              ),
-                              Text(
-                                'Save credentials for auto-fill',
-                                style: TextStyle(
-                                  color: colors.textSecondary,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Switch(
-                          value: _keepMeSignedIn,
-                          onChanged: _toggleKeepMeSignedIn,
-                        ),
-                      ],
-                    ),
                   ),
                 ],
               ),

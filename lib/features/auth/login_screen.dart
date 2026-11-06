@@ -32,7 +32,6 @@ class _LoginScreenState extends State<LoginScreen>
   late final AnimationController _intro;
 
   bool _isPasswordVisible = false;
-  bool _keepActive = true;
   bool _logoutMessageShown = false;
   bool _prefsReady = false;
 
@@ -76,18 +75,12 @@ class _LoginScreenState extends State<LoginScreen>
     await prefs.remove('logout_type');
     final seen = prefs.getBool(_prefsGetStartedKey) ?? false;
 
-    final email = await _secureStorage.read(key: 'saved_email');
-    final password = await _secureStorage.read(key: 'saved_password');
+    // Stop app-owned credential prefill; phone password managers may still suggest.
+    await _secureStorage.delete(key: 'saved_email');
+    await _secureStorage.delete(key: 'saved_password');
     if (!mounted) return;
 
-    setState(() {
-      _prefsReady = true;
-      if (email != null && password != null) {
-        _usernameController.text = email;
-        _passwordController.text = password;
-        _keepActive = true;
-      }
-    });
+    setState(() => _prefsReady = true);
 
     // Returning users (or auto-logout): skip Get Started → login.
     if (seen || widget.autoLogout) {
@@ -129,18 +122,6 @@ class _LoginScreenState extends State<LoginScreen>
         alignment: 0.15,
       );
     });
-  }
-
-  Future<void> _saveCredentials() async {
-    if (_keepActive) {
-      await _secureStorage.write(
-          key: 'saved_email', value: _usernameController.text);
-      await _secureStorage.write(
-          key: 'saved_password', value: _passwordController.text);
-    } else {
-      await _secureStorage.delete(key: 'saved_email');
-      await _secureStorage.delete(key: 'saved_password');
-    }
   }
 
   void _handleGoogleSignIn() {
@@ -247,7 +228,7 @@ class _LoginScreenState extends State<LoginScreen>
           body: BlocConsumer<AuthBloc, AuthState>(
           listener: (context, state) {
             if (state is AuthSuccess) {
-              _saveCredentials();
+              TextInput.finishAutofillContext(shouldSave: true);
               Navigator.pushReplacement(
                 context,
                 MaterialPageRoute(
@@ -479,7 +460,8 @@ class _LoginScreenState extends State<LoginScreen>
                                   ),
                                   keyboardDismissBehavior:
                                       ScrollViewKeyboardDismissBehavior.onDrag,
-                                  child: Column(
+                                  child: AutofillGroup(
+                                    child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.stretch,
                                     children: [
@@ -509,6 +491,10 @@ class _LoginScreenState extends State<LoginScreen>
                                         focusNode: _emailFocus,
                                         keyboardType:
                                             TextInputType.emailAddress,
+                                        autofillHints: const [
+                                          AutofillHints.email,
+                                          AutofillHints.username,
+                                        ],
                                         textInputAction: TextInputAction.next,
                                         onSubmitted: (_) =>
                                             _passwordFocus.requestFocus(),
@@ -539,6 +525,9 @@ class _LoginScreenState extends State<LoginScreen>
                                         controller: _passwordController,
                                         focusNode: _passwordFocus,
                                         obscureText: !_isPasswordVisible,
+                                        autofillHints: const [
+                                          AutofillHints.password,
+                                        ],
                                         textInputAction: TextInputAction.done,
                                         style: TextStyle(
                                             color: text, fontSize: 14.5),
@@ -579,65 +568,31 @@ class _LoginScreenState extends State<LoginScreen>
                                         ),
                                       ),
                                       const SizedBox(height: 16),
-                                      Row(
-                                        children: [
-                                          SizedBox(
-                                            height: 22,
-                                            width: 22,
-                                            child: Checkbox(
-                                              value: _keepActive,
-                                              activeColor: _primary,
-                                              checkColor: Colors.white,
-                                              side: BorderSide(
-                                                color: fieldBorder,
-                                                width: 1.4,
-                                              ),
-                                              shape: RoundedRectangleBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(4),
-                                              ),
-                                              onChanged: (v) => setState(
-                                                () =>
-                                                    _keepActive = v ?? false,
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Expanded(
-                                            child: Text(
-                                              'Keep me signed in',
-                                              style: TextStyle(
-                                                color: muted,
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                          ),
-                                          GestureDetector(
-                                            onTap: () {
-                                              Navigator.push(
-                                                context,
-                                                MaterialPageRoute(
-                                                  builder: (_) =>
-                                                      ForgotPasswordScreen(
-                                                    initialEmail:
-                                                        _usernameController
-                                                            .text
-                                                            .trim(),
-                                                  ),
+                                      Align(
+                                        alignment: Alignment.centerRight,
+                                        child: GestureDetector(
+                                          onTap: () {
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (_) =>
+                                                    ForgotPasswordScreen(
+                                                  initialEmail:
+                                                      _usernameController.text
+                                                          .trim(),
                                                 ),
-                                              );
-                                            },
-                                            child: Text(
-                                              'Forgot password?',
-                                              style: TextStyle(
-                                                color: accent,
-                                                fontWeight: FontWeight.w700,
-                                                fontSize: 12.5,
                                               ),
+                                            );
+                                          },
+                                          child: Text(
+                                            'Forgot password?',
+                                            style: TextStyle(
+                                              color: accent,
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 12.5,
                                             ),
                                           ),
-                                        ],
+                                        ),
                                       ),
                                       const SizedBox(height: 28),
                                       SizedBox(
@@ -777,6 +732,7 @@ class _LoginScreenState extends State<LoginScreen>
                                         ),
                                       ),
                                     ],
+                                  ),
                                   ),
                                 ),
                               ),

@@ -1742,6 +1742,17 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     );
   }
 
+  Future<String?> _cachedTemplateIdForAssessment(String assessmentId) async {
+    final all = await TemplateCache.load() ?? const <BubbleTemplate>[];
+    for (final t in all) {
+      if (t.assessmentId == assessmentId &&
+          (t.courseId.isEmpty || t.courseId == widget.courseId)) {
+        return t.templateId;
+      }
+    }
+    return null;
+  }
+
   Future<void> _openScoreScanResult(Map<String, dynamic> row) async {
     if (row['score'] == null) return;
     final sid = (row['student_id'] ?? '').toString().trim();
@@ -1756,14 +1767,27 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     if (assessmentId == null) return;
 
     try {
-      final template = await _ensureTemplate(assessmentId);
+      var templateId = await _cachedTemplateIdForAssessment(assessmentId);
+      BubbleTemplate? template;
+      if (templateId == null) {
+        template = await _ensureTemplate(assessmentId);
+        templateId = template.templateId;
+      } else {
+        template = await TemplateCache.find(templateId);
+      }
       if (!mounted) return;
+      final scanId = (row['scan_id'] ?? '').toString().trim();
       await openStudentScanResult(
         context,
-        templateId: template.templateId,
+        templateId: templateId,
         studentId: sid,
-        templateName: template.name,
-        passingScore: template.passingScore ?? _scorePassingPercent,
+        scanId: scanId.isEmpty ? null : scanId,
+        templateName: template?.name ?? _selectedTitle,
+        passingScore: template?.passingScore ?? _scorePassingPercent,
+        scoreRaw: (row['score'] as num?)?.toDouble(),
+        scorePercent: (row['percent'] as num?)?.toDouble(),
+        maxScore: (row['max_score'] as num?)?.toDouble() ??
+            (_scoreTotalItems > 0 ? _scoreTotalItems.toDouble() : null),
       );
     } catch (e) {
       if (!mounted) return;

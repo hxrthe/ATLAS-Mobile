@@ -106,6 +106,20 @@ class GradingRepository {
         .toList();
   }
 
+  /// Fetch one scan by id (avoids downloading the full template scan list).
+  Future<BubbleScan> fetchScan(String scanId) async {
+    final response = await _apiClient.dio.get(
+      'grading/bubble/scans/$scanId/',
+    );
+
+    final data = response.data;
+    if (data['success'] != true) {
+      throw Exception(data['detail'] ?? 'Failed to fetch scan.');
+    }
+
+    return BubbleScan.fromJson(data['scan']);
+  }
+
   /// PATCH a scan (e.g., manual correction of responses).
   Future<BubbleScan> updateScan(
       String scanId, Map<String, dynamic> updates) async {

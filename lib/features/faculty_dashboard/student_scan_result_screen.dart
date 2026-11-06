@@ -8,23 +8,35 @@ import '../grading/answer_key.dart';
 import '../grading/grading_repository.dart';
 import '../grading/models.dart';
 import '../scanner/omr_models.dart';
+import '../scanner/scan_history.dart';
 import '../scanner/scanner_widgets.dart';
+import '../scanner/template_cache.dart';
 
 /// Opens the Review-Papers-style Scan Result for a scored student row.
+/// Paints immediately from cache + score seed, then fills item responses
+/// via a single-scan fetch (not the full template scan list).
 Future<void> openStudentScanResult(
   BuildContext context, {
   required String templateId,
   required String studentId,
+  String? scanId,
   String? templateName,
   double? passingScore,
+  double? scoreRaw,
+  double? scorePercent,
+  double? maxScore,
 }) {
   return Navigator.of(context).push(
     MaterialPageRoute(
       builder: (_) => StudentScanResultScreen(
         templateId: templateId,
         studentId: studentId,
+        scanId: scanId,
         templateName: templateName,
         passingScore: passingScore,
+        scoreRaw: scoreRaw,
+        scorePercent: scorePercent,
+        maxScore: maxScore,
       ),
     ),
   );
@@ -33,15 +45,23 @@ Future<void> openStudentScanResult(
 class StudentScanResultScreen extends StatefulWidget {
   final String templateId;
   final String studentId;
+  final String? scanId;
   final String? templateName;
   final double? passingScore;
+  final double? scoreRaw;
+  final double? scorePercent;
+  final double? maxScore;
 
   const StudentScanResultScreen({
     super.key,
     required this.templateId,
     required this.studentId,
+    this.scanId,
     this.templateName,
     this.passingScore,
+    this.scoreRaw,
+    this.scorePercent,
+    this.maxScore,
   });
 
   @override
@@ -53,6 +73,7 @@ class _StudentScanResultScreenState extends State<StudentScanResultScreen> {
   final GradingRepository _repo = GradingRepository();
 
   bool _loading = true;
+  bool _refreshing = false;
   String? _error;
   BubbleTemplate? _template;
   ScanRecord? _record;
@@ -60,36 +81,174 @@ class _StudentScanResultScreenState extends State<StudentScanResultScreen> {
   @override
   void initState() {
     super.initState();
-    _load();
+    _seedThenLoad();
+  }
+
+  Future<void> _seedThenLoad() async {
+    final cached = await TemplateCache.find(widget.templateId);
+    if (!mounted) return;
+
+    final seed = _seedRecord(cached);
+    setState(() {
+      _template = cached;
+      _record = seed;
+      _loading = false;
+      _error = null;
+    });
+
+    await _refreshScanAndTemplate(cached);
   }
 
   Future<void> _load() async {
     setState(() {
-      _loading = true;
+      _loading = _record == null;
       _error = null;
     });
-    try {
-      final template = await _repo.fetchTemplateDetail(widget.templateId);
-      final scans = await _repo.fetchScans(widget.templateId);
-      final scan = _matchScan(scans, widget.studentId);
-      if (scan == null) {
-        throw Exception(
-          'No scanned answer sheet found for ${widget.studentId}.',
-        );
-      }
-      if (!mounted) return;
+    final cached = await TemplateCache.find(widget.templateId);
+    if (cached != null && mounted && _record == null) {
       setState(() {
-        _template = template;
-        _record = _toRecord(scan, template);
+        _template = cached;
+        _record = _seedRecord(cached);
         _loading = false;
+      });
+    }
+    await _refreshScanAndTemplate(cached);
+  }
+
+  Future<void> _refreshScanAndTemplate(BubbleTemplate? cached) async {
+    if (_refreshing) return;
+    _refreshing = true;
+    try {
+      BubbleTemplate? template = cached ?? _template;
+      final needNetworkTemplate =
+          template == null || template.answerKey.isEmpty;
+
+      BubbleScan? scan;
+      final scanId = (widget.scanId ?? '').trim();
+      if (scanId.isNotEmpty) {
+        try {
+          scan = await _repo.fetchScan(scanId);
+        } catch (_) {
+          scan = null;
+        }
+      }
+
+      scan ??= await _matchLocalHistory();
+
+      if (scan == null) {
+        final scans = await _repo.fetchScans(widget.templateId);
+        scan = _matchScan(scans, widget.studentId);
+      }
+
+      if (needNetworkTemplate) {
+        try {
+          template = await _repo.fetchTemplateDetail(widget.templateId);
+          await TemplateCache.upsert(template);
+        } catch (_) {
+          template ??= _template;
+        }
+      }
+
+      if (scan == null) {
+        if (!mounted) return;
+        if (_record == null) {
+          setState(() {
+            _loading = false;
+            _error =
+                'No scanned answer sheet found for ${widget.studentId}.';
+          });
+        }
+        return;
+      }
+
+      if (!mounted) return;
+      final t = template ??
+          BubbleTemplate(
+            templateId: widget.templateId,
+            courseId: '',
+            name: widget.templateName ?? '',
+            totalItems: (widget.maxScore ?? scan.maxScore ?? 0).round(),
+            numChoices: 4,
+            parts: const [],
+            hasEssay: false,
+            essayLines: 0,
+            hasAnswerKey: false,
+            answerKey: const {},
+            layoutMetadata: const {},
+          );
+      setState(() {
+        _template = template ?? _template;
+        _record = _toRecord(scan!, t);
+        _loading = false;
+        _error = null;
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = friendlyError(e, fallback: 'Could not load scan result.');
-      });
+      if (_record == null) {
+        setState(() {
+          _loading = false;
+          _error = friendlyError(e, fallback: 'Could not load scan result.');
+        });
+      }
+    } finally {
+      _refreshing = false;
     }
+  }
+
+  Future<BubbleScan?> _matchLocalHistory() async {
+    final all = await ScanHistory.getAll();
+    final target = _normId(widget.studentId);
+    BubbleScan? best;
+    DateTime? bestAt;
+    for (final r in all) {
+      if (r.templateId != widget.templateId) continue;
+      final sid = _normId(r.studentIdentifier);
+      if (sid.isEmpty) continue;
+      final exact = sid == target;
+      final loose = sid.endsWith(target) || target.endsWith(sid);
+      if (!exact && !loose) continue;
+      if (best == null ||
+          (exact && _normId(best.studentIdentifier) != target) ||
+          r.createdAt.isAfter(bestAt!)) {
+        best = BubbleScan(
+          scanId: r.serverScanId ?? r.id,
+          templateId: r.templateId,
+          studentIdentifier: r.studentIdentifier,
+          responses: Map<String, String>.from(r.responses),
+          scoreRaw: r.scoreRaw,
+          scorePercent: r.scorePercent,
+          maxScore: r.maxScore,
+          isFlagged: r.isFlagged,
+          flagReason: r.flagReason,
+          createdAt: r.createdAt.toIso8601String(),
+        );
+        bestAt = r.createdAt;
+      }
+    }
+    return best;
+  }
+
+  ScanRecord _seedRecord(BubbleTemplate? template) {
+    final key = template?.answerKey ?? const <String, String>{};
+    return ScanRecord(
+      id: (widget.scanId ?? '').isNotEmpty
+          ? widget.scanId!
+          : 'seed_${widget.studentId}',
+      templateId: widget.templateId,
+      templateName: template?.name ?? widget.templateName ?? '',
+      studentIdentifier: widget.studentId,
+      responses: const {},
+      answerKey: Map<String, String>.from(key),
+      scorePercent: widget.scorePercent,
+      scoreRaw: widget.scoreRaw,
+      maxScore: widget.maxScore ??
+          (template != null && template.totalItems > 0
+              ? template.totalItems.toDouble()
+              : null),
+      createdAt: DateTime.now(),
+      serverScanId:
+          (widget.scanId ?? '').isNotEmpty ? widget.scanId : null,
+    );
   }
 
   static String _normId(String value) =>
@@ -107,7 +266,8 @@ class _StudentScanResultScreenState extends State<StudentScanResultScreen> {
       final exact = sid == target;
       final loose = sid.endsWith(target) || target.endsWith(sid);
       if (!exact && !loose) continue;
-      final at = DateTime.tryParse(s.createdAt) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final at = DateTime.tryParse(s.createdAt) ??
+          DateTime.fromMillisecondsSinceEpoch(0);
       if (best == null ||
           (exact && _normId(best.studentIdentifier) != target) ||
           at.isAfter(bestAt!)) {
@@ -224,7 +384,7 @@ class _StudentScanResultScreenState extends State<StudentScanResultScreen> {
   @override
   Widget build(BuildContext context) {
     final c = context.atlas;
-    if (_loading) {
+    if (_loading && _record == null) {
       return Scaffold(
         backgroundColor: c.scaffold,
         appBar: AppBar(
@@ -235,7 +395,7 @@ class _StudentScanResultScreenState extends State<StudentScanResultScreen> {
         body: const AtlasLoadingView(layout: AtlasLoadingLayout.list),
       );
     }
-    if (_error != null || _record == null) {
+    if (_error != null && _record == null) {
       return Scaffold(
         backgroundColor: c.scaffold,
         appBar: AppBar(
@@ -250,7 +410,7 @@ class _StudentScanResultScreenState extends State<StudentScanResultScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  _error ?? 'Scan not found.',
+                  _error!,
                   textAlign: TextAlign.center,
                   style: TextStyle(color: c.textPrimary),
                 ),
@@ -266,8 +426,7 @@ class _StudentScanResultScreenState extends State<StudentScanResultScreen> {
     return PaperDetailView(
       record: _record!,
       template: _template,
-      passingScore:
-          widget.passingScore ?? _template?.passingScore ?? 50,
+      passingScore: widget.passingScore ?? _template?.passingScore ?? 50,
       onBack: () => Navigator.of(context).pop(),
       onEditAnswers: _editAnswers,
     );
