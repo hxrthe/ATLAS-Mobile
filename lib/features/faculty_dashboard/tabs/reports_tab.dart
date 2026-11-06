@@ -1593,7 +1593,7 @@ class _ReportsTabState extends State<ReportsTab> {
         ),
         const SizedBox(height: 4),
         Text(
-          'P = (${item['upper_correct']} + ${item['lower_correct']}) ÷ (2×$n) = ${fmtNum(asDouble(item['difficulty']), decimals: 2)}   '
+          'P = ${item['total_correct']}/${s['examinees']} = ${fmtNum(asDouble(item['difficulty']), decimals: 2)}   '
           'D = (${item['upper_correct']} − ${item['lower_correct']}) ÷ $n = ${fmtNum(asDouble(item['discrimination']), decimals: 2)}',
           style: TextStyle(fontSize: 11.5, color: c.textSecondary),
         ),
@@ -1730,11 +1730,11 @@ class _ReportsTabState extends State<ReportsTab> {
       ),
       (
         '4. Difficulty index',
-        'P = (U + L) ÷ 2n.  0.86+ very easy · 0.71–0.85 easy · 0.30–0.70 moderate (ideal) · 0.15–0.29 difficult · below 0.15 very difficult.'
+        'P = (number correct on the item) ÷ (number of examinees).  0.86+ very easy · 0.71–0.85 easy · 0.30–0.70 moderate (ideal) · 0.15–0.29 difficult · below 0.15 very difficult.'
       ),
       (
         '5. Discrimination index',
-        'D = (U − L) ÷ n.  0.40+ very good · 0.30–0.39 good · 0.20–0.29 marginal (revise) · below 0.20 poor · negative = more low scorers got it right (discard).'
+        'D = (U − L) ÷ n using the upper/lower 27% groups.  0.40+ very good · 0.30–0.39 good · 0.20–0.29 marginal (revise) · below 0.20 poor · negative = more low scorers got it right (discard).'
       ),
       (
         '6. Distractor analysis',
@@ -1746,7 +1746,7 @@ class _ReportsTabState extends State<ReportsTab> {
       ),
       (
         '8. Test reliability (KR-20)',
-        'KR-20 = k/(k−1) × (1 − Σpq ÷ σ²), where k = number of items, p = proportion correct, q = 1 − p, σ² = variance of total scores. 0.70+ is acceptable for classroom tests.'
+        'KR-20 = k/(k−1) × (1 − Σpq ÷ σ²), where k = number of items, p = whole-class proportion correct, q = 1 − p, σ² = sample variance of total scores (Excel VAR). 0.70+ is acceptable for classroom tests.'
       ),
     ];
     showModalBottomSheet(
