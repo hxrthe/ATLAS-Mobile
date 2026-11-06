@@ -623,20 +623,23 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
   Widget _buildHomeTab(BuildContext context) {
     final c = context.atlas;
 
+    // Loading paints full-bleed over the branded grid (nav bar stays on Scaffold).
+    if (_loading) {
+      return const AtlasLoadingView(
+        key: ValueKey('home-loading'),
+        layout: AtlasLoadingLayout.home,
+      );
+    }
+
     return AtlasPullToRefresh(
       onRefresh: _loadAll,
-      enabled: !_loading,
+      enabled: true,
       // Bottom inset is owned by the nav bar — don't pad it again here.
       child: SafeArea(
         bottom: false,
         child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 400),
-          child: _loading
-              ? const AtlasLoadingView(
-                  key: ValueKey('home-loading'),
-                  layout: AtlasLoadingLayout.home,
-                )
-              : _error != null
+          child: _error != null
               ? ListView(
                   key: const ValueKey('home-error'),
                   physics: const AlwaysScrollableScrollPhysics(),

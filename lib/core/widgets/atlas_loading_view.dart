@@ -3,6 +3,7 @@ import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../layout/dashboard_insets.dart';
 import '../theme/app_theme.dart';
 
 enum AtlasLoadingLayout { home, courses, reports, list }
@@ -74,28 +75,36 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
   @override
   Widget build(BuildContext context) {
     final c = context.atlas;
-    _background = c.scaffold;
+    // Match branded backdrop base so the opaque fill fully covers gridlines.
+    _background =
+        context.isDarkTheme ? const Color(0xFF1E1E1E) : const Color(0xFFFBF7F7);
     _bone = Color.alphaBlend(
       c.textSecondary.withValues(alpha: context.isDarkTheme ? 0.18 : 0.14),
       c.card,
     );
     _highlight = Color.lerp(_bone, c.card, context.isDarkTheme ? 0.45 : 0.7)!;
 
-    return ColoredBox(
-      color: _background,
-      child: Stack(
-        children: [
-          FadeTransition(
-            opacity: _skeletonOpacity,
-            child: _Shimmer(
-              animation: _shimmer,
-              base: _bone,
-              highlight: _highlight,
-              child: _buildSkeleton(),
+    // Full-bleed over the branded grid; bottom nav stays visible via padding.
+    return SizedBox.expand(
+      child: ColoredBox(
+        color: _background,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Positioned.fill(
+              child: FadeTransition(
+                opacity: _skeletonOpacity,
+                child: _Shimmer(
+                  animation: _shimmer,
+                  base: _bone,
+                  highlight: _highlight,
+                  child: _buildSkeleton(context),
+                ),
+              ),
             ),
-          ),
-          Center(child: _buildLogo()),
-        ],
+            Center(child: _buildLogo()),
+          ],
+        ),
       ),
     );
   }
@@ -150,10 +159,19 @@ class _AtlasLoadingViewState extends State<AtlasLoadingView>
     );
   }
 
-  Widget _buildSkeleton() {
+  Widget _buildSkeleton(BuildContext context) {
+    final top = MediaQuery.paddingOf(context).top + 24;
+    // Dashboard tabs clear docked nav + FAB; other screens keep a fixed inset.
+    final bottomPad = switch (widget.layout) {
+      AtlasLoadingLayout.home ||
+      AtlasLoadingLayout.courses ||
+      AtlasLoadingLayout.reports =>
+        dashboardScrollPadding(context).bottom,
+      AtlasLoadingLayout.list => 120.0,
+    };
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 120),
+      padding: EdgeInsets.fromLTRB(24, top, 24, bottomPad),
       children: switch (widget.layout) {
         AtlasLoadingLayout.home => _homeBones(),
         AtlasLoadingLayout.courses => _coursesBones(),

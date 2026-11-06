@@ -47,8 +47,8 @@ class _LoginScreenState extends State<LoginScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1100),
     );
-    _emailFocus.addListener(_ensureFocusedFieldVisible);
-    _passwordFocus.addListener(_ensureFocusedFieldVisible);
+    _emailFocus.addListener(_onFieldFocusChange);
+    _passwordFocus.addListener(_onFieldFocusChange);
     ApiClient.loginScreenOpened();
     _bootstrap();
 
@@ -103,25 +103,10 @@ class _LoginScreenState extends State<LoginScreen>
     }
   }
 
-  void _ensureFocusedFieldVisible() {
+  void _onFieldFocusChange() {
     if (!mounted) return;
-    // Rebuild so scroll padding grows while IME is open (adjustNothing).
+    // Rebuild only so the dismiss-to-splash hit target can ignore while typing.
     setState(() {});
-    final focused = _emailFocus.hasFocus || _passwordFocus.hasFocus;
-    if (!focused) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_cardScroll.hasClients) return;
-      final ctx = _emailFocus.hasFocus
-          ? _emailFocus.context
-          : _passwordFocus.context;
-      if (ctx == null) return;
-      Scrollable.ensureVisible(
-        ctx,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOut,
-        alignment: 0.15,
-      );
-    });
   }
 
   void _handleGoogleSignIn() {
@@ -131,8 +116,8 @@ class _LoginScreenState extends State<LoginScreen>
   @override
   void dispose() {
     ApiClient.loginScreenClosed();
-    _emailFocus.removeListener(_ensureFocusedFieldVisible);
-    _passwordFocus.removeListener(_ensureFocusedFieldVisible);
+    _emailFocus.removeListener(_onFieldFocusChange);
+    _passwordFocus.removeListener(_onFieldFocusChange);
     _intro.dispose();
     _emailFocus.dispose();
     _passwordFocus.dispose();
@@ -191,12 +176,11 @@ class _LoginScreenState extends State<LoginScreen>
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     final pad = MediaQuery.paddingOf(context);
-    // Prefer viewInsets when available; otherwise pad for overlay IME.
+    // Real IME inset only — never invent padding that jumps the form (Instagram /
+    // Material pattern: fixed chrome, keyboard overlays, form scrolls if needed).
     final keyboard = MediaQuery.viewInsetsOf(context).bottom;
     final fieldFocused =
         _emailFocus.hasFocus || _passwordFocus.hasFocus;
-    final scrollBottomInset =
-        keyboard > 0 ? keyboard : (fieldFocused ? size.height * 0.42 : 0.0);
     final isDark = context.isDarkTheme;
 
     final colors = context.atlas;
@@ -409,7 +393,7 @@ class _LoginScreenState extends State<LoginScreen>
                         ),
                       ),
 
-                    // Login card — fixed 4/5 height; scrolls under overlay keyboard
+                    // Login card — fixed shell; title pinned; keyboard overlays.
                     if (t > 0.05)
                       Positioned(
                         left: 0,
@@ -450,22 +434,22 @@ class _LoginScreenState extends State<LoginScreen>
                               clipBehavior: Clip.antiAlias,
                               child: SafeArea(
                                 top: false,
-                                child: SingleChildScrollView(
-                                  controller: _cardScroll,
-                                  padding: EdgeInsets.fromLTRB(
-                                    28,
-                                    36,
-                                    28,
-                                    24 + pad.bottom + scrollBottomInset,
-                                  ),
-                                  keyboardDismissBehavior:
-                                      ScrollViewKeyboardDismissBehavior.onDrag,
-                                  child: AutofillGroup(
-                                    child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      Text(
+                                // Keep home-indicator padding when IME is closed;
+                                // when open, only the scroll body clears the keys.
+                                bottom: keyboard <= 0,
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    // Pinned — never scrolls or jumps with IME.
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        28,
+                                        36,
+                                        28,
+                                        0,
+                                      ),
+                                      child: Text(
                                         'Sign In',
                                         textAlign: TextAlign.center,
                                         style: TextStyle(
@@ -475,7 +459,27 @@ class _LoginScreenState extends State<LoginScreen>
                                           letterSpacing: -0.3,
                                         ),
                                       ),
-                                      const SizedBox(height: 36),
+                                    ),
+                                    Expanded(
+                                      child: SingleChildScrollView(
+                                        controller: _cardScroll,
+                                        padding: EdgeInsets.fromLTRB(
+                                          28,
+                                          36,
+                                          28,
+                                          24 +
+                                              (keyboard > 0
+                                                  ? keyboard
+                                                  : pad.bottom),
+                                        ),
+                                        keyboardDismissBehavior:
+                                            ScrollViewKeyboardDismissBehavior
+                                                .onDrag,
+                                        child: AutofillGroup(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.stretch,
+                                            children: [
                                       Text(
                                         'EMAIL',
                                         style: TextStyle(
@@ -498,6 +502,10 @@ class _LoginScreenState extends State<LoginScreen>
                                         textInputAction: TextInputAction.next,
                                         onSubmitted: (_) =>
                                             _passwordFocus.requestFocus(),
+                                        // Keep labels readable above the field;
+                                        // do not auto-jump the whole form.
+                                        scrollPadding:
+                                            const EdgeInsets.only(bottom: 24),
                                         style: TextStyle(
                                             color: text, fontSize: 14.5),
                                         cursorColor: _leaf,
@@ -529,6 +537,8 @@ class _LoginScreenState extends State<LoginScreen>
                                           AutofillHints.password,
                                         ],
                                         textInputAction: TextInputAction.done,
+                                        scrollPadding:
+                                            const EdgeInsets.only(bottom: 24),
                                         style: TextStyle(
                                             color: text, fontSize: 14.5),
                                         cursorColor: _leaf,
@@ -731,9 +741,12 @@ class _LoginScreenState extends State<LoginScreen>
                                                 ),
                                         ),
                                       ),
-                                    ],
-                                  ),
-                                  ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
