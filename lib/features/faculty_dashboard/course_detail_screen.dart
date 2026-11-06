@@ -13,7 +13,9 @@ import '../scanner/template_cache.dart';
 import '../grading/unified_exam.dart';
 import '../quick_exam/quick_exam_models.dart';
 import '../quick_exam/quick_exam_repository.dart';
+import '../quick_exam/quick_scan_detail_screen.dart';
 import 'course_exam_create_screen.dart';
+import 'student_scan_result_screen.dart';
 
 class CourseDetailScreen extends StatefulWidget {
   final String courseId;
@@ -383,15 +385,17 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
       final rows = [
         for (final s in records.scans)
           {
-            'student_identifier': s.studentIdentifier ?? 'Unknown',
+            'student_id': s.studentIdentifier ?? 'Unknown',
             'student_name': s.studentName ?? '',
-            'score_raw': s.scoreRaw,
-            'score_percent': s.scorePercent,
+            'score': s.scoreRaw,
+            'percent': s.scorePercent,
             'max_score': s.maxScore,
             'is_flagged': s.isFlagged,
             'section': '',
             'grade_level': '',
             'passed': s.passed,
+            'scan_id': s.scanId,
+            'source': 'major',
           },
       ];
       if (!mounted) return;
@@ -1738,6 +1742,86 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     );
   }
 
+  Future<void> _openScoreScanResult(Map<String, dynamic> row) async {
+    if (row['score'] == null) return;
+    final sid = (row['student_id'] ?? '').toString().trim();
+    if (sid.isEmpty) return;
+
+    if (isMajorExamFilterId(_selectedAssessmentId)) {
+      await _openMajorScoreScan(row);
+      return;
+    }
+
+    final assessmentId = _selectedAssessmentId;
+    if (assessmentId == null) return;
+
+    try {
+      final template = await _ensureTemplate(assessmentId);
+      if (!mounted) return;
+      await openStudentScanResult(
+        context,
+        templateId: template.templateId,
+        studentId: sid,
+        templateName: template.name,
+        passingScore: template.passingScore ?? _scorePassingPercent,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      AtlasAlerts.showError(
+        context,
+        friendlyError(e, fallback: 'Could not open scan result.'),
+      );
+    }
+  }
+
+  Future<void> _openMajorScoreScan(Map<String, dynamic> row) async {
+    final filterId = _selectedAssessmentId;
+    if (filterId == null) return;
+    final examId = majorExamIdFromFilter(filterId);
+    if (examId == null) return;
+    final scanId = (row['scan_id'] ?? '').toString();
+    final sid = (row['student_id'] ?? '').toString();
+
+    try {
+      final exam = _majorById[filterId] ?? await _majorRepo.fetchExam(examId);
+      _majorById[filterId] = exam;
+      final records = await _majorRepo.fetchExamRecords(examId);
+      QuickScan? scan;
+      for (final s in records.scans) {
+        if (scanId.isNotEmpty && s.scanId == scanId) {
+          scan = s;
+          break;
+        }
+      }
+      if (scan == null) {
+        final target = sid.trim().toLowerCase();
+        for (final s in records.scans) {
+          if ((s.studentIdentifier ?? '').trim().toLowerCase() == target) {
+            scan = s;
+            break;
+          }
+        }
+      }
+      if (scan == null) {
+        throw Exception('No scanned answer sheet found for $sid.');
+      }
+      if (!mounted) return;
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => QuickScanDetailScreen(scan: scan!, exam: exam),
+        ),
+      );
+      if (mounted) _loadScores();
+    } catch (e) {
+      if (!mounted) return;
+      AtlasAlerts.showError(
+        context,
+        friendlyError(e, fallback: 'Could not open scan result.'),
+      );
+    }
+  }
+
   Widget _buildScoresTable(List<Map<String, dynamic>> rows, AtlasColors c) {
     TextStyle head() => TextStyle(
           fontWeight: FontWeight.bold,
@@ -1747,6 +1831,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: DataTable(
+        showCheckboxColumn: false,
         columnSpacing: 18,
         horizontalMargin: 12,
         headingRowHeight: 40,
@@ -1773,7 +1858,10 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
           final max = (r['max_score'] as num?) ?? _scoreTotalItems;
           final pct = r['percent'] as num?;
           final passedRow = r['passed'] == true;
+          final canOpen = score != null && sid.trim().isNotEmpty;
           return DataRow(
+            onSelectChanged:
+                canOpen ? (_) => _openScoreScanResult(r) : null,
             cells: [
               DataCell(
                 Column(

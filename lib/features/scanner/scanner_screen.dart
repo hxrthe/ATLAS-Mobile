@@ -41,7 +41,8 @@ class ScannerScreen extends StatefulWidget {
 
 enum _ScreenMode { scanning, result, review, detail }
 
-class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateMixin {
+class _ScannerScreenState extends State<ScannerScreen>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   CameraController? _controller;
   bool _isCameraReady = false;
   bool _isStreaming = false;
@@ -76,6 +77,10 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
 
   List<ScanRecord> _scanRecords = [];
   bool _isLoadingRecords = false;
+  /// Fires at next Monday 00:00 while Review Papers is open.
+  Timer? _weekRolloverTimer;
+  /// Monday stamp of the week last shown in Review Papers.
+  DateTime? _reviewWeekStart;
 
   /// Students already assigned to a section; only these may be recorded.
   Map<String, StudentBlock> _sectionedBlocks = {};
@@ -145,6 +150,7 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _scoreFlashController = AnimationController(vsync: this, duration: const Duration(milliseconds: 1500));
     _scoreFlashAnimation = CurvedAnimation(parent: _scoreFlashController!, curve: Curves.easeInOut);
     final quick = widget.quickExam;
@@ -159,6 +165,13 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     }
     _syncSub = OfflineSync.instance.synced.listen(_onRemoteSync);
     _initScanner();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    if (_mode != _ScreenMode.review && _mode != _ScreenMode.detail) return;
+    _reloadIfWeekRolled();
   }
 
   void _onRemoteSync(SyncedScan synced) {
@@ -331,6 +344,8 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _cancelWeekRolloverTimer();
     _syncSub?.cancel();
     _resultStatusTimer?.cancel();
     _stopImageStream();
@@ -1285,16 +1300,80 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     setState(() => _isLoadingRecords = true);
     try {
       final records = await ScanHistory.getRecent();
-      if (mounted) setState(() { _scanRecords = records; _isLoadingRecords = false; });
-    } catch (_) { if (mounted) setState(() => _isLoadingRecords = false); }
+      if (mounted) {
+        setState(() {
+          _scanRecords = records;
+          _isLoadingRecords = false;
+          _reviewWeekStart = ScanHistory.currentWeekStart();
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoadingRecords = false);
+    }
+  }
+
+  void _cancelWeekRolloverTimer() {
+    _weekRolloverTimer?.cancel();
+    _weekRolloverTimer = null;
+  }
+
+  /// One-shot timer until next Monday 00:00 so the open Review list drops last week.
+  void _scheduleWeekRolloverTimer() {
+    _cancelWeekRolloverTimer();
+    final next = ScanHistory.nextWeekStart();
+    var delay = next.difference(DateTime.now());
+    if (delay.isNegative || delay.inMilliseconds == 0) {
+      delay = const Duration(seconds: 1);
+    }
+    _weekRolloverTimer = Timer(delay, () {
+      if (!mounted) return;
+      if (_mode != _ScreenMode.review && _mode != _ScreenMode.detail) return;
+      _onWeekBoundaryRefresh();
+    });
+  }
+
+  Future<void> _onWeekBoundaryRefresh() async {
+    await _loadScanRecords();
+    if (!mounted) return;
+    // Drop detail if that paper fell out of this week's list.
+    if (_detailRecord != null &&
+        !_scanRecords.any((r) => r.id == _detailRecord!.id)) {
+      setState(() {
+        _detailRecord = null;
+        _mode = _ScreenMode.review;
+      });
+    }
+    if (_mode == _ScreenMode.review || _mode == _ScreenMode.detail) {
+      _scheduleWeekRolloverTimer();
+    }
+  }
+
+  Future<void> _reloadIfWeekRolled() async {
+    final current = ScanHistory.currentWeekStart();
+    final stamped = _reviewWeekStart;
+    final rolled = stamped == null ||
+        stamped.year != current.year ||
+        stamped.month != current.month ||
+        stamped.day != current.day ||
+        await ScanHistory.hasWeekRolledOver();
+    if (!rolled || !mounted) return;
+    await _onWeekBoundaryRefresh();
   }
 
   void _openReview() {
     _stopImageStream();
     _applyTorch(false); // leave live cam dark; preference kept for return
     setState(() => _mode = _ScreenMode.review);
+    // Prune prior weeks and reload so Review Papers only shows this week.
+    _loadScanRecords();
+    _scheduleWeekRolloverTimer();
   }
-  void _closeReview() { setState(() => _mode = _ScreenMode.scanning); _startImageStream(); }
+
+  void _closeReview() {
+    _cancelWeekRolloverTimer();
+    setState(() => _mode = _ScreenMode.scanning);
+    _startImageStream();
+  }
 
   BubbleTemplate? _matchQr(List<BubbleTemplate> list, String qr) {
     final quickId = quickExamIdFromQr(qr);

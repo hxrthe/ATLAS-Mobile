@@ -1286,6 +1286,11 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
                                 '${_activeCourse?['course_code'] ?? ''} · $totalItems items',
                             rows: rows,
                             totalItems: totalItems,
+                            templateId: t.templateId,
+                            passingScore: t.passingScore ??
+                                (_templateScores[t.templateId]
+                                        ?['passing_percent'] as num?)
+                                    ?.toDouble(),
                           ),
               ),
             ],

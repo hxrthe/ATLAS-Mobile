@@ -758,6 +758,35 @@ class ReviewPapersView extends StatelessWidget {
     required this.onDelete,
   });
 
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  /// Newest-first day groups for the current week only.
+  List<({String label, List<ScanRecord> records})> _dayGroups() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final byDay = <DateTime, List<ScanRecord>>{};
+    for (final r in records) {
+      final d = DateTime(r.createdAt.year, r.createdAt.month, r.createdAt.day);
+      (byDay[d] ??= []).add(r);
+    }
+    final days = byDay.keys.toList()..sort((a, b) => b.compareTo(a));
+    return [
+      for (final d in days)
+        (
+          label: d == today
+              ? 'Today'
+              : d == yesterday
+                  ? 'Yesterday'
+                  : '${_months[d.month - 1]} ${d.day}, ${d.year}',
+          records: byDay[d]!,
+        ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.atlas;
@@ -806,12 +835,12 @@ class ReviewPapersView extends StatelessWidget {
             Icon(Icons.inbox_outlined, size: 56, color: c.textSecondary),
             const SizedBox(height: 12),
             Text(
-              'No papers scanned yet',
+              'No papers scanned this week',
               style: TextStyle(color: c.textSecondary, fontSize: 15),
             ),
             const SizedBox(height: 4),
             Text(
-              'Return to scanner and start scanning',
+              'Only scans from this week are shown here',
               style: TextStyle(color: c.textSecondary, fontSize: 12),
             ),
           ],
@@ -819,34 +848,58 @@ class ReviewPapersView extends StatelessWidget {
       );
     }
 
+    final groups = _dayGroups();
+    final entries = <Object>[];
+    for (final g in groups) {
+      entries.add(g.label);
+      entries.addAll(g.records);
+    }
+
     return RefreshIndicator(
       color: c.primary,
       onRefresh: () async => onRefresh(),
-      child: ListView.separated(
-        padding: const EdgeInsets.all(16),
-        itemCount: records.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 10),
+      child: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        itemCount: entries.length,
         itemBuilder: (ctx, i) {
-          final r = records[i];
-          return Dismissible(
-            key: ValueKey(r.id),
-            direction: DismissDirection.endToStart,
-            confirmDismiss: (_) => _confirmDelete(ctx, r),
-            onDismissed: (_) => onDelete(r),
-            background: Container(
-              alignment: Alignment.centerRight,
-              padding: const EdgeInsets.only(right: 24),
-              decoration: BoxDecoration(
-                color: c.fail,
-                borderRadius: BorderRadius.circular(14),
+          final entry = entries[i];
+          if (entry is String) {
+            return Padding(
+              padding: EdgeInsets.only(top: i == 0 ? 0 : 14, bottom: 8),
+              child: Text(
+                entry,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: c.textSecondary,
+                  letterSpacing: 0.2,
+                ),
               ),
-              child: const Icon(Icons.delete_outline, color: Colors.white, size: 28),
-            ),
-            child: _ScanRecordCard(
-              record: r,
-              onTap: () => onTapRecord(r),
-              onReScan: () => onReScan(r),
-              onUpload: () => onUpload(r),
+            );
+          }
+          final r = entry as ScanRecord;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Dismissible(
+              key: ValueKey(r.id),
+              direction: DismissDirection.endToStart,
+              confirmDismiss: (_) => _confirmDelete(ctx, r),
+              onDismissed: (_) => onDelete(r),
+              background: Container(
+                alignment: Alignment.centerRight,
+                padding: const EdgeInsets.only(right: 24),
+                decoration: BoxDecoration(
+                  color: c.fail,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(Icons.delete_outline, color: Colors.white, size: 28),
+              ),
+              child: _ScanRecordCard(
+                record: r,
+                onTap: () => onTapRecord(r),
+                onReScan: () => onReScan(r),
+                onUpload: () => onUpload(r),
+              ),
             ),
           );
         },
@@ -943,7 +996,7 @@ class _ScanRecordCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      '${record.templateName} \u00b7 ${_formatTime(record.createdAt)}',
+                      '${record.templateName} \u00b7 ${_formatClock(record.createdAt)}',
                       style: TextStyle(fontSize: 11, color: c.textSecondary),
                     ),
                   ],
@@ -971,13 +1024,10 @@ class _ScanRecordCard extends StatelessWidget {
     );
   }
 
-  String _formatTime(DateTime dt) {
-    final now = DateTime.now();
-    final diff = now.difference(dt);
-    if (diff.inMinutes < 1) return 'just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    return '${dt.month}/${dt.day} ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
+  String _formatClock(DateTime dt) {
+    final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final m = dt.minute.toString().padLeft(2, '0');
+    return '$h:$m ${dt.hour < 12 ? 'AM' : 'PM'}';
   }
 }
 
@@ -1604,8 +1654,8 @@ class PaperDetailView extends StatelessWidget {
   final BubbleTemplate? template;
   final double passingScore;
   final VoidCallback onBack;
-  final VoidCallback onEditAnswers;
-  final VoidCallback onReScan;
+  final VoidCallback? onEditAnswers;
+  final VoidCallback? onReScan;
   final VoidCallback? onUpload;
 
   const PaperDetailView({
@@ -1614,8 +1664,8 @@ class PaperDetailView extends StatelessWidget {
     this.template,
     this.passingScore = 50,
     required this.onBack,
-    required this.onEditAnswers,
-    required this.onReScan,
+    this.onEditAnswers,
+    this.onReScan,
     this.onUpload,
   });
 
@@ -1637,7 +1687,7 @@ class PaperDetailView extends StatelessWidget {
       final display = _displayResponse(resp);
       String reason;
       if (display == '?') {
-        reason = 'No answer';
+        reason = 'No marked answer';
       } else if (display.contains(',')) {
         reason = 'Multiple answers: $display';
       } else {
@@ -1750,16 +1800,17 @@ class PaperDetailView extends StatelessWidget {
                               ),
                             ),
                           ),
-                          TextButton.icon(
-                            onPressed: onEditAnswers,
-                            icon: const Icon(Icons.edit, size: 16),
-                            label: const Text('Edit'),
-                            style: TextButton.styleFrom(
-                              foregroundColor: colors.textSecondary,
-                              padding: EdgeInsets.zero,
-                              visualDensity: VisualDensity.compact,
+                          if (onEditAnswers != null)
+                            TextButton.icon(
+                              onPressed: onEditAnswers,
+                              icon: const Icon(Icons.edit, size: 16),
+                              label: const Text('Edit'),
+                              style: TextButton.styleFrom(
+                                foregroundColor: colors.textSecondary,
+                                padding: EdgeInsets.zero,
+                                visualDensity: VisualDensity.compact,
+                              ),
                             ),
-                          ),
                         ],
                       ),
                       const SizedBox(height: 10),
@@ -1796,28 +1847,29 @@ class PaperDetailView extends StatelessWidget {
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-            child: SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: ElevatedButton(
-                onPressed: onReScan,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: colors.primary,
-                  foregroundColor: colors.onPrimary,
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
+          if (onReScan != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+              child: SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton(
+                  onPressed: onReScan,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: colors.primary,
+                    foregroundColor: colors.onPrimary,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                   ),
-                ),
-                child: const Text(
-                  'Rescan',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  child: const Text(
+                    'Rescan',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
                 ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -2564,18 +2616,22 @@ class _ScanResultViewState extends State<ScanResultView>
   String _ambiguousReason(BubbleReading r) {
     final note = (r.confidenceNote ?? '').trim();
     final lower = note.toLowerCase();
-    if (lower.contains('blank') || lower.contains('no choice')) {
-      return 'No answer';
-    }
     if (lower.contains('double') || lower.contains('multiple')) {
       return 'Multiple answers marked';
     }
     if (lower.contains('row not detected') || lower.contains('not detected')) {
       return 'Not detected';
     }
+    if (lower.contains('blank') ||
+        lower.contains('no choice') ||
+        lower.contains('no marked') ||
+        lower.contains('invalid row') ||
+        lower.startsWith('invalid')) {
+      return 'No marked answer';
+    }
     if (note.isNotEmpty) return note;
     if (r.detectedAnswer == '?' || r.detectedAnswer.isEmpty) {
-      return 'Unclear or empty mark';
+      return 'No marked answer';
     }
     return 'Invalid mark';
   }
@@ -2772,7 +2828,8 @@ class _ScanResultViewState extends State<ScanResultView>
                               flaggedItems: result.flaggedItems,
                               itemKinds: {
                                 for (final m in result.scoredMarkers)
-                                  if (m.kind != ScoredMarkerKind.studentId)
+                                  if (m.kind != ScoredMarkerKind.studentId &&
+                                      m.kind != ScoredMarkerKind.keyOutline)
                                     m.itemNumber: m.kind,
                               },
                             ),
@@ -3190,17 +3247,20 @@ class _ScoredMarkersPainter extends CustomPainter {
       final color = switch (m.kind) {
         ScoredMarkerKind.studentId => studentId,
         ScoredMarkerKind.correct => correct,
+        ScoredMarkerKind.keyOutline => correct,
         ScoredMarkerKind.wrong => wrong,
         ScoredMarkerKind.ambiguous => ambiguous,
         ScoredMarkerKind.bonus => bonus,
       };
+      // Key outline is a thin hint on the correct bubble for wrong items.
+      final stroke = m.kind == ScoredMarkerKind.keyOutline ? 1.0 : 1.7;
       canvas.drawCircle(
         c,
         r,
         Paint()
           ..color = color
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.7,
+          ..strokeWidth = stroke,
       );
     }
   }

@@ -3,6 +3,7 @@ import '../../core/network/error_messages.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/atlas_filter_chip.dart';
 import '../grading/grading_repository.dart';
+import 'student_scan_result_screen.dart';
 
 const _months = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -153,6 +154,8 @@ void showAssessmentScansSheet(
   required String subtitle,
   required List<Map<String, dynamic>> rows,
   required int totalItems,
+  String? templateId,
+  double? passingScore,
 }) {
   _showTallSheet(
     context,
@@ -161,6 +164,8 @@ void showAssessmentScansSheet(
       subtitle: subtitle,
       rows: rows,
       totalItems: totalItems,
+      templateId: templateId,
+      passingScore: passingScore,
       scroll: scroll,
     ),
   );
@@ -171,6 +176,8 @@ class _AssessmentScansSheet extends StatefulWidget {
   final String subtitle;
   final List<Map<String, dynamic>> rows;
   final int totalItems;
+  final String? templateId;
+  final double? passingScore;
   final ScrollController scroll;
 
   const _AssessmentScansSheet({
@@ -178,6 +185,8 @@ class _AssessmentScansSheet extends StatefulWidget {
     required this.subtitle,
     required this.rows,
     required this.totalItems,
+    this.templateId,
+    this.passingScore,
     required this.scroll,
   });
 
@@ -266,37 +275,64 @@ class _AssessmentScansSheetState extends State<_AssessmentScansSheet> {
                   child: Text('No answer sheets scanned yet for this section.',
                       style: TextStyle(color: c.textSecondary, fontSize: 13)),
                 )
-              : Table(
-                  columnWidths: const {
-                    0: FlexColumnWidth(1.6),
-                    1: FlexColumnWidth(1.2),
-                    2: FlexColumnWidth(1.1),
-                  },
-                  defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-                  border: TableBorder(
-                      horizontalInside: BorderSide(color: c.divider)),
+              : Column(
                   children: [
-                    TableRow(children: [
-                      _cell(Text('Student ID', style: head())),
-                      _cell(Text('Score', style: head())),
-                      _cell(Text('Status', style: head())),
-                    ]),
-                    for (final r in scanned)
-                      TableRow(children: [
-                        _cell(Text((r['student_id'] ?? '').toString(),
-                            style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 13,
-                                color: c.textPrimary))),
-                        _cell(Text(
-                          '${_fmtNum(r['score'] as num?)} / ${_fmtNum((r['max_score'] as num?) ?? widget.totalItems)}',
-                          style: TextStyle(fontSize: 13, color: c.textPrimary),
-                        )),
-                        _cell(Align(
-                          alignment: Alignment.centerLeft,
-                          child: _passPill(context, r['passed'] as bool?),
-                        )),
-                      ]),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 9),
+                      child: Row(
+                        children: [
+                          Expanded(flex: 16, child: Text('Student ID', style: head())),
+                          Expanded(flex: 12, child: Text('Score', style: head())),
+                          Expanded(flex: 11, child: Text('Status', style: head())),
+                        ],
+                      ),
+                    ),
+                    Divider(height: 1, color: c.divider),
+                    for (final r in scanned) ...[
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: widget.templateId == null
+                              ? null
+                              : () => _openScan(context, r),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 9),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  flex: 16,
+                                  child: Text(
+                                    (r['student_id'] ?? '').toString(),
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 13,
+                                      color: c.textPrimary,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 12,
+                                  child: Text(
+                                    '${_fmtNum(r['score'] as num?)} / ${_fmtNum((r['max_score'] as num?) ?? widget.totalItems)}',
+                                    style: TextStyle(
+                                        fontSize: 13, color: c.textPrimary),
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 11,
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: _passPill(
+                                        context, r['passed'] as bool?),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      Divider(height: 1, color: c.divider),
+                    ],
                   ],
                 ),
         ),
@@ -390,6 +426,22 @@ class _AssessmentScansSheetState extends State<_AssessmentScansSheet> {
   String _sectionOf(Map<String, dynamic> r) {
     final s = (r['section'] ?? '').toString().trim();
     return s.isEmpty ? 'Unassigned' : s;
+  }
+
+  Future<void> _openScan(
+    BuildContext context,
+    Map<String, dynamic> row,
+  ) async {
+    final templateId = widget.templateId;
+    final sid = (row['student_id'] ?? '').toString().trim();
+    if (templateId == null || sid.isEmpty) return;
+    await openStudentScanResult(
+      context,
+      templateId: templateId,
+      studentId: sid,
+      templateName: widget.title,
+      passingScore: widget.passingScore,
+    );
   }
 
   Widget _cell(Widget child) => Padding(
