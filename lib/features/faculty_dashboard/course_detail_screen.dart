@@ -181,7 +181,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen>
           _majorById[id] = e;
           rawAssessments.add({
             'assessment_id': id,
-            'title': '${e.name} · Major',
+            'title': e.name,
             'source': 'major',
             'total_items': e.totalItems,
           });

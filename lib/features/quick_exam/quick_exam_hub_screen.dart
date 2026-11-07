@@ -18,9 +18,8 @@ import 'quick_exam_repository.dart';
 import 'quick_exam_widgets.dart';
 import 'quick_scan_detail_screen.dart';
 
-/// Major Exams hub: exams and recorded sheets (mobile + course-linked),
-/// filterable by subject. Shortcut for keys, sheets and records — use Course
-/// Management and Reports for deeper analysis.
+/// Major Examination hub: exams and recorded sheets for assigned courses,
+/// filterable by subject. Shortcut for keys, sheets and records.
 class QuickExamHubScreen extends StatefulWidget {
   /// Opens straight into the create form.
   final bool startWithNew;
@@ -330,7 +329,7 @@ class _QuickExamHubScreenState extends State<QuickExamHubScreen>
     final c = context.atlas;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Major Exams'),
+        title: const Text('Major Examination'),
         bottom: TabBar(
           controller: _tabs,
           labelColor: c.onPrimary,
@@ -345,7 +344,7 @@ class _QuickExamHubScreenState extends State<QuickExamHubScreen>
               backgroundColor: c.primary,
               foregroundColor: c.onPrimary,
               icon: const Icon(Icons.add),
-              label: const Text('New major exam'),
+              label: const Text('New examination'),
             )
           : null,
       body: Column(
@@ -386,10 +385,10 @@ class _QuickExamHubScreenState extends State<QuickExamHubScreen>
         children: [
           QuickEmptyState(
             icon: Icons.quiz_outlined,
-            title: _subjectId == null ? 'No major exams yet' : 'No exams in this subject',
-            message: 'Create a major exam for one of your courses (up to 100 items), '
-                'add the key, print the sheet and scan. Course and web exams also '
-                'appear here when linked to the same subject.',
+            title: _subjectId == null ? 'No examinations yet' : 'No exams in this subject',
+            message: 'Create a major examination for one of your courses '
+                '(up to 100 items), add the key, print the sheet and scan. '
+                'Exams for the same course appear together here.',
             action: ElevatedButton.icon(
               onPressed: _createExam,
               icon: const Icon(Icons.add),
@@ -399,7 +398,12 @@ class _QuickExamHubScreenState extends State<QuickExamHubScreen>
         ],
       );
     } else {
-      final groups = <String, List<QuickExam>>{};
+      final groups = <String, List<Object>>{};
+      for (final t in _courseExams) {
+        final course = _courses.where((c) => c.courseId == t.courseId);
+        final label = course.isEmpty ? t.name : course.first.name;
+        groups.putIfAbsent(label, () => []).add(t);
+      }
       for (final e in _exams) {
         groups.putIfAbsent(e.subjectName, () => []).add(e);
       }
@@ -408,26 +412,19 @@ class _QuickExamHubScreenState extends State<QuickExamHubScreen>
       body = ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
         children: [
-          if (_courseExams.isNotEmpty) ...[
-            QuickSectionLabel('Course / web · ${_courseExams.length}'),
-            const SizedBox(height: 8),
-            for (final t in _courseExams) ...[
-              _CourseExamCard(template: t, onTap: () => _openCourseExam(t)),
-              const SizedBox(height: 10),
-            ],
-            const SizedBox(height: 8),
-          ],
-          if (_exams.isNotEmpty) ...[
-            QuickSectionLabel('Major (mobile) · ${_exams.length}'),
-            const SizedBox(height: 8),
-          ],
           for (final name in names) ...[
             if (_subjectId == null) ...[
-              QuickSectionLabel('$name · ${groups[name]!.length}'),
+              QuickSectionLabel(name),
               const SizedBox(height: 8),
             ],
-            for (final e in groups[name]!) ...[
-              _QuickExamCard(exam: e, onTap: () => _openExam(e)),
+            for (final item in groups[name]!) ...[
+              if (item is BubbleTemplate)
+                _CourseExamCard(
+                  template: item,
+                  onTap: () => _openCourseExam(item),
+                )
+              else if (item is QuickExam)
+                _QuickExamCard(exam: item, onTap: () => _openExam(item)),
               const SizedBox(height: 10),
             ],
             const SizedBox(height: 8),
@@ -655,7 +652,7 @@ class _CourseExamCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${template.totalItems} items · Course / web',
+                    '${template.totalItems} items',
                     style: TextStyle(fontSize: 12.5, color: c.textSecondary),
                   ),
                   const SizedBox(height: 4),
@@ -726,7 +723,7 @@ class _CourseScanTile extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '${row.template.name} · Course / web',
+                      row.template.name,
                       style: TextStyle(fontSize: 12, color: c.textSecondary),
                     ),
                   ],

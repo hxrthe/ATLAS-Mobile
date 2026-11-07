@@ -222,7 +222,7 @@ class _CourseExamCreateScreenState extends State<CourseExamCreateScreen> {
             Expanded(
               child: Text(
                 'Major exam — saved to ${widget.courseCode}\'s evaluation materials '
-                'and also shown on ATLAS web. For mobile major exams (sheets & keys), use Major Exams on Home.',
+                'and also shown on ATLAS web. For sheets and keys, use Major Examination on Home or Courses.',
                 style: TextStyle(fontSize: 12.5, color: c.textSecondary),
               ),
             ),

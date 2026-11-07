@@ -1,68 +1,30 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
-import '../../core/widgets/atlas_skeleton.dart';
 import 'quick_exam_hub_screen.dart';
-import 'quick_exam_repository.dart';
 
-/// Entry to the Major Exams hub (Home and Courses tabs) — shortcut for
-/// exams, sheets, keys and records. Detailed work lives in Course / Reports.
-class QuickExamEntryCard extends StatefulWidget {
+/// Entry to the Major Examination hub (Home and Courses tabs).
+class QuickExamEntryCard extends StatelessWidget {
   const QuickExamEntryCard({super.key});
 
-  @override
-  State<QuickExamEntryCard> createState() => _QuickExamEntryCardState();
-}
-
-class _QuickExamEntryCardState extends State<QuickExamEntryCard> {
-  final _repo = QuickExamRepository();
-  int? _exams;
-  int? _sheets;
-  bool _loading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadCounts();
-  }
-
-  Future<void> _loadCounts() async {
-    try {
-      final exams = await _repo.fetchExams();
-      if (!mounted) return;
-      setState(() {
-        _exams = exams.length;
-        _sheets = exams.fold<int>(0, (sum, e) => sum + e.scanCount);
-        _loading = false;
-      });
-    } catch (e) {
-      debugPrint('Major exam counts failed: $e');
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _open({bool startWithNew = false}) async {
-    await Navigator.push(
+  Future<void> _open(BuildContext context, {bool startWithNew = false}) {
+    return Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => QuickExamHubScreen(startWithNew: startWithNew),
       ),
     );
-    if (mounted) _loadCounts();
   }
 
   @override
   Widget build(BuildContext context) {
     final c = context.atlas;
-    final counts = _exams == null
-        ? 'Shortcut for sheets, keys, records & item checks'
-        : '$_exams exam${_exams == 1 ? '' : 's'} · $_sheets sheet${_sheets == 1 ? '' : 's'} · open Course or Reports for detail';
     return Material(
       color: c.card,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: _open,
+        onTap: () => _open(context),
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -84,7 +46,7 @@ class _QuickExamEntryCardState extends State<QuickExamEntryCard> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Major Exams',
+                          'Major Examination',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 16,
@@ -92,18 +54,10 @@ class _QuickExamEntryCardState extends State<QuickExamEntryCard> {
                           ),
                         ),
                         const SizedBox(height: 2),
-                        if (_loading)
-                          const Padding(
-                            padding: EdgeInsets.only(top: 4),
-                            child: AtlasShimmer(
-                              child: SkeletonBox(width: 170, height: 11, radius: 4),
-                            ),
-                          )
-                        else
-                          Text(
-                            counts,
-                            style: TextStyle(fontSize: 12.5, color: c.textSecondary),
-                          ),
+                        Text(
+                          'Create new exams here for your courses.',
+                          style: TextStyle(fontSize: 12.5, color: c.textSecondary),
+                        ),
                       ],
                     ),
                   ),
@@ -114,7 +68,7 @@ class _QuickExamEntryCardState extends State<QuickExamEntryCard> {
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: () => _open(startWithNew: true),
+                      onPressed: () => _open(context, startWithNew: true),
                       icon: const Icon(Icons.add, size: 18),
                       label: const Text('New'),
                     ),
@@ -122,7 +76,7 @@ class _QuickExamEntryCardState extends State<QuickExamEntryCard> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: ElevatedButton.icon(
-                      onPressed: _open,
+                      onPressed: () => _open(context),
                       icon: const Icon(Icons.folder_open_outlined, size: 18),
                       label: const Text('Open'),
                     ),

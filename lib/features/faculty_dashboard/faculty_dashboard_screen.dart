@@ -1331,7 +1331,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
           const SizedBox(height: 12),
           if (t.isQuickExam)
             Text(
-              'Major exam · $totalItems items · tap to open sheets & key',
+              '$totalItems items · tap to open sheets & key',
               style: TextStyle(fontSize: 12, color: c.textSecondary),
             )
           else if (!loaded)

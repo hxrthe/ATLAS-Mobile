@@ -115,8 +115,8 @@ class HelpSupportScreen extends StatelessWidget {
             _buildFAQTile(
               context,
               colors,
-              'What is the difference between course exams and major exams?',
-              'Course exams are prepared on the ATLAS website for a class. Major exams are the ones you create in this app. Both can be scanned here, including without internet once they have been saved on the phone.',
+              'What is a major examination in the app?',
+              'Major examinations you create here share the same course records as ATLAS Web — answer keys and scores sync both ways. You can also scan course exams prepared on the website, including offline once they are saved on the phone.',
             ),
             _buildFAQTile(
               context,

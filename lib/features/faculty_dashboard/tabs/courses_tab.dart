@@ -85,7 +85,7 @@ class _CoursesTabState extends State<CoursesTab> {
                 padding: dashboardScrollPadding(context),
                 children: [
                   Text(
-                    'MAJOR EXAMS',
+                    'MAJOR EXAMINATION',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w800,
