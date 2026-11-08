@@ -124,7 +124,8 @@ flutter:
     - assets/images/atlas_mobile_logo.svg
     - assets/images/atlas_logo_mark.svg
     - assets/images/Atlas Holding a Golden Padlock.png
-    - assets/images/Pixel Knight Peekaboo Duo.png
+    - assets/images/Pixel Knight Peekaboo Left.png
+    - assets/images/Pixel Knight Peekaboo Right.png
     - assets/images/google_g_logo.png
     - assets/images/atlas_loading.webp
     - assets/atlascutesys.mp4

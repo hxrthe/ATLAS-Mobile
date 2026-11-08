@@ -96,8 +96,10 @@ class _SetAppPinScreenState extends State<SetAppPinScreen>
   /// Right sprite = peeking (idle / success). Left sprite = covering eyes (typing).
   bool get _showPeeking => _success || _entry.isEmpty;
 
-  static const _peekabooAsset =
-      'assets/images/Pixel Knight Peekaboo Duo.png';
+  static const _peekabooCovering =
+      'assets/images/Pixel Knight Peekaboo Left.png';
+  static const _peekabooPeeking =
+      'assets/images/Pixel Knight Peekaboo Right.png';
   static const _peekabooHeight = 148.0;
 
   Future<void> _shakeError(String message) async {
@@ -408,31 +410,21 @@ class _SetAppPinScreenState extends State<SetAppPinScreen>
     );
   }
 
-  /// Duo sprite sheet: left = covering eyes, right = peeking.
+  /// Separate sprites: left = covering eyes (typing), right = peeking (idle/success).
   Widget _peekabooKnight({required bool coveringEyes}) {
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 180),
-      switchInCurve: Curves.easeOut,
-      switchOutCurve: Curves.easeIn,
-      child: SizedBox(
-        key: ValueKey(coveringEyes),
-        height: _peekabooHeight,
-        // Square frame showing exactly one half of the 2:1 sheet.
-        width: _peekabooHeight,
-        child: ClipRect(
-          child: Align(
-            alignment: coveringEyes
-                ? Alignment.centerLeft
-                : Alignment.centerRight,
-            widthFactor: 0.5,
-            child: Image.asset(
-              _peekabooAsset,
-              height: _peekabooHeight,
-              fit: BoxFit.fitHeight,
-              filterQuality: FilterQuality.none,
-              gaplessPlayback: true,
-            ),
-          ),
+    final asset = coveringEyes ? _peekabooCovering : _peekabooPeeking;
+    return Center(
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 180),
+        switchInCurve: Curves.easeOut,
+        switchOutCurve: Curves.easeIn,
+        child: Image.asset(
+          asset,
+          key: ValueKey(asset),
+          height: _peekabooHeight,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.none,
+          gaplessPlayback: true,
         ),
       ),
     );
