@@ -66,6 +66,8 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSFaceIDUsageDescription</key>
+	<string>ATLAS uses Face ID to unlock the app on this device after you sign in.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>ATLAS needs the camera so you can attach a screenshot of the issue you are reporting.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

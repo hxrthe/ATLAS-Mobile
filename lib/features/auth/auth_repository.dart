@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/auth/token_store.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/error_messages.dart';
 
@@ -105,12 +106,9 @@ class AuthRepository {
       final role = user?['role']?.toString() ?? '';
       _ensureFacultyRole(role);
 
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('access_token', accessToken);
-      if (refreshToken != null) {
-        await prefs.setString('refresh_token', refreshToken);
-      }
+      await TokenStore.write(access: accessToken, refresh: refreshToken);
 
+      final prefs = await SharedPreferences.getInstance();
       await _persistProfile(prefs: prefs, role: role, user: user);
 
       return role;
@@ -125,7 +123,7 @@ class AuthRepository {
 
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
-    final refresh = prefs.getString('refresh_token');
+    final refresh = await TokenStore.readRefresh();
     await prefs.setString('logout_type', 'intentional');
     if (refresh != null && refresh.isNotEmpty) {
       try {
@@ -134,8 +132,7 @@ class AuthRepository {
         // Offline sign-out still clears this phone. The server session expires on its own.
       }
     }
-    await prefs.remove('access_token');
-    await prefs.remove('refresh_token');
+    await TokenStore.clear();
     await prefs.remove('student_details');
     await prefs.remove('user_photo_url');
   }
@@ -273,12 +270,12 @@ class AuthRepository {
       final String role = user?['role']?.toString() ?? '';
       _ensureFacultyRole(role);
 
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('access_token', backendAccessToken);
-      if (backendRefreshToken != null) {
-        await prefs.setString('refresh_token', backendRefreshToken);
-      }
+      await TokenStore.write(
+        access: backendAccessToken,
+        refresh: backendRefreshToken,
+      );
 
+      final prefs = await SharedPreferences.getInstance();
       final String name = user?['name']?.toString() ?? googleUser.displayName ?? 'User';
 
       await _persistProfile(

@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../auth/token_store.dart';
 import '../../features/auth/login_screen.dart';
 
 /// Hostinger VPS production API. For local dev, swap to ngrok or http://10.0.2.2:8000/api/
@@ -53,9 +54,8 @@ class ApiClient {
     dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
-          final prefs = await SharedPreferences.getInstance();
-          final token = prefs.getString('access_token');
-          if (token != null) {
+          final token = await TokenStore.readAccess();
+          if (token != null && token.isNotEmpty) {
             options.headers['Authorization'] = 'Bearer $token';
           }
           // Global JSON Content-Type breaks multipart uploads (screenshots).
@@ -99,9 +99,8 @@ class ApiClient {
             final refreshed = await _tryRefreshToken();
             if (refreshed) {
               final retryOptions = e.requestOptions;
-              final prefs = await SharedPreferences.getInstance();
-              final newToken = prefs.getString('access_token');
-              if (newToken != null) {
+              final newToken = await TokenStore.readAccess();
+              if (newToken != null && newToken.isNotEmpty) {
                 retryOptions.headers['Authorization'] = 'Bearer $newToken';
               }
               try {
@@ -137,8 +136,7 @@ class ApiClient {
   static Future<void> _performLogout() async {
     final prefs = await SharedPreferences.getInstance();
     final isIntentional = prefs.getString('logout_type') == 'intentional';
-    await prefs.remove('access_token');
-    await prefs.remove('refresh_token');
+    await TokenStore.clear();
     await prefs.remove('logout_type');
 
     // Already on the sign-in screen, or the user chose Log Out.
@@ -158,9 +156,8 @@ class ApiClient {
 
   Future<bool> _tryRefreshToken() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final refreshToken = prefs.getString('refresh_token');
-      if (refreshToken == null) return false;
+      final refreshToken = await TokenStore.readRefresh();
+      if (refreshToken == null || refreshToken.isEmpty) return false;
 
       final response = await Dio(BaseOptions(
         baseUrl: baseUrl,
@@ -173,7 +170,7 @@ class ApiClient {
 
       final access = response.data['access'] as String?;
       if (access != null) {
-        await prefs.setString('access_token', access);
+        await TokenStore.writeAccess(access);
         return true;
       }
     } catch (_) {

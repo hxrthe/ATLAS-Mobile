@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/widgets.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/auth/token_store.dart';
 import '../../core/network/error_messages.dart';
 import '../grading/grading_repository.dart';
 import '../grading/models.dart';
@@ -80,8 +80,7 @@ class OfflineSync with WidgetsBindingObserver {
     if (_flushing) {
       return reportFailures ? 'Already updating. Please wait a moment.' : null;
     }
-    final prefs = await SharedPreferences.getInstance();
-    if ((prefs.getString('access_token') ?? '').isEmpty) {
+    if (!await TokenStore.hasSession()) {
       return reportFailures ? 'Sign in again, then try syncing.' : null;
     }
     final adds = await RosterCache.pendingAdds();

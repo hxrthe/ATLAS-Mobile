@@ -6,9 +6,9 @@ import 'core/network/api_client.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/font_scale_controller.dart';
 import 'core/theme/theme_controller.dart';
+import 'features/auth/auth_bootstrap.dart';
 import 'features/auth/auth_repository.dart';
 import 'features/auth/bloc/auth_bloc.dart';
-import 'features/auth/login_screen.dart';
 import 'features/scanner/offline_save_alerts.dart';
 import 'features/scanner/offline_save_bar.dart';
 import 'features/scanner/offline_sync.dart';
@@ -79,7 +79,7 @@ class AtlasMobileApp extends StatelessWidget {
                   ),
                 );
               },
-              home: const LoginScreen(),
+              home: const AuthBootstrap(),
             );
           },
         ),

@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
+import '../../core/auth/app_lock_service.dart';
 import '../../core/layout/dashboard_insets.dart';
-import '../../core/network/api_client.dart';
 import '../../core/network/error_messages.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_controller.dart';
+import '../auth/app_lock_screen.dart';
 import '../scanner/offline_pack.dart';
 import '../scanner/scanner_screen.dart';
 import '../scanner/template_cache.dart';
@@ -50,6 +51,8 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
   bool _childPageOpen = false;
   bool _refreshingScores = false;
   bool _scoresRefreshQueued = false;
+  bool _lockRouteOpen = false;
+  bool _lockedWhilePaused = false;
   StreamSubscription<ScanSavedEvent>? _scanEventsSub;
 
   // Real data
@@ -117,13 +120,19 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _stopLiveUpdates();
+      _lockedWhilePaused = true;
+      AppLockService.instance.lock();
+    } else if (state == AppLifecycleState.resumed) {
+      if (_lockedWhilePaused || AppLockService.instance.isLocked) {
+        _lockedWhilePaused = false;
+        unawaited(_presentAppLock(reason: 'Unlock to continue in ATLAS'));
+      }
       if (_childPageOpen) return;
       _startLiveUpdates();
       _refreshLive();
-    } else if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.hidden) {
-      _stopLiveUpdates();
     }
   }
 
@@ -150,7 +159,40 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen>
   void _handleInactivity() {
     if (!mounted) return;
     _inactivityTimer?.cancel();
-    unawaited(ApiClient.forceLogout(inactivity: true));
+    AppLockService.instance.lock();
+    unawaited(_presentAppLock(
+      reason: 'Locked after 15 minutes without use',
+    ));
+  }
+
+  Future<void> _presentAppLock({required String reason}) async {
+    if (!mounted || _lockRouteOpen) return;
+    if (!AppLockService.instance.hasPin) {
+      // Migration edge case: keep the person in-app; Account & Security can set a PIN.
+      AppLockService.instance.unlock();
+      _resetInactivityTimer();
+      return;
+    }
+    _lockRouteOpen = true;
+    AppLockService.instance.lock();
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (lockContext) => AppLockScreen(
+          reason: reason,
+          onUnlocked: () {
+            Navigator.of(lockContext).pop();
+          },
+        ),
+      ),
+    );
+    _lockRouteOpen = false;
+    if (!mounted) return;
+    if (AppLockService.instance.isLocked) {
+      // Sign-out / lockout already replaced the stack.
+      return;
+    }
+    _resetInactivityTimer();
   }
 
   Future<void> _initLoad() async {

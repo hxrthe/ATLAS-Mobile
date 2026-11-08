@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -5,6 +7,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/auth/app_lock_service.dart';
 import '../../core/network/api_client.dart';
 import '../../core/theme/app_theme.dart';
 import '../faculty_dashboard/faculty_dashboard_screen.dart';
@@ -12,6 +15,7 @@ import 'bloc/auth_bloc.dart';
 import 'bloc/auth_event.dart';
 import 'bloc/auth_state.dart';
 import 'forgot_password_screen.dart';
+import 'set_app_pin_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   final bool autoLogout;
@@ -111,6 +115,32 @@ class _LoginScreenState extends State<LoginScreen>
 
   void _handleGoogleSignIn() {
     context.read<AuthBloc>().add(const GoogleLoginRequested());
+  }
+
+  Future<void> _enterAppAfterLogin() async {
+    await AppLockService.instance.load();
+    if (!mounted) return;
+    if (!AppLockService.instance.hasPin) {
+      await Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (pinContext) => SetAppPinScreen(
+            onComplete: () {
+              Navigator.of(pinContext).pushReplacement(
+                MaterialPageRoute(
+                  builder: (_) => const FacultyDashboardScreen(),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+      return;
+    }
+    await Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const FacultyDashboardScreen()),
+    );
   }
 
   @override
@@ -213,12 +243,7 @@ class _LoginScreenState extends State<LoginScreen>
           listener: (context, state) {
             if (state is AuthSuccess) {
               TextInput.finishAutofillContext(shouldSave: true);
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const FacultyDashboardScreen(),
-                ),
-              );
+              unawaited(_enterAppAfterLogin());
             } else if (state is AuthFailure) {
               if (state.error.startsWith('GOOGLE_OAUTH_CONFIG:')) {
                 final detail =

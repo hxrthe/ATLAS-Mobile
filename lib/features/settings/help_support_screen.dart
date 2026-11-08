@@ -128,7 +128,7 @@ class HelpSupportScreen extends StatelessWidget {
               context,
               colors,
               'How do I sign in?',
-              'Use the same faculty account as the ATLAS website, with your email and password or with Google. The app signs you out after 15 minutes without use. Students do not sign in to ATLAS.',
+              'Use the same faculty account as the ATLAS website, with your email and password or with Google. After sign-in, the app locks after 15 minutes without use or when you leave the app — unlock with biometrics or your app PIN. Full sign-out happens when you choose Sign out, after 12 hours, or after too many wrong PIN attempts. Students do not sign in to ATLAS.',
             ),
             const SizedBox(height: 32),
             _buildSectionTitle(colors, 'TROUBLESHOOTING'),
@@ -371,7 +371,7 @@ These terms cover the ATLAS website and the ATLAS mobile app. They apply to facu
 By using ATLAS you agree to these terms. If you do not agree, do not use the website or the app.
 
 1. ACCOUNTS
-Use the faculty or admin account created for your campus. You are responsible for your password and for what happens under your account. You can sign in with your email and password, or with Google where that is offered. On the website, a session ends after 15 minutes without activity, after 12 hours, or when you sign in on another device. In the app, you are signed out after 15 minutes without use. Tell us right away at atlasdegdev@gmail.com if someone else uses your account.
+Use the faculty or admin account created for your campus. You are responsible for your password and for what happens under your account. You can sign in with your email and password, or with Google where that is offered. On the website, a session ends after 15 minutes without activity, after 12 hours, or when you sign in on another device. In the app, after you sign in you unlock with biometrics or a local app PIN; the app locks after 15 minutes without use or when it goes to the background. Full sign-out happens when you choose Sign out, when the 12-hour session ends, or after too many wrong PIN attempts. Tell us right away at atlasdegdev@gmail.com if someone else uses your account.
 
 2. WHAT ATLAS IS FOR
 ATLAS helps a campus prepare classes and check written exams.
@@ -464,7 +464,7 @@ Records are stored for the campus and reached through ATLAS over an encrypted co
 We keep teaching records while the campus uses ATLAS, and as long as the campus must keep them. You can ask for access, a correction, or deletion, subject to those campus rules.
 You can review your account in the app or on the website.
 You can leave out phone details when you report a problem.
-Signing out ends the session. On the website, closing the tab also ends it.
+Signing out ends the session. On the website, closing the tab also ends it. In the app, locking with a PIN or biometrics keeps the signed-in session on that phone until you sign out or the session expires.
 Browser alerts can be turned off in the website settings.
 
 8. CONTACT
