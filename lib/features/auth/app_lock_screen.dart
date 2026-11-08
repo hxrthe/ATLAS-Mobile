@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/auth/app_lock_service.dart';
@@ -179,9 +178,9 @@ class _AppLockScreenState extends State<AppLockScreen> {
                   child: Column(
                     children: [
                       const Spacer(flex: 2),
-                      SvgPicture.asset(
-                        'assets/images/atlas_lock_character.svg',
-                        height: 148,
+                      Image.asset(
+                        'assets/images/Atlas Holding a Golden Padlock.png',
+                        height: 168,
                         fit: BoxFit.contain,
                       ),
                       const SizedBox(height: 12),
