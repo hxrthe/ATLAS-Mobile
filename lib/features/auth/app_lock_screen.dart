@@ -21,7 +21,8 @@ class AppLockScreen extends StatefulWidget {
   State<AppLockScreen> createState() => _AppLockScreenState();
 }
 
-class _AppLockScreenState extends State<AppLockScreen> {
+class _AppLockScreenState extends State<AppLockScreen>
+    with SingleTickerProviderStateMixin {
   static const _primary = Color(0xFF8E1C1B);
 
   String _pin = '';
@@ -29,14 +30,43 @@ class _AppLockScreenState extends State<AppLockScreen> {
   bool _busy = false;
   bool _biometricTried = false;
 
+  late final AnimationController _shakeController;
+  late final Animation<double> _shakeAnimation;
+
   @override
   void initState() {
     super.initState();
+    _shakeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 420),
+    );
+    _shakeAnimation = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0, end: -10), weight: 1),
+      TweenSequenceItem(tween: Tween(begin: -10, end: 10), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: 10, end: -8), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: -8, end: 8), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: 8, end: -4), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: -4, end: 0), weight: 1),
+    ]).animate(CurvedAnimation(
+      parent: _shakeController,
+      curve: Curves.easeInOut,
+    ));
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await AppLockService.instance.refreshBiometricAvailability();
       if (mounted) setState(() {});
       await _tryBiometric();
     });
+  }
+
+  @override
+  void dispose() {
+    _shakeController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _shakePinCircles() async {
+    HapticFeedback.heavyImpact();
+    await _shakeController.forward(from: 0);
   }
 
   Future<void> _tryBiometric() async {
@@ -110,6 +140,7 @@ class _AppLockScreenState extends State<AppLockScreen> {
               ? 'Incorrect PIN. $left attempt${left == 1 ? '' : 's'} left.'
               : 'Incorrect PIN.';
         });
+        await _shakePinCircles();
       case PinVerifyResult.invalidFormat:
       case PinVerifyResult.notSet:
         setState(() {
@@ -117,6 +148,7 @@ class _AppLockScreenState extends State<AppLockScreen> {
           _pin = '';
           _error = 'Enter your ${AppLockService.pinLength}-digit PIN.';
         });
+        await _shakePinCircles();
     }
   }
 
@@ -203,25 +235,37 @@ class _AppLockScreenState extends State<AppLockScreen> {
                         ),
                       ),
                       const SizedBox(height: 18),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: List.generate(AppLockService.pinLength, (i) {
-                          final filled = i < _pin.length;
-                          return Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 6),
-                            width: 14,
-                            height: 14,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color:
-                                  filled ? colors.primary : Colors.transparent,
-                              border: Border.all(
-                                color: colors.primary,
-                                width: 1.5,
-                              ),
-                            ),
+                      AnimatedBuilder(
+                        animation: _shakeAnimation,
+                        builder: (context, child) {
+                          return Transform.translate(
+                            offset: Offset(_shakeAnimation.value, 0),
+                            child: child,
                           );
-                        }),
+                        },
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children:
+                              List.generate(AppLockService.pinLength, (i) {
+                            final filled = i < _pin.length;
+                            return Container(
+                              margin:
+                                  const EdgeInsets.symmetric(horizontal: 6),
+                              width: 14,
+                              height: 14,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: filled
+                                    ? colors.primary
+                                    : Colors.transparent,
+                                border: Border.all(
+                                  color: colors.primary,
+                                  width: 1.5,
+                                ),
+                              ),
+                            );
+                          }),
+                        ),
                       ),
                       SizedBox(
                         height: 36,
