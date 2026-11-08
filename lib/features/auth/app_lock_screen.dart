@@ -11,7 +11,7 @@ class AppLockScreen extends StatefulWidget {
   const AppLockScreen({
     super.key,
     required this.onUnlocked,
-    this.reason = 'Enter your app PIN to continue',
+    this.reason = 'Enter your app lock PIN to continue',
   });
 
   final VoidCallback onUnlocked;

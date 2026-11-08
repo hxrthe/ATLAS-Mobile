@@ -13,10 +13,10 @@ class SetAppPinScreen extends StatefulWidget {
   const SetAppPinScreen({
     super.key,
     required this.onComplete,
-    this.title = 'Set app PIN',
+    this.title = 'Set app lock',
     this.subtitle =
-        'This PIN unlocks ATLAS on this phone after idle or when you return. '
-        'It does not replace your account password.',
+        'App lock stays on this phone and unlocks ATLAS after idle or when you return. '
+        'It is not tied to your account and does not replace your password.',
     this.requireCurrentPin = false,
   });
 
@@ -269,8 +269,8 @@ class _SetAppPinScreenState extends State<SetAppPinScreen>
         SnackBar(
           content: Text(
             widget.requireCurrentPin
-                ? 'App PIN updated successfully.'
-                : 'App PIN created successfully.',
+                ? 'App lock updated successfully.'
+                : 'App lock created successfully.',
           ),
           backgroundColor: _primary,
           behavior: SnackBarBehavior.floating,
@@ -313,7 +313,7 @@ class _SetAppPinScreenState extends State<SetAppPinScreen>
                     _peekabooKnight(coveringEyes: !_showPeeking),
                     const SizedBox(height: 12),
                     Text(
-                      _success ? 'PIN ready' : _stepLabel,
+                      _success ? 'App lock ready' : _stepLabel,
                       style: TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.w800,
@@ -323,7 +323,7 @@ class _SetAppPinScreenState extends State<SetAppPinScreen>
                     const SizedBox(height: 6),
                     Text(
                       _success
-                          ? 'Your device unlock PIN is set.'
+                          ? 'Your app lock is set on this phone.'
                           : _stepHint,
                       textAlign: TextAlign.center,
                       style: TextStyle(

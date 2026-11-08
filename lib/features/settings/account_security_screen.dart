@@ -58,7 +58,7 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
         context,
         MaterialPageRoute(
           builder: (pinContext) => SetAppPinScreen(
-            title: 'Set app PIN',
+            title: 'Set app lock',
             onComplete: () {
               Navigator.of(pinContext).pop();
               if (mounted) setState(() {});
@@ -73,9 +73,10 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
       context,
       MaterialPageRoute(
         builder: (pinContext) => SetAppPinScreen(
-          title: 'Change app PIN',
+          title: 'Change app lock',
           subtitle:
-              'Enter your current PIN, then choose a new 6-digit PIN for this phone only.',
+              'Enter your current PIN, then choose a new 6-digit PIN. '
+              'App lock stays on this phone for any account you use here.',
           requireCurrentPin: true,
           onComplete: () {
             Navigator.of(pinContext).pop();
@@ -252,10 +253,10 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
                         ),
                       _buildSettingTile(
                         colors,
-                        icon: Icons.pin_outlined,
-                        title: lock.hasPin ? 'Change app PIN' : 'Set app PIN',
+                        icon: Icons.lock_outline,
+                        title: lock.hasPin ? 'Change app lock' : 'Set app lock',
                         subtitle: lock.hasPin
-                            ? 'Update the 6-digit PIN for this phone'
+                            ? 'Update the unlock PIN for this phone'
                             : 'Required to unlock after idle or background',
                         onTap: _openChangePin,
                       ),
