@@ -4,7 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Persists and broadcasts app text scale for accessibility.
 ///
 /// Ladder: Small (0.9) / Default (1.0) / Large (1.35).
-/// Fresh installs default to Large (former Extra large).
+/// Fresh installs default to Small.
 class FontScaleController extends ChangeNotifier {
   static const _prefsKey = 'atlas_font_scale_v2';
   static const _legacyPrefsKey = 'atlas_font_scale';
@@ -13,8 +13,8 @@ class FontScaleController extends ChangeNotifier {
   static const double defaultScale = 1.0;
   static const double largeScale = 1.35;
 
-  /// New installs and unset prefs land on Large.
-  static const double initialScale = largeScale;
+  /// New installs and unset prefs land on Small.
+  static const double initialScale = smallScale;
 
   static const List<double> allowedScales = [
     smallScale,

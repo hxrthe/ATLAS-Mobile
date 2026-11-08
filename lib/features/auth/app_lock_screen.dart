@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/auth/app_lock_service.dart';
@@ -32,7 +33,11 @@ class _AppLockScreenState extends State<AppLockScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _tryBiometric());
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await AppLockService.instance.refreshBiometricAvailability();
+      if (mounted) setState(() {});
+      await _tryBiometric();
+    });
   }
 
   Future<void> _tryBiometric() async {
@@ -40,13 +45,30 @@ class _AppLockScreenState extends State<AppLockScreen> {
     final lock = AppLockService.instance;
     if (!lock.biometricEnabled || !lock.biometricAvailable) return;
     _biometricTried = true;
-    setState(() => _busy = true);
-    final ok = await lock.authenticateWithBiometrics(
-      reason: 'Unlock ATLAS',
-    );
-    if (!mounted) return;
-    setState(() => _busy = false);
-    if (ok) widget.onUnlocked();
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final ok = await lock.authenticateWithBiometrics(
+        reason: 'Unlock ATLAS',
+      );
+      if (!mounted) return;
+      setState(() => _busy = false);
+      if (ok) widget.onUnlocked();
+    } on BiometricAuthException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = e.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = 'Biometrics unavailable — use your PIN';
+      });
+    }
   }
 
   Future<void> _onDigit(String digit) async {
@@ -149,68 +171,82 @@ class _AppLockScreenState extends State<AppLockScreen> {
         backgroundColor: colors.scaffold,
         body: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+            padding: const EdgeInsets.fromLTRB(28, 12, 28, 16),
             child: Column(
               children: [
-                const Spacer(),
-                Icon(Icons.lock_outline, size: 48, color: colors.primary),
-                const SizedBox(height: 16),
-                Text(
-                  'ATLAS is locked',
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                    color: colors.textPrimary,
-                  ),
-                ),
                 const SizedBox(height: 8),
-                Text(
-                  widget.reason,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: colors.textSecondary, height: 1.4),
-                ),
-                const SizedBox(height: 28),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(AppLockService.pinLength, (i) {
-                    final filled = i < _pin.length;
-                    return Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 6),
-                      width: 14,
-                      height: 14,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: filled ? colors.primary : Colors.transparent,
-                        border: Border.all(color: colors.primary, width: 1.5),
+                Expanded(
+                  child: Column(
+                    children: [
+                      const Spacer(flex: 2),
+                      SvgPicture.asset(
+                        'assets/images/atlas_lock_character.svg',
+                        height: 148,
+                        fit: BoxFit.contain,
                       ),
-                    );
-                  }),
+                      const SizedBox(height: 12),
+                      Text(
+                        'ATLAS is locked',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: colors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        widget.reason,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: colors.textSecondary,
+                          height: 1.35,
+                          fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(AppLockService.pinLength, (i) {
+                          final filled = i < _pin.length;
+                          return Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 6),
+                            width: 14,
+                            height: 14,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color:
+                                  filled ? colors.primary : Colors.transparent,
+                              border: Border.all(
+                                color: colors.primary,
+                                width: 1.5,
+                              ),
+                            ),
+                          );
+                        }),
+                      ),
+                      SizedBox(
+                        height: 36,
+                        child: _error == null
+                            ? null
+                            : Padding(
+                                padding: const EdgeInsets.only(top: 10),
+                                child: Text(
+                                  _error!,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: colors.primary,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                      ),
+                      const Spacer(flex: 1),
+                    ],
+                  ),
                 ),
-                if (_error != null) ...[
-                  const SizedBox(height: 16),
-                  Text(
-                    _error!,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: colors.primary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 28),
-                if (showBio)
-                  TextButton.icon(
-                    onPressed: _busy ? null : () {
-                      _biometricTried = false;
-                      _tryBiometric();
-                    },
-                    icon: const Icon(Icons.fingerprint),
-                    label: const Text('Use biometrics'),
-                    style: TextButton.styleFrom(foregroundColor: colors.primary),
-                  ),
-                const Spacer(),
-                _keypad(colors),
-                const SizedBox(height: 20),
+                _keypad(colors, showBio: showBio),
+                const SizedBox(height: 12),
                 TextButton(
                   onPressed: _busy ? null : _signOut,
                   child: Text(
@@ -226,59 +262,103 @@ class _AppLockScreenState extends State<AppLockScreen> {
     );
   }
 
-  Widget _keypad(AtlasColors colors) {
+  Widget _keypad(AtlasColors colors, {required bool showBio}) {
     const keys = [
       ['1', '2', '3'],
       ['4', '5', '6'],
       ['7', '8', '9'],
-      ['', '0', '⌫'],
     ];
     return Column(
-      children: keys.map((row) {
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
+      children: [
+        ...keys.map((row) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: row
+                  .map((key) => _keyButton(colors, label: key))
+                  .toList(),
+            ),
+          );
+        }),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 5),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: row.map((key) {
-              if (key.isEmpty) {
-                return const SizedBox(width: 72, height: 56);
-              }
-              final isBack = key == '⌫';
-              return SizedBox(
-                width: 72,
-                height: 56,
-                child: Material(
-                  color: colors.card,
-                  borderRadius: BorderRadius.circular(12),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(12),
-                    onTap: _busy
-                        ? null
-                        : () {
-                            HapticFeedback.selectionClick();
-                            if (isBack) {
-                              _onBackspace();
-                            } else {
-                              _onDigit(key);
-                            }
-                          },
-                    child: Center(
-                      child: Text(
-                        key,
-                        style: TextStyle(
-                          fontSize: isBack ? 22 : 24,
-                          fontWeight: FontWeight.w600,
-                          color: colors.textPrimary,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
+            children: [
+              showBio
+                  ? _bioButton(colors)
+                  : const SizedBox(width: 72, height: 56),
+              _keyButton(colors, label: '0'),
+              _keyButton(colors, label: '⌫', isBack: true),
+            ],
           ),
-        );
-      }).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _bioButton(AtlasColors colors) {
+    return SizedBox(
+      width: 72,
+      height: 56,
+      child: Material(
+        color: colors.card,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: _busy
+              ? null
+              : () {
+                  HapticFeedback.selectionClick();
+                  _biometricTried = false;
+                  _tryBiometric();
+                },
+          child: Icon(
+            Icons.fingerprint,
+            size: 28,
+            color: colors.primary,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _keyButton(
+    AtlasColors colors, {
+    required String label,
+    bool isBack = false,
+  }) {
+    return SizedBox(
+      width: 72,
+      height: 56,
+      child: Material(
+        color: colors.card,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: _busy
+              ? null
+              : () {
+                  HapticFeedback.selectionClick();
+                  if (isBack) {
+                    _onBackspace();
+                  } else {
+                    _onDigit(label);
+                  }
+                },
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: isBack ? 22 : 24,
+                fontWeight: FontWeight.w600,
+                color: colors.textPrimary,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

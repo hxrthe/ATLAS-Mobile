@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <!-- Soft ground shadow -->
+  <ellipse cx="256" cy="468" rx="110" ry="18" fill="#8E1C1B" opacity="0.12"/>
+
+  <!-- Legs -->
+  <path d="M198 360c8 42 14 70 18 88 2 10 12 16 22 14 9-2 15-11 13-20-4-16-8-40-12-68"
+        stroke="#8E1C1B" stroke-width="22" stroke-linecap="round"/>
+  <path d="M314 360c-8 42-14 70-18 88-2 10-12 16-22 14-9-2-15-11-13-20 4-16 8-40 12-68"
+        stroke="#8E1C1B" stroke-width="22" stroke-linecap="round"/>
+
+  <!-- Body (globe torso) -->
+  <circle cx="256" cy="250" r="118" fill="#AA2423"/>
+  <circle cx="256" cy="250" r="118" fill="none" stroke="#8E1C1B" stroke-width="10"/>
+  <!-- Meridians -->
+  <ellipse cx="256" cy="250" rx="48" ry="112" stroke="#F8D4D3" stroke-width="6" opacity="0.55"/>
+  <path d="M146 220c36 18 72 28 110 28s74-10 110-28" stroke="#F8D4D3" stroke-width="6" opacity="0.55" fill="none"/>
+  <path d="M152 280c34-14 68-22 104-22s70 8 104 22" stroke="#F8D4D3" stroke-width="6" opacity="0.45" fill="none"/>
+
+  <!-- Face -->
+  <circle cx="222" cy="232" r="10" fill="#1A1A1A"/>
+  <circle cx="290" cy="232" r="10" fill="#1A1A1A"/>
+  <circle cx="226" cy="228" r="3.5" fill="#FFFFFF"/>
+  <circle cx="294" cy="228" r="3.5" fill="#FFFFFF"/>
+  <path d="M232 278c12 14 36 14 48 0" stroke="#1A1A1A" stroke-width="6" stroke-linecap="round" fill="none"/>
+
+  <!-- Arms holding lock -->
+  <path d="M150 250c-18 28-22 58-10 78 8 14 28 22 48 18"
+        stroke="#8E1C1B" stroke-width="20" stroke-linecap="round" fill="none"/>
+  <path d="M362 250c18 28 22 58 10 78-8 14-28 22-48 18"
+        stroke="#8E1C1B" stroke-width="20" stroke-linecap="round" fill="none"/>
+
+  <!-- Hands -->
+  <circle cx="198" cy="348" r="16" fill="#8E1C1B"/>
+  <circle cx="314" cy="348" r="16" fill="#8E1C1B"/>
+
+  <!-- Padlock -->
+  <rect x="214" y="318" width="84" height="70" rx="14" fill="#5C1010"/>
+  <rect x="222" y="326" width="68" height="54" rx="10" fill="#8E1C1B"/>
+  <path d="M236 318v-18c0-22 18-36 36-36s36 14 36 36v18"
+        stroke="#C9A227" stroke-width="12" stroke-linecap="round" fill="none"/>
+  <circle cx="256" cy="352" r="8" fill="#F4E4A6"/>
+  <rect x="252" y="358" width="8" height="14" rx="3" fill="#F4E4A6"/>
+</svg>

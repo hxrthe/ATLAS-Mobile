@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -163,15 +164,21 @@ class AppLockService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Returns true on success. Throws [BiometricAuthException] when the prompt
+  /// cannot start so the lock screen can show a PIN fallback message.
   Future<bool> authenticateWithBiometrics({
     String reason = 'Unlock ATLAS',
   }) async {
-    if (!_biometricEnabled || !_biometricAvailable) return false;
+    await refreshBiometricAvailability();
+    if (!_biometricEnabled) return false;
+    if (!_biometricAvailable) {
+      throw BiometricAuthException('Biometrics unavailable — use your PIN');
+    }
     try {
       final ok = await _localAuth.authenticate(
         localizedReason: reason,
         options: const AuthenticationOptions(
-          biometricOnly: true,
+          biometricOnly: false,
           stickyAuth: true,
           useErrorDialogs: true,
         ),
@@ -183,10 +190,28 @@ class AppLockService extends ChangeNotifier {
         notifyListeners();
       }
       return ok;
-    } catch (_) {
-      return false;
+    } on PlatformException catch (e, st) {
+      debugPrint('Biometric authenticate failed: ${e.code} ${e.message}\n$st');
+      // User dismissed the sheet — stay on PIN entry quietly.
+      if (e.code == 'userCanceled' ||
+          e.code == 'UserCanceled' ||
+          e.code == 'auth_in_progress') {
+        return false;
+      }
+      throw BiometricAuthException('Biometrics unavailable — use your PIN');
+    } catch (e, st) {
+      debugPrint('Biometric authenticate failed: $e\n$st');
+      throw BiometricAuthException('Biometrics unavailable — use your PIN');
     }
   }
+}
+
+class BiometricAuthException implements Exception {
+  BiometricAuthException(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
 }
 
 enum PinVerifyResult {
